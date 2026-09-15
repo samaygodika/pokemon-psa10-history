@@ -1,0 +1,17 @@
+# Sid's app is its own repo, cloned here for convenience
+PokeSniper/
+
+# Raw scrape output (hundreds of MB): the compact history/ and latest/ folders are what gets committed
+snapshots/
+pokemon/
+charizard/
+*.log
+__pycache__/
+.DS_Store
+.claude/
+
+# Ad-hoc one-off outputs in the repo root
+/cards.csv
+/sales.csv
+/charizard_cards.txt
+/cards.txt

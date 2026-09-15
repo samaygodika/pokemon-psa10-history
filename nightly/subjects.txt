@@ -1,0 +1,65 @@
+# Nightly scrape scope: top 60 Pokemon by market cap, in order (Samay, 2026-09-11).
+# One name per line. Matched as a whole word against alt.xyz's `subject`
+# field, the same rule pokesniper-server/src/lib/samayData.js uses, so
+# "Mew" never pulls in Mewtwo and multi-Pokemon cards count for every name.
+# The first 50 are PokeSniper's TOP_CHARACTERS in the same order.
+Charizard
+Pikachu
+Gengar
+Mew
+Rayquaza
+Umbreon
+Mewtwo
+Lugia
+Latias
+Dragonite
+Gyarados
+Latios
+Blastoise
+Espeon
+Snorlax
+Suicune
+Charmander
+Alakazam
+Eevee
+Kyogre
+Celebi
+Venusaur
+Kyurem
+Tyranitar
+Mimikyu
+Zekrom
+Reshiram
+Groudon
+Squirtle
+Zapdos
+Gardevoir
+Darkrai
+Giratina
+Deoxys
+Sylveon
+Magikarp
+Raikou
+Lucario
+Raichu
+Bulbasaur
+Dialga
+Entei
+Greninja
+Articuno
+Psyduck
+Moltres
+Vaporeon
+Flareon
+Jolteon
+Houndoom
+Glaceon
+Leafeon
+Ho-Oh
+Palkia
+Garchomp
+Arcanine
+Machamp
+Ditto
+Ninetales
+Blaziken

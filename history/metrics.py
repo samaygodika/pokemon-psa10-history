@@ -1,0 +1,319 @@
+#!/usr/bin/env python3
+"""Build latest/ from the history store: the file PokeSniper's server reads.
+
+    python3 history/metrics.py                 # writes latest/cards.csv, latest/series/<xx>.csv, latest/summary.json
+
+latest/cards.csv has every column the scraper's own cards.csv has (so the
+server keeps working unchanged), one row per asset using each asset's newest
+daily numbers, plus the derived columns below. Every derived column is blank
+when the history can't support it honestly — the server renders blank as "—",
+never as 0.
+
+  outlier sales        = alt.xyz already flags RELISTED / NOT_PAID rows (kept
+                         out here via skipped_reason). On top of that, a sale
+                         priced below 1/4 or above 4x the running median of the
+                         card's last 12 accepted sales is treated as junk: a
+                         "$2,100 PSA 10 1st Edition Charizard" between $300k+
+                         sales is a mislabeled or bogus listing, not a price
+                         (see drop_outliers for the regime-change escape).
+                         Everything below is computed from the clean sales only.
+  clean_last_sale_*    = the newest clean sale (price/date/source) — what the
+                         server shows as the PSA 10 price; outliers_excluded
+                         says how many rows the filter dropped for the card.
+  ref price at a date  = median of the up-to-3 most recent clean PSA 10 sales
+                         on or before that date, looking back at most 180 days.
+  price_chg_30d_pct    = ref(today) vs ref(today-30d), only when both exist AND
+                         at least one sale happened in the last 30 days (a
+                         window with no sales has no new information, so it is
+                         blank rather than a misleading 0%). Same for 90d / 1y.
+  volume_30d/90d/1y    = number of PSA 10 sales in the window.
+  pop_30d_ago          = PSA 10 population from the newest daily file at least
+                         30 days old that has this asset; blank until the
+                         daily series is that old.
+  pop_chg_30d          = pop_at_grade - pop_30d_ago.
+  mkt_cap_chg_30d_pct  = (ref_now x pop_now) vs (ref_30d x pop_30d_ago); needs
+                         pop history, so blank for the first 30 days.
+  median_last_3        = ref(today): the number the change columns are built on.
+  sales_first_date, sales_total, history_days: how much history stands behind
+                         the row.
+
+"today" is the data date (the newest daily file), not the wall clock, so
+rebuilding latest/ from the same history always gives the same file.
+"""
+import csv
+import json
+import statistics
+import sys
+from collections import defaultdict
+from datetime import date, datetime, timedelta
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+ROOT = HERE.parent
+LATEST = ROOT / "latest"
+
+# Same column order the scraper writes, so latest/cards.csv is a drop-in.
+CARD_COLS = ["input", "asset_id", "card_name", "alt_url", "alt_public_url", "year", "set", "card_number", "subject", "variety",
+             "grading_company", "grade", "pop_at_grade", "company_total_pop", "index_total_pop", "index_transaction_count", "num_sales",
+             "last_sale_price", "last_sale_date", "last_sale_source", "avg_last_3_sales",
+             "highest_sale", "lowest_sale", "scraped_at",
+             "listing_source", "listing_grade", "listing_grading_company", "listing_price", "listing_url"]
+DERIVED_COLS = ["clean_last_sale_price", "clean_last_sale_date", "clean_last_sale_source", "outliers_excluded",
+                "price_chg_30d_pct", "price_chg_90d_pct", "price_chg_1y_pct", "mkt_cap_chg_30d_pct",
+                "volume_30d", "volume_90d", "volume_1y", "pop_30d_ago", "pop_chg_30d",
+                "median_last_3", "sales_first_date", "sales_total", "history_days"]
+SERIES_COLS = ["asset_id", "week_start", "n_sales", "median_price", "low", "high"]
+
+LOOKBACK_DAYS = 180
+OUTLIER_LOW, OUTLIER_HIGH = 0.25, 4.0
+OUTLIER_REF, OUTLIER_MIN_ACCEPTED, OUTLIER_RESET_RUN = 12, 4, 8
+OUTLIER_REF_MAX_AGE = timedelta(days=730)  # a reference older than this says nothing about today
+WINDOWS = {"30d": 30, "90d": 90, "1y": 365}
+
+
+def d(s):
+    return date.fromisoformat(s[:10])
+
+
+def read_csv(path):
+    with open(path, newline="", encoding="utf-8") as f:
+        return list(csv.DictReader(f))
+
+
+def load_daily(store):
+    """{date: {asset_id: row}} for every daily file, plus the sorted date list."""
+    files = sorted((store / "daily").glob("*.csv"))
+    if not files:
+        sys.exit("no history/daily/*.csv yet — run history/ingest.py first")
+    daily = {}
+    for p in files:
+        daily[p.stem] = {r["asset_id"]: r for r in read_csv(p)}
+    return daily, sorted(daily)
+
+
+def load_sales(store):
+    """{asset_id: [(date, price), ...] sorted ascending}, PSA 10 only, skipped
+    sales (alt.xyz's own outlier/bad-data flag) excluded."""
+    by_asset = defaultdict(list)
+    n = 0
+    for p in sorted((store / "sales").glob("*.csv")):
+        with open(p, newline="", encoding="utf-8") as f:
+            for s in csv.DictReader(f):
+                if s.get("skipped_reason") or s.get("grading_company") != "PSA" or s.get("grade") != "10.0":
+                    continue
+                try:
+                    price = float(s["price"])
+                except (TypeError, ValueError):
+                    continue
+                if price <= 0:
+                    continue
+                by_asset[s["asset_id"]].append((d(s["date"]), price, s.get("source") or ""))
+                n += 1
+    outliers = {}
+    for aid, v in by_asset.items():
+        v.sort()
+        clean, dropped = drop_outliers(v)
+        by_asset[aid] = clean
+        outliers[aid] = dropped
+    return by_asset, n, outliers
+
+
+def drop_outliers(sales):
+    """Sequential outlier filter. Walk the sales in date order keeping a
+    reference price = median of the last OUTLIER_REF accepted sales; once at
+    least OUTLIER_MIN_ACCEPTED sales are accepted, a sale outside
+    [OUTLIER_LOW, OUTLIER_HIGH] x the reference is dropped. Junk never enters
+    the reference, so a cluster of bogus rows can't drag it down — which is
+    what broke a plain neighbour-median filter on the 1st Edition Base Set
+    Charizard, where alt.xyz lists more $3k–$26k mislabeled "PSA 10" eBay
+    sales in 2026 than real $300k–$950k ones. A genuine, sustained move is
+    let through: OUTLIER_RESET_RUN consecutive rejections on the same side
+    reset the reference to those sales (a real 75%+ crash or 4x jump shows
+    up as a long one-sided run, junk doesn't)."""
+    keep, dropped = [], 0
+    accepted = []  # accepted sales (date, price, source), in date order
+    run = []       # consecutive rejected sales, same side
+    for sale in sales:
+        price = sale[1]
+        # Only sales from the last two years can vouch for or against this
+        # one: a Gold Star Rayquaza that last sold in 2023 at $38k and then
+        # in 2026 at $682k has no recent reference, so the 2026 sale stands.
+        recent = [a[1] for a in accepted[-OUTLIER_REF:] if sale[0] - a[0] <= OUTLIER_REF_MAX_AGE]
+        if len(recent) >= OUTLIER_MIN_ACCEPTED:
+            ref = statistics.median(recent)
+            low, high = price < OUTLIER_LOW * ref, price > OUTLIER_HIGH * ref
+            if low or high:
+                side = "low" if low else "high"
+                if run and run[0][0] != side:
+                    run = []
+                run.append((side, sale))
+                if len(run) >= OUTLIER_RESET_RUN:
+                    # regime change: what looked like junk is the new level
+                    for _, r in run:
+                        keep.append(r)
+                        accepted.append(r)
+                    dropped -= len(run) - 1
+                    run = []
+                else:
+                    dropped += 1
+                continue
+        run = []
+        keep.append(sale)
+        accepted.append(sale)
+    keep.sort()
+    return keep, dropped
+
+
+def ref_price(sales, at):
+    """Median of the up-to-3 most recent sales on or before `at`, within LOOKBACK_DAYS."""
+    floor = at - timedelta(days=LOOKBACK_DAYS)
+    recent = [p for (sd, p, _) in sales if floor < sd <= at]
+    if not recent:
+        return None
+    return statistics.median(recent[-3:])
+
+
+def count_in(sales, start, end):
+    return sum(1 for (sd, _, _) in sales if start < sd <= end)
+
+
+def pct(now, before):
+    if now is None or before is None or before <= 0:
+        return None
+    return round((now / before - 1) * 100, 2)
+
+
+def fmt(v):
+    if v is None:
+        return ""
+    if isinstance(v, float):
+        return f"{v:.2f}".rstrip("0").rstrip(".") if v != int(v) else str(int(v))
+    return str(v)
+
+
+def to_int(s):
+    try:
+        return int(float(s))
+    except (TypeError, ValueError):
+        return None
+
+
+def build(store=HERE, out=LATEST):
+    assets = {a["asset_id"]: a for a in read_csv(store / "assets.csv")}
+    daily, days = load_daily(store)
+    today = d(days[-1])
+    sales, n_sales, outliers = load_sales(store)
+    print(f"{len(assets)} assets, {len(days)} daily files ({days[0]}..{days[-1]}), {n_sales} PSA 10 sales")
+
+    # Newest numbers per asset, and the first day each asset appears.
+    latest_row, first_day = {}, {}
+    for day in days:
+        for aid, row in daily[day].items():
+            latest_row[aid] = (day, row)
+            first_day.setdefault(aid, day)
+    # Newest daily file at least 30 days old, per asset.
+    cutoff30 = (today - timedelta(days=30)).isoformat()
+    pop_30 = {}
+    for day in days:
+        if day > cutoff30:
+            break
+        for aid, row in daily[day].items():
+            p = to_int(row.get("pop_at_grade"))
+            if p is not None:
+                pop_30[aid] = p
+
+    rows = []
+    filled = defaultdict(int)
+    for aid in sorted(latest_row):
+        day, num = latest_row[aid]
+        ident = assets.get(aid, {})
+        row = {"input": f"asset:{aid}", "asset_id": aid}
+        for c in CARD_COLS:
+            if c in row:
+                continue
+            row[c] = ident.get(c, "") if c in ident else num.get(c, "")
+
+        s = sales.get(aid, [])
+        last = s[-1] if s else None
+        row["clean_last_sale_price"] = fmt(last[1]) if last else ""
+        row["clean_last_sale_date"] = last[0].isoformat() if last else ""
+        row["clean_last_sale_source"] = last[2] if last else ""
+        row["outliers_excluded"] = outliers.get(aid, 0)
+        ref_now = ref_price(s, today)
+        row["median_last_3"] = fmt(ref_now)
+        for label, n in WINDOWS.items():
+            start = today - timedelta(days=n)
+            vol = count_in(s, start, today)
+            row[f"volume_{label}"] = vol
+            chg = pct(ref_now, ref_price(s, start)) if vol > 0 else None
+            row[f"price_chg_{label}_pct"] = fmt(chg)
+            if chg is not None:
+                filled[f"price_chg_{label}_pct"] += 1
+
+        pop_now = to_int(num.get("pop_at_grade"))
+        p30 = pop_30.get(aid)
+        row["pop_30d_ago"] = fmt(p30)
+        row["pop_chg_30d"] = fmt(pop_now - p30) if (pop_now is not None and p30 is not None) else ""
+        mc = None
+        if pop_now and p30 and ref_now is not None and row["volume_30d"] > 0:
+            ref_30 = ref_price(s, today - timedelta(days=30))
+            mc = pct(ref_now * pop_now, ref_30 * p30) if ref_30 else None
+        row["mkt_cap_chg_30d_pct"] = fmt(mc)
+        if mc is not None:
+            filled["mkt_cap_chg_30d_pct"] += 1
+        row["sales_first_date"] = s[0][0].isoformat() if s else ""
+        row["sales_total"] = len(s)
+        row["history_days"] = (today - d(first_day[aid])).days
+        rows.append(row)
+
+    out.mkdir(parents=True, exist_ok=True)
+    with open(out / "cards.csv", "w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=CARD_COLS + DERIVED_COLS, extrasaction="ignore")
+        w.writeheader()
+        w.writerows(rows)
+
+    # Weekly PSA 10 sale series per asset, for real charts. Sharded into 256
+    # files by the first two hex digits of the asset id (latest/series/ab.csv)
+    # so a server can read one ~200 KB file per lookup instead of loading
+    # ~60 MB of series into memory, and so a day's new sales touch only the
+    # shards they belong to in git.
+    n_series = 0
+    series_dir = out / "series"
+    series_dir.mkdir(exist_ok=True)
+    for old in series_dir.glob("*.csv"):
+        old.unlink()
+    shards = defaultdict(list)
+    for aid in sorted(sales):
+        weeks = defaultdict(list)
+        for sd, p, _ in sales[aid]:
+            weeks[sd - timedelta(days=sd.weekday())].append(p)
+        for wk in sorted(weeks):
+            ps = weeks[wk]
+            shards[aid[:2]].append([aid, wk.isoformat(), len(ps), fmt(statistics.median(ps)), fmt(min(ps)), fmt(max(ps))])
+            n_series += 1
+    for shard, rows_ in shards.items():
+        with open(series_dir / f"{shard}.csv", "w", newline="", encoding="utf-8") as f:
+            w = csv.writer(f)
+            w.writerow(SERIES_COLS)
+            w.writerows(rows_)
+
+    summary = {
+        "data_date": today.isoformat(),
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "daily_files": len(days),
+        "first_daily": days[0],
+        "assets": len(rows),
+        "psa10_sales": n_sales,
+        "outliers_excluded": sum(outliers.values()),
+        "series_rows": n_series,
+        "rows_with": {k: filled[k] for k in ("price_chg_30d_pct", "price_chg_90d_pct", "price_chg_1y_pct", "mkt_cap_chg_30d_pct")},
+    }
+    with open(out / "summary.json", "w") as f:
+        json.dump(summary, f, indent=2)
+    print(f"wrote {out}/cards.csv ({len(rows)} rows), series/*.csv ({n_series} rows in {len(shards)} shards)")
+    print("rows with a value:", summary["rows_with"])
+    return summary
+
+
+if __name__ == "__main__":
+    build()

@@ -1,0 +1,51 @@
+# Nightly top-60 scrape. Runs the same nightly/run_nightly.sh a laptop would,
+# then commits history/ and latest/ back to the repo. PokeSniper's server can
+# point SAMAY_DATA_DIR at a checkout of this repo's latest/ folder (or read the
+# raw files straight from GitHub).
+name: nightly scrape (top 60)
+on:
+  schedule:
+    - cron: "0 7 * * *"   # 07:00 UTC = 03:00 ET, after the day's eBay sales settle
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "scrape only the first N cards (smoke test)"
+        required: false
+        default: ""
+concurrency:
+  group: scrape
+  cancel-in-progress: false
+permissions:
+  contents: write
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: scrape + ingest + rebuild latest/
+        env:
+          NIGHTLY_WORKERS: "4"
+          NIGHTLY_DELAY: "0.1"
+          NIGHTLY_LIMIT: ${{ inputs.limit }}
+        run: nightly/run_nightly.sh
+      - name: commit history/ and latest/
+        run: |
+          git config user.name "alt.xyz nightly"
+          git config user.email "nightly@users.noreply.github.com"
+          git add history latest
+          git commit -m "nightly $(date -u +%F): $(python3 -c 'import json;s=json.load(open("latest/summary.json"));print(s["assets"],"assets,",s["psa10_sales"],"sales")')" || { echo "nothing to commit"; exit 0; }
+          git pull --rebase
+          git push
+      - name: keep the raw run as a downloadable artifact (7 days)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snapshot-${{ github.run_id }}
+          path: |
+            snapshots/*/cards.csv
+            snapshots/*/run.log
+          retention-days: 7

@@ -1,0 +1,36 @@
+# Weekly scrape of EVERY graded Pokemon card alt.xyz indexes (~65k), so cards
+# outside the nightly top-60 scope (chase-checklist species, roster
+# candidates) still get refreshed. Same pipeline, NIGHTLY_SCOPE=full.
+name: weekly scrape (full index)
+on:
+  schedule:
+    - cron: "0 9 * * 0"   # Sunday 09:00 UTC, after that day's nightly run
+  workflow_dispatch:
+concurrency:
+  group: scrape
+  cancel-in-progress: false
+permissions:
+  contents: write
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: full scrape + ingest + rebuild latest/
+        env:
+          NIGHTLY_SCOPE: full
+          NIGHTLY_WORKERS: "6"
+          NIGHTLY_DELAY: "0"
+        run: nightly/run_nightly.sh
+      - name: commit history/ and latest/
+        run: |
+          git config user.name "alt.xyz nightly"
+          git config user.email "nightly@users.noreply.github.com"
+          git add history latest
+          git commit -m "weekly full $(date -u +%F)" || { echo "nothing to commit"; exit 0; }
+          git pull --rebase
+          git push

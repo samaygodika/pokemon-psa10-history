@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <!-- Laptop fallback for the GitHub Actions nightly (.github/workflows/nightly.yml).
+       Nightly alt.xyz scrape at 02:00. launchd runs a missed job at the next
+       wake, so a closed laptop just runs it in the morning instead of skipping.
+       After the run, commit and push history/ and latest/ by hand (or add a
+       `git add history latest && git commit && git push` step to run_nightly.sh).
+       Install:  cp nightly/com.samaygodika.altscrape.plist ~/Library/LaunchAgents/
+                 launchctl load ~/Library/LaunchAgents/com.samaygodika.altscrape.plist
+       Run now:  launchctl start com.samaygodika.altscrape
+       Remove:   launchctl unload ~/Library/LaunchAgents/com.samaygodika.altscrape.plist -->
+  <key>Label</key><string>com.samaygodika.altscrape</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/samaygodika/Documents/Code/scrape_/nightly/run_nightly.sh</string>
+  </array>
+  <key>WorkingDirectory</key><string>/Users/samaygodika/Documents/Code/scrape_</string>
+  <key>StartCalendarInterval</key>
+  <dict><key>Hour</key><integer>2</integer><key>Minute</key><integer>0</integer></dict>
+  <key>StandardOutPath</key><string>/Users/samaygodika/Documents/Code/scrape_/snapshots/launchd.out.log</string>
+  <key>StandardErrorPath</key><string>/Users/samaygodika/Documents/Code/scrape_/snapshots/launchd.err.log</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+  </dict>
+</dict>
+</plist>
