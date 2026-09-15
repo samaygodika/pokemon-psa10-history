@@ -55,3 +55,32 @@ population change (daily snapshots start 2026-09-11; usable for backtests
 after a few months) and event/news flags (not collected historically). The
 alt.xyz sale-visibility lag is also unmeasured; the daily snapshots will
 measure it.
+
+## Movers study (2026-09-15): what precedes a double
+
+Of 50,118 tradable card-months since 2025-06, 6.8% doubled within 60–90 days,
+but almost entirely in a regime: 12–16% of the universe doubled in Jan–Mar
+2026 (the $16.5M Illustrator sale, 30th-anniversary hype) versus ~2% in
+Sep–Oct 2025 and May–Jun 2026. Doublers cluster by character and month
+(Feb 2026: 49 Pikachu cards; Jan 2026: 13 Charizard; Feb 2026: 12 Rayquaza
+Ex, 11 Mew) — the characters headlining the 30th Celebration and Mega
+Evolution announcements. Before the fact, doublers' own price and volume
+looked like everyone else's (mom30 +3.9% vs +2.9%, same volume surge).
+
+Two things that DO carry information, both testable now:
+
+- **Regime persistence.** Month-to-month autocorrelation of the doubling
+  rate is +0.71; the share of the universe up >20% over the prior 30 days
+  predicts next month's doubling rate at +0.50. A market breadth gauge gives
+  a real head start on "is the tide rising".
+- **Character catch-up.** In a (month, character) where ≥30% of the
+  character's liquid cards are already up >20%, its laggards (own 30-day
+  move <5%) earned a mean +13.4% / median +3.9% excess return over the next
+  60–90 days (8.1% doubled) versus +8.4% / +0.8% (4.5% doubled) for cards in
+  quiet characters; at 150–180 days, +27.9% / +11.2% versus +14.2% / +1.9%.
+  Positive in every year 2022–2026 (n grows from 41 to 2,004 as the history
+  fills in). This is the app's spillover thesis, measured.
+
+Not yet testable: whether official set/product announcements precede those
+character surges (needs an announcement calendar with featured Pokémon —
+the Rule 12 event pipeline), and PSA 10 population growth as a signal.
