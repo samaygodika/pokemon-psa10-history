@@ -27,7 +27,7 @@ say", never 0:
 | `pop_at_grade`, `company_total_pop` | PSA 10 pop and all-PSA-grades pop from the card's population table. **Blank when alt.xyz has no PSA rows for the record** (CGC/BGS only), `0` only when PSA rows exist and the 10 count is zero. |
 | `index_total_pop`, `index_transaction_count` | alt.xyz search-index counts: graded copies across every company and grade, and recorded transactions. Present even when the pop columns are blank. |
 | `last_sale_price/date/source` | alt.xyz's literal newest PSA 10 sale. |
-| `clean_last_sale_price/date/source`, `outliers_excluded` | the newest sale after dropping junk rows (price outside 1/4x–4x of its 8 date-neighbours; 0.5% of all sales, 2.6% on cards over $5k). This is the price the server shows. |
+| `clean_last_sale_price/date/source`, `outliers_excluded` | the newest sale after dropping junk rows: a sale outside 1/4x–4x of the running median of the card's last 12 accepted sales (within 2 years) is treated as mislabeled; 8 same-side rejections in a row count as a real move instead (see `drop_outliers` in `history/metrics.py`). 1.1% of all sales. This is the price the server shows. |
 | `price_chg_30d_pct`, `_90d_`, `_1y_` | median of the last 3 clean sales vs the same median as of 30/90/365 days earlier; blank unless both exist and at least one sale happened in the window. |
 | `volume_30d`, `_90d`, `_1y` | clean PSA 10 sales in the window. |
 | `pop_30d_ago`, `pop_chg_30d`, `mkt_cap_chg_30d_pct` | need 30 days of daily snapshots; blank until the series is that old (first daily file: 2026-09-11). |
