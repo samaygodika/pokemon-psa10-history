@@ -1,7 +1,8 @@
 # Nightly top-60 scrape. Runs the same nightly/run_nightly.sh a laptop would,
-# then commits history/ and latest/ back to the repo. PokeSniper's server can
-# point SAMAY_DATA_DIR at a checkout of this repo's latest/ folder (or read the
-# raw files straight from GitHub).
+# then commits history/ and latest/ back to the repo. PokeSniper's server
+# downloads latest/ straight from this repo's raw GitHub URLs.
+# A manual run with `limit` set is a smoke test: it scrapes N cards and
+# skips the history/commit steps so a partial day never lands in history/.
 name: nightly scrape (top 60)
 on:
   schedule:
@@ -31,8 +32,10 @@ jobs:
           NIGHTLY_WORKERS: "4"
           NIGHTLY_DELAY: "0.1"
           NIGHTLY_LIMIT: ${{ inputs.limit }}
+          NIGHTLY_SKIP_HISTORY: ${{ inputs.limit != '' && '1' || '' }}
         run: nightly/run_nightly.sh
       - name: commit history/ and latest/
+        if: ${{ inputs.limit == '' }}
         run: |
           git config user.name "alt.xyz nightly"
           git config user.email "nightly@users.noreply.github.com"

@@ -1,4 +1,6 @@
-# alt.xyz Pokemon card scraper + history
+# pokemon-psa10-history
+
+Daily PSA 10 price and population history for Pokemon cards, scraped from alt.xyz.
 
 Pulls PSA population counts and graded sale prices for Pokemon cards from
 [alt.xyz](https://alt.xyz), keeps a day-by-day history, and publishes one folder
@@ -35,9 +37,10 @@ say", never 0:
 series per asset (`week_start, n_sales, median_price, low, high`) for charts;
 the server's `GET /api/samay-data/series?ids=…` reads one shard per lookup.
 
-Point `SAMAY_DATA_DIR` in `pokesniper-server/.env` at `latest/` (a checkout of
-this repo, or a copy). The scraper's plain `cards.csv` still works there too,
-just without the derived columns.
+PokeSniper's server downloads `latest/` from this repo on its own (raw GitHub
+URLs, checked at boot and every few hours; see its `SAMAY_DATA_URL`), so nothing
+has to be configured there. For a local checkout instead, set `SAMAY_DATA_URL=`
+(empty) and `SAMAY_DATA_DIR=/path/to/latest`.
 
 ## Scheduled runs
 
