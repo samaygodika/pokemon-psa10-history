@@ -40,6 +40,15 @@ spreads, and top-decile return net of a 13% round-trip fee, with `oracle` and
   track the market (top-decile net was negative in 2022–23 and positive in
   2024–26), so this is relative strength, not a pump detector.
 - Restricting to cards ≥ $250 removes what little 60-day signal there was.
+- **What the 6-month model actually leans on** (permutation importance on a
+  2025-07 → 2026-06 holdout, IC 0.09): `age_years` first by a wide margin
+  (univariate IC +0.26: older cards outperformed), then `bin_share90`
+  (−0.04), `char_n` (+0.17: characters with many actively traded cards),
+  `vol30` (−0.11: quiet cards beat busy ones). So the edge is mostly a
+  *vintage premium* that ran through 2024–26 plus "popular character, low
+  turnover", not a momentum pattern. That is the app's own thesis showing up
+  in the data, but it is one factor's trend and can reverse; it should be
+  shown as relative strength with that caveat, not as a pump signal.
 
 What's missing that could matter more than any of the above: PSA 10
 population change (daily snapshots start 2026-09-11; usable for backtests
