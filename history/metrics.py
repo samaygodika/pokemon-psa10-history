@@ -11,11 +11,13 @@ never as 0.
 
   outlier sales        = alt.xyz already flags RELISTED / NOT_PAID rows (kept
                          out here via skipped_reason). On top of that, a sale
-                         priced below 1/4 or above 4x the running median of the
-                         card's last 12 accepted sales is treated as junk: a
-                         "$2,100 PSA 10 1st Edition Charizard" between $300k+
-                         sales is a mislabeled or bogus listing, not a price
-                         (see drop_outliers for the regime-change escape).
+                         below 1/4x or above 6x the running median of the
+                         card's last 12 accepted sales (past year) is held
+                         back unless confirmed — two consecutive high sales
+                         confirm a jump, five consecutive low sales a drop —
+                         so a "$2,100 PSA 10 1st Edition Charizard" between
+                         $300k+ sales is dropped but a card that really
+                         tripled is not (see drop_outliers).
                          Everything below is computed from the clean sales only.
   clean_last_sale_*    = the newest clean sale (price/date/source) — what the
                          server shows as the PSA 10 price; outliers_excluded
@@ -65,9 +67,10 @@ DERIVED_COLS = ["clean_last_sale_price", "clean_last_sale_date", "clean_last_sal
 SERIES_COLS = ["asset_id", "week_start", "n_sales", "median_price", "low", "high"]
 
 LOOKBACK_DAYS = 180
-OUTLIER_LOW, OUTLIER_HIGH = 0.25, 4.0
-OUTLIER_REF, OUTLIER_MIN_ACCEPTED, OUTLIER_RESET_RUN = 12, 4, 8
-OUTLIER_REF_MAX_AGE = timedelta(days=730)  # a reference older than this says nothing about today
+OUTLIER_LOW, OUTLIER_HIGH = 0.25, 6.0          # band around the running reference (asymmetric: junk is mostly low)
+OUTLIER_REF, OUTLIER_MIN_ACCEPTED = 12, 4       # reference = median of the last 12 accepted sales, needs 4
+OUTLIER_RESET_RUN_LOW, OUTLIER_RESET_RUN_HIGH = 5, 2   # consecutive same-side rejections that confirm a real move
+OUTLIER_REF_MAX_AGE = timedelta(days=365)      # a reference older than this says nothing about today
 WINDOWS = {"30d": 30, "90d": 90, "1y": 365}
 
 
@@ -120,24 +123,37 @@ def load_sales(store):
 
 def drop_outliers(sales):
     """Sequential outlier filter. Walk the sales in date order keeping a
-    reference price = median of the last OUTLIER_REF accepted sales; once at
-    least OUTLIER_MIN_ACCEPTED sales are accepted, a sale outside
-    [OUTLIER_LOW, OUTLIER_HIGH] x the reference is dropped. Junk never enters
-    the reference, so a cluster of bogus rows can't drag it down — which is
-    what broke a plain neighbour-median filter on the 1st Edition Base Set
-    Charizard, where alt.xyz lists more $3k–$26k mislabeled "PSA 10" eBay
-    sales in 2026 than real $300k–$950k ones. A genuine, sustained move is
-    let through: OUTLIER_RESET_RUN consecutive rejections on the same side
-    reset the reference to those sales (a real 75%+ crash or 4x jump shows
-    up as a long one-sided run, junk doesn't)."""
+    reference price = median of the last OUTLIER_REF accepted sales from the
+    past OUTLIER_REF_MAX_AGE; once at least OUTLIER_MIN_ACCEPTED sales are
+    accepted, a sale outside [OUTLIER_LOW, OUTLIER_HIGH] x the reference is
+    held back. Junk never enters the reference, so a cluster of bogus rows
+    can't drag it down — which is what broke a plain neighbour-median filter
+    on the 1st Edition Base Set Charizard, where alt.xyz lists more $3k–$26k
+    mislabeled "PSA 10" eBay sales in 2026 than real $300k–$950k ones.
+
+    The band and the confirmation rule are asymmetric on purpose (revised
+    2026-09-16 after Sid found the first version discarding real moves —
+    2,658 cards had their newest sale rejected and were shown a price a
+    median 157 days stale). Measured on the full history, a rejected sale on
+    the HIGH side was later confirmed by another sale within 35% of it 61%
+    of the time at 4–6x and 54% at 6–10x: those are mostly real re-pricings
+    (hype cycles, a rising 2025–26 market), not junk. Rejected LOW sales
+    were confirmed only a third of the time: that side is where the
+    mislabeled lots live. So:
+      - high side: band 6x, and TWO consecutive high sales confirm the move
+        (both are then accepted and the reference jumps to them);
+      - low side: band 1/4x, and FIVE consecutive low sales are needed to
+        reset (the Charizard's junk came in runs of up to four);
+      - the reference only looks back one year, so a thin card whose last
+        dozen accepted sales are years old can't anchor a stale price.
+    Result on 2026-09-16 data: newest-sale rejections 2,658 -> 144, sales
+    dropped 0.67% -> 0.16%, every known junk case still clean, and the
+    sales it still rejects are mostly never confirmed."""
     keep, dropped = [], 0
     accepted = []  # accepted sales (date, price, source), in date order
     run = []       # consecutive rejected sales, same side
     for sale in sales:
         price = sale[1]
-        # Only sales from the last two years can vouch for or against this
-        # one: a Gold Star Rayquaza that last sold in 2023 at $38k and then
-        # in 2026 at $682k has no recent reference, so the 2026 sale stands.
         recent = [a[1] for a in accepted[-OUTLIER_REF:] if sale[0] - a[0] <= OUTLIER_REF_MAX_AGE]
         if len(recent) >= OUTLIER_MIN_ACCEPTED:
             ref = statistics.median(recent)
@@ -147,8 +163,8 @@ def drop_outliers(sales):
                 if run and run[0][0] != side:
                     run = []
                 run.append((side, sale))
-                if len(run) >= OUTLIER_RESET_RUN:
-                    # regime change: what looked like junk is the new level
+                if len(run) >= (OUTLIER_RESET_RUN_LOW if side == "low" else OUTLIER_RESET_RUN_HIGH):
+                    # confirmed move (high) or regime change (low): the run is real
                     for _, r in run:
                         keep.append(r)
                         accepted.append(r)
