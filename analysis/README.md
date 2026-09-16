@@ -74,4 +74,7 @@ sales): character spillover `char_mom30` IC +0.030 (t 4.6, 73% of months)
 at 60–90 days and +0.032 (t 4.9) at 150–180; volume surge IC −0.047 (t −7.0)
 and −0.070 (t −9.1); GBM IC +0.048 / +0.102. Scripts: `catchup_study.py`
 (2×2 with stale split, sensitivity grid), `char_weekly.py` (weekly character
-index and event traces), `data_checks.py` (truncation, lag, regime series).
+index and event traces), `data_checks.py` (truncation, lag, regime series),
+`second_opinion_checks.py` (noise, venue conventions, new-set decay, robust
+doubling base rate with an all-in cost model, Wikipedia pageviews, Japanese
+lead). Wikipedia pageview JSON is cached under `analysis/out/pageviews/`.
