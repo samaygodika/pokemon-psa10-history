@@ -10,17 +10,88 @@ analysis/.venv/bin/python analysis/panel.py               # point-in-time panel 
 analysis/.venv/bin/python analysis/backtest.py --target exec       # 60–90 day tradable target -> analysis/out/backtest_exec.md
 analysis/.venv/bin/python analysis/backtest.py --target exec180    # 150–180 day
 analysis/.venv/bin/python analysis/backtest.py --target exec --min-price 250
+analysis/.venv/bin/python analysis/test_costs.py                              # cost model
+analysis/.venv/bin/python analysis/backtest.py --target money90 --english --min-price 150   # realizable net return, all-in costs
+analysis/.venv/bin/python analysis/backtest.py --target money180 --english --haircut 0.30    # haircut sweep on illiquid marks
 ```
 
 `panel.py` builds one row per (card, month-start) from 2019 on: features from
 sales on or before the date, targets from sales strictly after it. The
 tradable target buys at the first sale after the date and sells at the median
 of the sales 60–90 (or 150–180) days later, in excess of the universe median
-that month. `backtest.py` scores hand-picked signals (momentum, volume surge,
+that month. The **money target** (`--target money30|90|180`) is the one
+that maps to cash, see below. `backtest.py` scores hand-picked signals (momentum, volume surge,
 character spillover) and walk-forward-fitted models (ridge, shallow GBM,
 retrained monthly with a 90-day embargo) by monthly Spearman IC, decile
 spreads, and top-decile return net of a 13% round-trip fee, with `oracle` and
 `shuffled` sanity rows.
+
+## The money target and cost model (2026-09-15)
+
+`costs.py` is the all-in cost model: buyer pays 7.5% sales tax and $5
+shipping on entry, plus a 20% buyer's premium on the share of entry sales
+that came from an auction house (alt.xyz records those rows at 0.92–0.96x
+eBay for the same card-month, i.e. hammer); seller pays eBay's 13.25% final
+value fee to $7,500 and 2.35% above, $0.40 per order and $5 shipping. The
+50%-off promotion on $1,000+ singles is a flag (`--promo`), off by default.
+Break-even move by entry price: 61% under $50, 39% at $50–150, 29% at
+$150–500, 25% at $500–2k, 24% above $2k. Unit tests: `test_costs.py`.
+
+`panel.py` stores the components of a realizable trade per card-month and
+horizon h in {30, 90, 180} days: entry = median of the sales in (t, t+21]
+(you cannot buy at yesterday's price, and a median means one junk row can't
+be the entry); exit = 40th percentile of the sales in (t+h, t+h+30],
+extended once by 30 days if fewer than two sales, otherwise the trade is
+marked at the last known sale and flagged `illiquid` rather than dropped
+(dropping it would keep only the cards that found a buyer). `mny{h}` is the
+net return under the cost model with a 15% haircut on illiquid marks;
+`backtest.py --haircut 0|0.15|0.30` re-derives it. Excess returns are
+measured against the median of cards in the same price bin that month, not
+the universe: the fixed costs make a $30 card's net return worse than a
+$3,000 card's by construction.
+
+The backtest **ranks on the frictionless bin-matched return and reports
+profit on the net one**. Ranking on the net return let the walk-forward GBM
+reach IC 0.35 with 100% of months positive by predicting the cost curve
+from `log_price` and its own haircut from the liquidity features; that is
+not a signal, and it fell to 0.08 once ranking used the frictionless
+return. The `oracle_net` row is the ceiling with perfect foresight.
+
+**Base rates** (English cards, all-in costs, 15% haircut; the median net
+return of buying every eligible card, `--min-price 150`):
+
+| horizon | median net, all years | share of trades net > 0 | share net ≥ +30% | illiquid marks | median net 2025–26 |
+|---|---:|---:|---:|---:|---:|
+| 30d | −26% | 11% | 3% | 22% | −22% |
+| 90d | −24% | 23% | 9% | 24% | −15% |
+| 180d | −20% | 33% | 18% | 36% | −5% |
+
+By year the 90-day median net for $150–500 cards runs −41% (2021), −35%,
+−33%, −23%, −17% (2025), −14% (2026); at 180 days it was positive only in
+2025 (+2% at $150–500, +15% at $500–2k, +22% above $2k). Under $50 the
+median trade loses 26–57% at every horizon in every year. These medians are
+deliberately conservative (40th-percentile exit; the same rows' median-exit
+return is a few points higher) and they are what any card-level signal has
+to beat.
+
+**Signals under the money target** (`backtest.py --target money90|money180
+--english [--min-price 150]`, top-decile numbers are net):
+
+| signal | 90d, all: IC (t) / top net | 90d, ≥$150: IC (t) / top net | 180d, ≥$150: IC (t) / top net / 2025 / 2026 |
+|---|---:|---:|---:|
+| char_mom30 | +0.024 (4.6) / −34% | +0.022 (2.1) / −20% | +0.012 (1.2) / −13% |
+| vol_surge | −0.027 (−4.5) / −38% | −0.053 (−6.0) / −27% | −0.069 (−9.5) / −22% |
+| ridge (walk-forward) | +0.055 (4.3) / −30% | 0.00 (0.1) / −17% | +0.011 (0.9) / −4.5% / +25% / +2% |
+| GBM (walk-forward) | +0.077 (5.7) / −28% | +0.030 (1.5) / −17% | +0.014 (0.7) / −5.4% / +23% / +10% |
+| universe (buy everything) | — / −32% | — / −20% | — / −13% |
+| oracle_net (perfect foresight) | — / +26% | — / +35% | — / +62% |
+
+No signal's top decile makes money at 90 days in any year; the 90% lower
+bounds of the top-decile net mean are −18% to −40%. At 180 days above $150
+the fitted models' top decile made +23–25% in 2025 and +2–10% in 2026 and
+lost 30% a year in 2021–23; their IC above $150 is not distinguishable
+from zero. Volume surge stays the most reliable ranking signal and it is
+negative. The full tables are in `out/backtest_money*.md`.
 
 ## Findings (2026-09-15, seed history: newest 200 sales per card)
 

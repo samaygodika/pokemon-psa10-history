@@ -16,6 +16,7 @@ def make_sales(rows):
     df["date"] = pd.to_datetime(df.date)
     df["is_bin"] = (df.sale_type == "BUY_IT_NOW").astype(float)
     df["is_ebay"] = (df.source == "eBay").astype(float)
+    df["is_ah"] = df.source.str.lower().str.contains("auction").astype(float)
     return df.sort_values(["asset_id", "date"]).reset_index(drop=True)
 
 
@@ -89,6 +90,54 @@ def test_character_momentum_is_leave_one_out():
     p = panel.build_panel(make_sales(rows), ASSETS, [pd.Timestamp("2024-06-01")]).set_index("asset_id")
     assert abs(p.loc["a"].char_mom30 - p.loc["b"].mom30) < 1e-9
     assert abs(p.loc["b"].char_mom30 - p.loc["a"].mom30) < 1e-9
+
+
+def test_money_target_entry_is_median_of_21_days_and_exit_is_40th_pct():
+    base = [("a", f"2024-0{m}-15", 100.0, "eBay", "AUCTION") for m in range(1, 6)]
+    after = [("a", "2024-06-03", 1.0, "eBay", "AUCTION"),          # junk entry row: a median ignores it
+             ("a", "2024-06-10", 120.0, "eBay", "AUCTION"),
+             ("a", "2024-06-20", 130.0, "Goldin Auctions", "AUCTION"),
+             ("a", "2024-06-25", 999.0, "eBay", "AUCTION"),        # after the entry window
+             ("a", "2024-07-05", 300.0, "eBay", "AUCTION"),        # exit30 window (t+30, t+60]
+             ("a", "2024-07-10", 200.0, "eBay", "AUCTION"),
+             ("a", "2024-07-20", 100.0, "eBay", "AUCTION")]
+    p = panel.build_panel(make_sales(base + after), ASSETS, [pd.Timestamp("2024-06-01")])
+    row = p.iloc[0]
+    assert row.entry_med == 120.0 and row.n_entry == 3
+    assert abs(row.entry_ah - 1 / 3) < 1e-9
+    assert row.exit_flag30 == "ok" and row.n_exit30 == 3
+    assert abs(row.exit30 - np.quantile([300.0, 200.0, 100.0], 0.4)) < 1e-9
+    assert abs(row.gross30 - (row.exit30 / 120.0 - 1)) < 1e-9
+    # net is below gross by the cost model, and the entry premium counts the Goldin share
+    assert row.mny30 < row.gross30
+    assert 0.0 < row.breakeven < 0.6
+
+
+def test_money_target_extends_then_marks_illiquid_instead_of_dropping():
+    base = [("a", f"2024-0{m}-15", 100.0, "eBay", "AUCTION") for m in range(1, 6)]
+    entry = [("a", "2024-06-10", 120.0, "eBay", "AUCTION")]
+    # only one sale in (t+30, t+60], a second one in the extension (t+60, t+90]
+    p = panel.build_panel(make_sales(base + entry + [("a", "2024-07-10", 150.0, "eBay", "AUCTION"), ("a", "2024-08-20", 170.0, "eBay", "AUCTION")]), ASSETS, [pd.Timestamp("2024-06-01")])
+    row = p.iloc[0]
+    assert row.exit_flag30 == "extended" and row.n_exit30 == 2
+    assert abs(row.exit30 - np.quantile([150.0, 170.0], 0.4)) < 1e-9
+    # nothing at all after the entry: illiquid, marked at the last sale (the entry) with the haircut applied in mny
+    p = panel.build_panel(make_sales(base + entry), ASSETS, [pd.Timestamp("2024-06-01")])
+    row = p.iloc[0]
+    assert row.exit_flag30 == "illiquid" and row.exit30 == 120.0 and row.n_exit30 == 0
+    assert not np.isnan(row.mny30)
+    assert row.mny30 < panel.CostModel().net_return(120.0, 120.0)  # the haircut bites
+    # no entry sale at all -> no money target, and no fake 0
+    p = panel.build_panel(make_sales(base), ASSETS, [pd.Timestamp("2024-06-01")])
+    assert np.isnan(p.iloc[0].mny30) and p.iloc[0].exit_flag30 == ""
+
+
+def test_money_target_ignores_sales_before_t():
+    base = [("a", f"2024-0{m}-15", 100.0, "eBay", "AUCTION") for m in range(1, 6)]
+    planted_past = [("a", "2024-05-30", 5.0, "eBay", "AUCTION")]   # a $5 sale two days before t must not be the entry
+    after = [("a", "2024-06-10", 120.0, "eBay", "AUCTION"), ("a", "2024-07-05", 130.0, "eBay", "AUCTION"), ("a", "2024-07-10", 130.0, "eBay", "AUCTION")]
+    p = panel.build_panel(make_sales(base + planted_past + after), ASSETS, [pd.Timestamp("2024-06-01")])
+    assert p.iloc[0].entry_med == 120.0
 
 
 if __name__ == "__main__":

@@ -51,6 +51,34 @@ Targets (all strictly after t):
   fwd_exec_ex        fwd_exec minus the universe median at t
   fwd_exec180(_ex)   same, selling at the median of the sales in (t+150, t+180]
 
+  The MONEY target (what a trader would actually keep), per horizon h in
+  MONEY_HORIZONS (30, 90, 180 days):
+  entry_med, n_entry  median of the sales in (t, t+ENTRY_WINDOW] (21 days) -
+                     you cannot buy at yesterday's price, and a median means
+                     one junk row can't be the entry
+  entry_ah           share of those entry sales that were at an auction house
+                     (buyer's premium applies, see costs.py)
+  exit{h}            the 40th percentile of the sales in (t+h, t+h+EXIT_WINDOW]
+                     (>= MIN_FWD_SALES of them); if too few, the window is
+                     extended once by EXIT_WINDOW days ("extended"); if still
+                     too few, the last sale on or before the end of the
+                     extended window is used as a MARK ("illiquid") - the
+                     trade is not dropped, because dropping it would keep only
+                     the cards that found a buyer, and the backtest applies a
+                     haircut to marks and reports their share by decile
+  exit_flag{h}       "ok" / "extended" / "illiquid" (blank when no entry)
+  gross{h}           exit{h} / entry_med - 1 (no costs, no haircut)
+  mny{h}(_ex)        net return under costs.CostModel() defaults with a 15%
+                     haircut on illiquid marks; the backtest recomputes this
+                     from the components for other cost / haircut settings.
+                     _ex is minus the median net return of cards in the same
+                     PRICE_BINS bucket that month (cost-matched benchmark),
+                     falling back to the universe median for thin buckets.
+                     gross{h}_ex is the same for the frictionless return: the
+                     backtest RANKS on gross{h}_ex (so a model cannot score by
+                     predicting the cost curve or its own haircut) and reports
+                     PROFIT on mny{h}
+
 Not point-in-time and therefore NOT in this panel: PSA 10 population. The
 daily pop snapshots only start 2026-09-11, so any pop-based feature for a
 2022 date would be today's pop, i.e. the future. Pop joins the model once
@@ -72,6 +100,8 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "history"))
 from metrics import drop_outliers  # noqa: E402  (the app's own outlier filter — same clean sales as latest/cards.csv)
+sys.path.insert(0, str(ROOT / "analysis"))
+from costs import CostModel  # noqa: E402
 
 OUT = ROOT / "analysis" / "out"
 MIN_SALES_180 = 3
@@ -83,6 +113,14 @@ HORIZONS = (60, 90)
 MOM_WINDOWS = (30, 90, 180, 365)
 ENTRY_DAYS = 14                                      # executable targets: buy at the first sale in (t, t+14] …
 EXIT_WINDOWS = {"fwd_exec": (60, 90), "fwd_exec180": (150, 180)}   # … sell at the median of the sales in (t+a, t+b]
+MONEY_HORIZONS = (30, 90, 180)
+ENTRY_WINDOW = 21          # money target: entry = median of the sales in (t, t+21]
+EXIT_WINDOW = 30           # money target: exit = 40th pct of the sales in (t+h, t+h+30], extended once by another 30
+EXIT_QUANTILE = 0.40
+ILLIQUID_HAIRCUT = 0.15    # default haircut on an illiquid mark (backtest sweeps 0 / 15 / 30%)
+PRICE_BINS = [0, 50, 100, 250, 500, 1000, 2500, 10000, np.inf]   # cost-matched benchmark bins for the money target's excess return
+MIN_BIN_ROWS = 20
+AUCTION_HOUSE_RX = "auction"   # sources containing this (Goldin Auctions, Heritage Auctions, PWCC Weekly/Premier Auctions, Pristine Auction, Lelands Auctions)
 
 
 def load_clean_sales(store=ROOT / "history"):
@@ -110,6 +148,7 @@ def load_clean_sales(store=ROOT / "history"):
     s = s.loc[keep_idx].copy()
     s["is_bin"] = (s.sale_type == "BUY_IT_NOW").astype(float)
     s["is_ebay"] = (s.source.fillna("").str.lower() == "ebay").astype(float)
+    s["is_ah"] = s.source.fillna("").str.lower().str.contains(AUCTION_HOUSE_RX).astype(float)
     return s.reset_index(drop=True)
 
 
@@ -129,6 +168,7 @@ def build_panel(sales, assets, rebalance_dates):
         p = g.price.values.astype(float)
         bin_ = g.is_bin.values
         ebay = g.is_ebay.values
+        ah = g.is_ah.values
         n = len(d)
         # index of first sale strictly after each date (== count of sales <= date)
         upto = np.searchsorted(d, T, side="right")
@@ -186,6 +226,32 @@ def build_panel(sales, assets, rebalance_dates):
                     row[label] = float(np.median(p[lo_exit:hi_exit])) / entry - 1
                 else:
                     row[label] = np.nan
+            # money target: robust entry, conservative exit, no dropped trades
+            hi_ew = np.searchsorted(d, t + ENTRY_WINDOW * day, side="right")
+            if hi_ew > hi:
+                row["entry_med"] = float(np.median(p[hi:hi_ew]))
+                row["n_entry"] = hi_ew - hi
+                row["entry_ah"] = float(ah[hi:hi_ew].mean())
+                for h in MONEY_HORIZONS:
+                    lo_x = np.searchsorted(d, t + h * day, side="right")
+                    hi_x = np.searchsorted(d, t + (h + EXIT_WINDOW) * day, side="right")
+                    flag = "ok"
+                    if hi_x - lo_x < MIN_FWD_SALES:
+                        hi_x = np.searchsorted(d, t + (h + 2 * EXIT_WINDOW) * day, side="right")
+                        flag = "extended"
+                    if hi_x - lo_x >= MIN_FWD_SALES:
+                        row[f"exit{h}"] = float(np.quantile(p[lo_x:hi_x], EXIT_QUANTILE))
+                        row[f"n_exit{h}"] = hi_x - lo_x
+                    else:
+                        # mark at the last sale on or before the end of the extended window (the entry sale at worst)
+                        row[f"exit{h}"] = float(p[hi_x - 1])
+                        row[f"n_exit{h}"] = hi_x - lo_x
+                        flag = "illiquid"
+                    row[f"exit_flag{h}"] = flag
+            else:
+                row["entry_med"], row["n_entry"], row["entry_ah"] = np.nan, 0, np.nan
+                for h in MONEY_HORIZONS:
+                    row[f"exit{h}"], row[f"n_exit{h}"], row[f"exit_flag{h}"] = np.nan, 0, ""
             rows.append(row)
     panel = pd.DataFrame(rows)
     if panel.empty:
@@ -202,6 +268,7 @@ def build_panel(sales, assets, rebalance_dates):
     for label in EXIT_WINDOWS:
         panel[f"mkt_{label}"] = panel.groupby("date")[label].transform("median")
         panel[f"{label}_ex"] = panel[label] - panel[f"mkt_{label}"]
+    add_money_returns(panel)
     panel["up20_60"] = (panel.fwd60 >= 0.20).astype(float).where(panel.fwd60.notna())
     # leave-one-out character momentum: (sum - own) / (n - 1)
     grp = panel.groupby(["date", "subject"]).mom30
@@ -210,6 +277,30 @@ def build_panel(sales, assets, rebalance_dates):
     own = panel.mom30.fillna(0)
     panel["char_n"] = s_n - panel.mom30.notna().astype(int)
     panel["char_mom30"] = ((s_sum - own) / panel.char_n).where(panel.char_n >= 1)
+    return panel
+
+
+def add_money_returns(panel, cost_model=None, haircut=ILLIQUID_HAIRCUT):
+    """gross{h}, mny{h}, mny{h}_ex from the stored components; the backtest
+    calls this again with other cost / haircut settings."""
+    cm = cost_model or CostModel()
+    ah = panel.entry_ah.fillna(0.0)
+    # Excess is measured against cards of the same PRICE BIN that month, not
+    # the whole universe: the fixed costs (shipping, order fee) make a $30
+    # card's net return worse than a $3,000 card's by construction, and a
+    # model with log_price as a feature would otherwise "predict" the cost
+    # curve (GBM IC 0.35 with 100% of months positive, seen 2026-09-15).
+    panel["price_bin"] = pd.cut(panel.entry_med.fillna(panel.ref), PRICE_BINS, labels=False)
+    for h in MONEY_HORIZONS:
+        exit_ = panel[f"exit{h}"].where(panel[f"exit_flag{h}"] != "illiquid", panel[f"exit{h}"] * (1.0 - haircut))
+        panel[f"gross{h}"] = panel[f"exit{h}"] / panel.entry_med - 1.0
+        panel[f"mny{h}"] = pd.Series(cm.net_return(panel.entry_med.values, exit_.values, ah.values), index=panel.index).where(exit_.notna())
+        for col in (f"mny{h}", f"gross{h}"):
+            grp = panel.groupby(["date", "price_bin"])[col]
+            bin_med = grp.transform("median").where(grp.transform("count") >= MIN_BIN_ROWS)
+            panel[f"mkt_{col}"] = bin_med.fillna(panel.groupby("date")[col].transform("median"))
+            panel[f"{col}_ex"] = panel[col] - panel[f"mkt_{col}"]
+    panel["breakeven"] = pd.Series(cm.breakeven_move(panel.entry_med.fillna(panel.ref).values), index=panel.index)
     return panel
 
 
@@ -228,6 +319,9 @@ def main():
     liquid = panel.groupby("date").size()
     print(f"panel: {len(panel)} asset-months, {panel.asset_id.nunique()} assets; liquid universe per month min {liquid.min()} median {int(liquid.median())} max {liquid.max()}")
     print(f"rows with fwd60 target: {panel.fwd60.notna().sum()}, fwd90: {panel.fwd90.notna().sum()}")
+    for h in MONEY_HORIZONS:
+        f = panel[f"exit_flag{h}"].value_counts()
+        print(f"money target {h}d: {int(panel[f'mny{h}'].notna().sum())} rows; exits ok {int(f.get('ok', 0))}, extended {int(f.get('extended', 0))}, illiquid marks {int(f.get('illiquid', 0))}")
     print(f"wrote {OUT / 'panel.csv'}")
 
 
