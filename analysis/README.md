@@ -56,31 +56,22 @@ after a few months) and event/news flags (not collected historically). The
 alt.xyz sale-visibility lag is also unmeasured; the daily snapshots will
 measure it.
 
-## Movers study (2026-09-15): what precedes a double
+## Movers study (2026-09-15) — superseded
 
-Of 50,118 tradable card-months since 2025-06, 6.8% doubled within 60–90 days,
-but almost entirely in a regime: 12–16% of the universe doubled in Jan–Mar
-2026 (the $16.5M Illustrator sale, 30th-anniversary hype) versus ~2% in
-Sep–Oct 2025 and May–Jun 2026. Doublers cluster by character and month
-(Feb 2026: 49 Pikachu cards; Jan 2026: 13 Charizard; Feb 2026: 12 Rayquaza
-Ex, 11 Mew) — the characters headlining the 30th Celebration and Mega
-Evolution announcements. Before the fact, doublers' own price and volume
-looked like everyone else's (mom30 +3.9% vs +2.9%, same volume surge).
+The character catch-up and regime-lead claims first written here were
+re-examined the same day and do not hold up; see `REVIEW_2026-09-15.md`
+for the corrected numbers, the event traces, and the research plan. In
+short: hot-character laggards do about as well as hot-character leaders and
+quiet-character leaders (month-clustered t < 1 at 60–90 days); the breadth
+gauge's apparent lead is the 2021→2026 trend and turns negative once yearly
+means are removed; the sale-visibility lag on alt.xyz is 0–1 day, not weeks;
+and the moves that doubled cards in Jan–Mar 2026 trace to dated news
+(Illustrator auction, Storm Emeralda leaks, 30th Celebration) that led the
+breadth signal by one to ten weeks.
 
-Two things that DO carry information, both testable now:
-
-- **Regime persistence.** Month-to-month autocorrelation of the doubling
-  rate is +0.71; the share of the universe up >20% over the prior 30 days
-  predicts next month's doubling rate at +0.50. A market breadth gauge gives
-  a real head start on "is the tide rising".
-- **Character catch-up.** In a (month, character) where ≥30% of the
-  character's liquid cards are already up >20%, its laggards (own 30-day
-  move <5%) earned a mean +13.4% / median +3.9% excess return over the next
-  60–90 days (8.1% doubled) versus +8.4% / +0.8% (4.5% doubled) for cards in
-  quiet characters; at 150–180 days, +27.9% / +11.2% versus +14.2% / +1.9%.
-  Positive in every year 2022–2026 (n grows from 41 to 2,004 as the history
-  fills in). This is the app's spillover thesis, measured.
-
-Not yet testable: whether official set/product announcements precede those
-character surges (needs an announcement calendar with featured Pokémon —
-the Rule 12 event pipeline), and PSA 10 population growth as a signal.
+Refreshed on the rebuilt panel (top-60 histories no longer capped at 200
+sales): character spillover `char_mom30` IC +0.030 (t 4.6, 73% of months)
+at 60–90 days and +0.032 (t 4.9) at 150–180; volume surge IC −0.047 (t −7.0)
+and −0.070 (t −9.1); GBM IC +0.048 / +0.102. Scripts: `catchup_study.py`
+(2×2 with stale split, sensitivity grid), `char_weekly.py` (weekly character
+index and event traces), `data_checks.py` (truncation, lag, regime series).

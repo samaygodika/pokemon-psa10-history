@@ -1,5 +1,12 @@
 # Prompt for a fresh session: trending-signal research for PokeSniper
 
+> **Revised 2026-09-15 (later the same day):** read `analysis/REVIEW_2026-09-15.md`
+> first. Findings 4–6 below were re-measured and largely do not hold; the
+> sale-visibility lag is 0–1 day; the fee model is incomplete; and the event
+> calendar (task 4) is now the priority. The "First tasks" list is superseded
+> by the review's section 3.
+
+
 Paste everything below this line as the first message.
 
 ---
