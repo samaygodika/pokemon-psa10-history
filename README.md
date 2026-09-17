@@ -24,7 +24,7 @@ say", never 0:
 
 | column | meaning |
 |---|---|
-| `pop_at_grade`, `company_total_pop` | PSA 10 pop and all-PSA-grades pop from the card's population table. **Blank when alt.xyz has no PSA rows for the record** (CGC/BGS only), `0` only when PSA rows exist and the 10 count is zero. |
+| `pop_at_grade`, `company_total_pop` | PSA 10 pop and all-PSA-grades pop from the card's population table. **Blank when alt.xyz has no PSA rows for the record** (CGC/BGS only); `0` when PSA rows exist and the 10 count is zero (since 2026-09-18 such cards are in the feed, with no sales, instead of being skipped). |
 | `index_total_pop`, `index_transaction_count` | alt.xyz search-index counts: graded copies across every company and grade, and recorded transactions. Present even when the pop columns are blank. |
 | `last_sale_price/date/source` | alt.xyz's literal newest PSA 10 sale. |
 | `clean_last_sale_price/date/source`, `outliers_excluded` | the newest sale after dropping junk rows: a sale below 1/4x or above 6x the running median of the card's last 12 accepted sales (past year) is held back unless confirmed — two consecutive high sales confirm a jump, five consecutive low sales a drop (see `drop_outliers` in `history/metrics.py`). 0.16% of all sales. This is the price the server shows. |

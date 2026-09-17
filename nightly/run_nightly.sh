@@ -57,7 +57,11 @@ CAFF=""; command -v caffeinate >/dev/null && CAFF="caffeinate -i"
 # --max-sales 0: write every sale alt.xyz returns (one request per card either
 # way), so the history store gets a card's full PSA 10 sale record, not just
 # the newest 200 — the 90-day/1-year change columns need the older sales.
-SCRAPE=($PY alt_scraper.py --workers "${NIGHTLY_WORKERS:-4}" --delay "${NIGHTLY_DELAY:-0.25}" --max-sales 0 --out "$OUT" "$SCOPE_LIST")
+# --keep-empty: cards whose PSA pop table exists but shows zero PSA 10s are
+# written with pop_at_grade = 0 (a real zero) instead of being skipped, so
+# PokeSniper's Categories tab can say "PSA 10 pop: 0" (Sid, 2026-09-17).
+# Blank pop still means "alt.xyz has no PSA rows at all" — a different fact.
+SCRAPE=($PY alt_scraper.py --workers "${NIGHTLY_WORKERS:-4}" --delay "${NIGHTLY_DELAY:-0.25}" --max-sales 0 --keep-empty --out "$OUT" "$SCOPE_LIST")
 $CAFF "${SCRAPE[@]}" || true
 # Retry pass: --resume skips everything already in cards.csv, so only the
 # cards that failed (network blips) get fetched again. Up to 2 passes.
