@@ -1,7 +1,8 @@
 #!/bin/bash
 # Scheduled alt.xyz scrape -> history store -> latest/ (what PokeSniper reads).
 #
-#   nightly/run_nightly.sh              # top-60 subjects (nightly/subjects.txt), ~17k cards
+#   nightly/run_nightly.sh              # top-60 subjects (nightly/subjects.txt) at every year, plus the
+#                                        # vintage-checklist species (nightly/vintage_species.txt) at <= 2013: ~31k cards
 #   NIGHTLY_SCOPE=full nightly/run_nightly.sh   # every graded Pokemon card (~65k), for the weekly run
 #
 # Steps:
@@ -44,7 +45,8 @@ if [ "$SCOPE" = "full" ]; then
     SCOPE_LIST="$OUT/scope.txt"
   fi
 else
-  $PY nightly/filter_subjects.py "$OUT/all_pokemon_cards.json" nightly/subjects.txt "$OUT/scope.txt" "${NIGHTLY_LIMIT:-0}"
+  # top-60 subjects at every year, plus the vintage-checklist species (nightly/vintage_species.txt) at <= 2013
+  $PY nightly/filter_subjects.py "$OUT/all_pokemon_cards.json" nightly/subjects.txt "$OUT/scope.txt" "${NIGHTLY_LIMIT:-0}" nightly/vintage_species.txt 2013
   SCOPE_LIST="$OUT/scope.txt"
 fi
 

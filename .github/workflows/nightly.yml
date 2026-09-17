@@ -3,7 +3,7 @@
 # downloads latest/ straight from this repo's raw GitHub URLs.
 # A manual run with `limit` set is a smoke test: it scrapes N cards and
 # skips the history/commit steps so a partial day never lands in history/.
-name: nightly scrape (top 60)
+name: nightly scrape (top 60 + vintage checklist)
 on:
   schedule:
     - cron: "0 7 * * *"   # 07:00 UTC = 03:00 ET, after the day's eBay sales settle
@@ -29,8 +29,8 @@ jobs:
           python-version: "3.12"
       - name: scrape + ingest + rebuild latest/
         env:
-          NIGHTLY_WORKERS: "4"
-          NIGHTLY_DELAY: "0.1"
+          NIGHTLY_WORKERS: "6"
+          NIGHTLY_DELAY: "0.05"
           NIGHTLY_LIMIT: ${{ inputs.limit }}
           NIGHTLY_SKIP_HISTORY: ${{ inputs.limit != '' && '1' || '' }}
         run: nightly/run_nightly.sh
