@@ -19,9 +19,19 @@ never as 0.
                          $300k+ sales is dropped but a card that really
                          tripled is not (see drop_outliers).
                          Everything below is computed from the clean sales only.
-  clean_last_sale_*    = the newest clean sale (price/date/source) — what the
-                         server shows as the PSA 10 price; outliers_excluded
-                         says how many rows the filter dropped for the card.
+  clean_last_sale_*    = the newest clean sale (price/date/source); the change
+                         and volume columns are built from clean sales only.
+                         outliers_excluded says how many rows the filter
+                         dropped for the card.
+  last_sale_unconfirmed = 1 when the literal newest sale (last_sale_*) is one
+                         the filter is holding back, i.e. it differs from the
+                         clean newest sale. The app shows the literal newest
+                         sale and marks it unconfirmed (Sid, 2026-09-18).
+  latest/recent_sales/<xx>.csv = the last RECENT_N sales per asset, newest
+                         first, INCLUDING ones alt.xyz flags (status column:
+                         ok / RELISTED / NOT_PAID / PENDING …) and ones the
+                         outlier filter holds back (outlier = 1), with the
+                         sale URL — so a user can eyeball a suspicious price.
   ref price at a date  = median of the up-to-3 most recent clean PSA 10 sales
                          on or before that date, looking back at most 180 days.
   price_chg_30d_pct    = ref(today) vs ref(today-30d), only when both exist AND
@@ -60,11 +70,13 @@ CARD_COLS = ["input", "asset_id", "card_name", "alt_url", "alt_public_url", "yea
              "last_sale_price", "last_sale_date", "last_sale_source", "avg_last_3_sales",
              "highest_sale", "lowest_sale", "scraped_at",
              "listing_source", "listing_grade", "listing_grading_company", "listing_price", "listing_url"]
-DERIVED_COLS = ["clean_last_sale_price", "clean_last_sale_date", "clean_last_sale_source", "outliers_excluded",
+DERIVED_COLS = ["clean_last_sale_price", "clean_last_sale_date", "clean_last_sale_source", "outliers_excluded", "last_sale_unconfirmed",
                 "price_chg_30d_pct", "price_chg_90d_pct", "price_chg_1y_pct", "mkt_cap_chg_30d_pct",
                 "volume_30d", "volume_90d", "volume_1y", "pop_30d_ago", "pop_chg_30d",
                 "median_last_3", "sales_first_date", "sales_total", "history_days"]
 SERIES_COLS = ["asset_id", "week_start", "n_sales", "median_price", "low", "high"]
+RECENT_COLS = ["asset_id", "date", "price", "source", "sale_type", "status", "outlier", "url"]
+RECENT_N = 10
 
 LOOKBACK_DAYS = 180
 OUTLIER_LOW, OUTLIER_HIGH = 0.25, 6.0          # band around the running reference (asymmetric: junk is mostly low)
@@ -98,17 +110,21 @@ def load_sales(store):
     """{asset_id: [(date, price), ...] sorted ascending}, PSA 10 only, skipped
     sales (alt.xyz's own outlier/bad-data flag) excluded."""
     by_asset = defaultdict(list)
+    raw = defaultdict(list)   # every PSA 10 sale incl. flagged ones: (date, price, source, sale_type, status, url)
     n = 0
     for p in sorted((store / "sales").glob("*.csv")):
         with open(p, newline="", encoding="utf-8") as f:
             for s in csv.DictReader(f):
-                if s.get("skipped_reason") or s.get("grading_company") != "PSA" or s.get("grade") != "10.0":
+                if s.get("grading_company") != "PSA" or s.get("grade") != "10.0":
                     continue
                 try:
                     price = float(s["price"])
                 except (TypeError, ValueError):
                     continue
                 if price <= 0:
+                    continue
+                raw[s["asset_id"]].append((d(s["date"]), price, s.get("source") or "", s.get("sale_type") or "", s.get("skipped_reason") or "ok", s.get("url") or ""))
+                if s.get("skipped_reason"):
                     continue
                 by_asset[s["asset_id"]].append((d(s["date"]), price, s.get("source") or ""))
                 n += 1
@@ -118,7 +134,7 @@ def load_sales(store):
         clean, dropped = drop_outliers(v)
         by_asset[aid] = clean
         outliers[aid] = dropped
-    return by_asset, n, outliers
+    return by_asset, n, outliers, raw
 
 
 def drop_outliers(sales):
@@ -218,7 +234,7 @@ def build(store=HERE, out=LATEST):
     assets = {a["asset_id"]: a for a in read_csv(store / "assets.csv")}
     daily, days = load_daily(store)
     today = d(days[-1])
-    sales, n_sales, outliers = load_sales(store)
+    sales, n_sales, outliers, raw_sales = load_sales(store)
     print(f"{len(assets)} assets, {len(days)} daily files ({days[0]}..{days[-1]}), {n_sales} PSA 10 sales")
 
     # Newest numbers per asset, and the first day each asset appears.
@@ -255,6 +271,10 @@ def build(store=HERE, out=LATEST):
         row["clean_last_sale_date"] = last[0].isoformat() if last else ""
         row["clean_last_sale_source"] = last[2] if last else ""
         row["outliers_excluded"] = outliers.get(aid, 0)
+        # the literal newest unflagged sale, from the raw list (newest of status ok)
+        raw_ok = [t for t in raw_sales.get(aid, []) if t[4] == "ok"]
+        newest = max(raw_ok) if raw_ok else None
+        row["last_sale_unconfirmed"] = 1 if (newest and last and (newest[0], newest[1]) != (last[0], last[1]) and newest[0] >= last[0]) else 0
         ref_now = ref_price(s, today)
         row["median_last_3"] = fmt(ref_now)
         for label, n in WINDOWS.items():
@@ -313,6 +333,28 @@ def build(store=HERE, out=LATEST):
             w.writerow(SERIES_COLS)
             w.writerows(rows_)
 
+    # Last RECENT_N sales per asset, newest first, flagged rows included with
+    # their status, held-back rows marked outlier=1 — for the app's "last 10
+    # sales" dropdown. Sharded like series/.
+    recent_dir = out / "recent_sales"
+    recent_dir.mkdir(exist_ok=True)
+    for old_f in recent_dir.glob("*.csv"):
+        old_f.unlink()
+    rshards = defaultdict(list)
+    n_recent = 0
+    for aid, lst in raw_sales.items():
+        clean_keys = {(t[0], t[1]) for t in sales.get(aid, [])}
+        lst.sort(reverse=True)
+        for sd, price, src, stype, status, url in lst[:RECENT_N]:
+            outlier = 1 if (status == "ok" and (sd, price) not in clean_keys) else 0
+            rshards[aid[:2]].append([aid, sd.isoformat(), fmt(price), src, stype, status, outlier, url])
+            n_recent += 1
+    for shard, rows_ in rshards.items():
+        with open(recent_dir / f"{shard}.csv", "w", newline="", encoding="utf-8") as f:
+            w = csv.writer(f)
+            w.writerow(RECENT_COLS)
+            w.writerows(rows_)
+
     summary = {
         "data_date": today.isoformat(),
         "generated_at": datetime.now().isoformat(timespec="seconds"),
@@ -322,6 +364,8 @@ def build(store=HERE, out=LATEST):
         "psa10_sales": n_sales,
         "outliers_excluded": sum(outliers.values()),
         "series_rows": n_series,
+        "recent_sales_rows": n_recent,
+        "rows_unconfirmed_last_sale": sum(1 for r in rows if r["last_sale_unconfirmed"] == 1),
         "rows_with": {k: filled[k] for k in ("price_chg_30d_pct", "price_chg_90d_pct", "price_chg_1y_pct", "mkt_cap_chg_30d_pct")},
     }
     with open(out / "summary.json", "w") as f:

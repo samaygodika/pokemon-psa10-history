@@ -27,7 +27,7 @@ say", never 0:
 | `pop_at_grade`, `company_total_pop` | PSA 10 pop and all-PSA-grades pop from the card's population table. **Blank when alt.xyz has no PSA rows for the record** (CGC/BGS only); `0` when PSA rows exist and the 10 count is zero (since 2026-09-18 such cards are in the feed, with no sales, instead of being skipped). |
 | `index_total_pop`, `index_transaction_count` | alt.xyz search-index counts: graded copies across every company and grade, and recorded transactions. Present even when the pop columns are blank. |
 | `last_sale_price/date/source` | alt.xyz's literal newest PSA 10 sale. |
-| `clean_last_sale_price/date/source`, `outliers_excluded` | the newest sale after dropping junk rows: a sale below 1/4x or above 6x the running median of the card's last 12 accepted sales (past year) is held back unless confirmed — two consecutive high sales confirm a jump, five consecutive low sales a drop (see `drop_outliers` in `history/metrics.py`). 0.16% of all sales. This is the price the server shows. |
+| `clean_last_sale_price/date/source`, `outliers_excluded`, `last_sale_unconfirmed` | the newest sale after holding back junk rows: a sale below 1/4x or above 6x the running median of the card's last 12 accepted sales (past year) is held back unless confirmed — two consecutive high sales confirm a jump, five consecutive low sales a drop (see `drop_outliers` in `history/metrics.py`); 0.16% of all sales. The change and volume columns are built from these clean sales. The app shows the literal `last_sale_price` and marks it unconfirmed when `last_sale_unconfirmed` = 1 (the newest sale is one the filter is holding back). |
 | `price_chg_30d_pct`, `_90d_`, `_1y_` | median of the last 3 clean sales vs the same median as of 30/90/365 days earlier; blank unless both exist and at least one sale happened in the window. |
 | `volume_30d`, `_90d`, `_1y` | clean PSA 10 sales in the window. |
 | `pop_30d_ago`, `pop_chg_30d`, `mkt_cap_chg_30d_pct` | need 30 days of daily snapshots; blank until the series is that old (first daily file: 2026-09-11). |
@@ -36,6 +36,10 @@ say", never 0:
 `latest/series/<first two hex of asset_id>.csv` holds the weekly PSA 10 sale
 series per asset (`week_start, n_sales, median_price, low, high`) for charts;
 the server's `GET /api/samay-data/series?ids=…` reads one shard per lookup.
+`latest/recent_sales/<xx>.csv` holds each card's last 10 PSA 10 sales, newest
+first, including sales alt.xyz flags (`status` = ok / RELISTED / NOT_PAID /
+PENDING …) and sales the filter is holding back (`outlier` = 1), with the sale
+URL — `GET /api/samay-data/recent-sales?ids=…` for the app's price dropdown.
 
 PokeSniper's server downloads `latest/` from this repo on its own (raw GitHub
 URLs, checked at boot and every few hours; see its `SAMAY_DATA_URL`), so nothing
