@@ -52,7 +52,7 @@ has to be configured there. For a local checkout instead, set `SAMAY_DATA_URL=`
 scope filter, scrape with two retry passes, then `history/ingest.py` and
 `history/metrics.py`. Two schedules, both in `.github/workflows/`:
 
-- **nightly** (07:00 UTC): the 60 Pokemon in `nightly/subjects.txt` at every year (~17k
+- **nightly** (07:00 UTC): the 101 Pokemon in `nightly/subjects.txt` at every year (~20k
   cards, the PokeSniper roster plus the next 10) plus the ~400 species in
   `nightly/vintage_species.txt` at 2013 or earlier (~13k cards, PokeSniper's Categories
   checklist), ~31k cards, ~2.5–4.5 h.
