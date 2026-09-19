@@ -11,9 +11,9 @@ as its only PSA 10 price/population source. Python 3.8+ standard library only.
 alt_scraper.py        the scraper (one run = cards.csv + sales.csv)
 nightly/              scheduled run: index listing -> scope -> scrape -> ingest -> latest/
 history/              the store: assets.csv, daily/<date>.csv, sales/<month>.csv  (committed)
-latest/               what the server reads: cards.csv, series/<xx>.csv, summary.json  (committed)
+latest/               what the server reads: cards.csv, series/<xx>.csv, recent_sales/<xx>.csv, characters.csv, summary.json  (committed)
 snapshots/            raw per-run output (gitignored, hundreds of MB)
-.github/workflows/    GitHub Actions cron: nightly top-60, weekly full index
+.github/workflows/    GitHub Actions cron: nightly roster candidates + vintage checklist, weekly full index
 ```
 
 ## The data PokeSniper gets
@@ -41,6 +41,13 @@ first, including sales alt.xyz flags (`status` = ok / RELISTED / NOT_PAID /
 PENDING …) and sales the filter is holding back (`outlier` = 1), with the sale
 URL — `GET /api/samay-data/recent-sales?ids=…` for the app's price dropdown.
 
+`latest/characters.csv` (from `history/coverage.py`) has one row per name in
+`nightly/subjects.txt`: English rows in the feed, how many have a PSA 10 pop /
+a real zero / an unknown pop / a price, and the alt-side market cap
+(Σ `pop_at_grade` × `last_sale_price` over every row, all years and ≤ 2013),
+computed with no matcher so characters can be ranked against each other
+fairly. PokeSniper's `scripts/lib/altSide.js` uses the same definition.
+
 PokeSniper's server downloads `latest/` from this repo on its own (raw GitHub
 URLs, checked at boot and every few hours; see its `SAMAY_DATA_URL`), so nothing
 has to be configured there. For a local checkout instead, set `SAMAY_DATA_URL=`
@@ -53,20 +60,22 @@ scope filter, scrape with two retry passes, then `history/ingest.py` and
 `history/metrics.py`. Two schedules, both in `.github/workflows/`:
 
 - **nightly** (07:00 UTC): the 101 Pokemon in `nightly/subjects.txt` at every year (~20k
-  cards, the PokeSniper roster plus the next 10) plus the ~400 species in
+  cards: PokeSniper's 100 roster candidates plus Bulbasaur) plus the ~400 species in
   `nightly/vintage_species.txt` at 2013 or earlier (~13k cards, PokeSniper's Categories
-  checklist), ~31k cards, ~2.5–4.5 h.
-- **weekly full** (Sunday): every graded Pokemon card (~65k), so chase-checklist
-  species and roster candidates outside the top 60 stay fresh too.
+  checklist), ~33k cards, ~2–3 h. Names match `subject` as whole words, with a hyphen
+  matching a hyphen or a space ("Ho-Oh" also finds alt.xyz's "Ho Oh").
+- **weekly full** (Sunday): every graded Pokemon card (~65k), so the vintage species'
+  modern printings and every other species stay fresh too.
 
 Each run commits `history/` and `latest/`. Run by hand:
 
 ```bash
-nightly/run_nightly.sh                                    # top-60, ~2 h
+nightly/run_nightly.sh                                    # nightly scope, ~2–3 h
 NIGHTLY_SCOPE=full nightly/run_nightly.sh                 # everything, ~4 h
 NIGHTLY_LIMIT=15 NIGHTLY_DATE=smoke nightly/run_nightly.sh   # 15-card smoke test
 python3 history/ingest.py snapshots/2026-09-12            # (re)ingest one run
 python3 history/metrics.py                                # rebuild latest/ only
+python3 history/coverage.py                               # rebuild latest/characters.csv only
 ```
 
 Laptop fallback: `nightly/com.samaygodika.altscrape.plist` runs the same script at
@@ -74,7 +83,7 @@ Laptop fallback: `nightly/com.samaygodika.altscrape.plist` runs the same script 
 2026-09-12 run took 33 h that way, which is why the GitHub Actions cron is the
 primary schedule.
 
-Env knobs: `NIGHTLY_SCOPE` (top60|full), `NIGHTLY_WORKERS` (4), `NIGHTLY_DELAY`
+Env knobs: `NIGHTLY_SCOPE` (top60 = the subjects lists | full), `NIGHTLY_WORKERS` (4), `NIGHTLY_DELAY`
 (0.25 s per worker), `NIGHTLY_LIMIT`, `NIGHTLY_DATE`, `NIGHTLY_SKIP_HISTORY=1`.
 
 ## Running the scraper by itself

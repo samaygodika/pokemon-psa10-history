@@ -1,8 +1,8 @@
 #!/bin/bash
 # Scheduled alt.xyz scrape -> history store -> latest/ (what PokeSniper reads).
 #
-#   nightly/run_nightly.sh              # top-60 subjects (nightly/subjects.txt) at every year, plus the
-#                                        # vintage-checklist species (nightly/vintage_species.txt) at <= 2013: ~31k cards
+#   nightly/run_nightly.sh              # PokeSniper's roster candidates (nightly/subjects.txt) at every year, plus the
+#                                        # vintage-checklist species (nightly/vintage_species.txt) at <= 2013: ~33k cards
 #   NIGHTLY_SCOPE=full nightly/run_nightly.sh   # every graded Pokemon card (~65k), for the weekly run
 #
 # Steps:
@@ -10,13 +10,14 @@
 #   2. scope filter   -> snapshots/<date>/scope.txt (+ .json sidecar)
 #   3. scrape         -> snapshots/<date>/cards.csv, sales.csv, run.log   (retries failed cards twice)
 #   4. ingest         -> history/assets.csv, history/daily/<date>.csv, history/sales/<month>.csv
-#   5. metrics        -> latest/cards.csv, latest/series/*.csv, latest/summary.json
+#   5. metrics        -> latest/cards.csv, latest/series/*.csv, latest/recent_sales/*.csv, latest/summary.json
+#   6. coverage       -> latest/characters.csv (per-character alt-side market cap and coverage)
 #
 # Only history/ and latest/ are committed; snapshots/ is raw and gitignored.
 # Every dated snapshot is kept locally on purpose (cheap, and lets a bad ingest
 # be redone), prune old ones by hand if disk gets tight.
 #
-# Env knobs: NIGHTLY_SCOPE (top60|full), NIGHTLY_WORKERS (4), NIGHTLY_DELAY
+# Env knobs: NIGHTLY_SCOPE (top60 = the subjects lists | full), NIGHTLY_WORKERS (4), NIGHTLY_DELAY
 # (0.25 s per worker between requests), NIGHTLY_LIMIT (scrape only the first N
 # cards, for smoke tests), NIGHTLY_DATE (override the folder/day name),
 # NIGHTLY_SKIP_HISTORY=1 (stop after the scrape).
@@ -32,10 +33,10 @@ LOG="$OUT/run.log"
 exec > >(tee -a "$LOG") 2>&1
 echo "=== $SCOPE scrape $DAY started $(date '+%F %T') ==="
 
-echo "--- 1/5 index listing ---"
+echo "--- 1/6 index listing ---"
 $PY alt_scraper.py --list '*' --out "$OUT"
 
-echo "--- 2/5 scope ($SCOPE) ---"
+echo "--- 2/6 scope ($SCOPE) ---"
 if [ "$SCOPE" = "full" ]; then
   # The index listing already wrote all_pokemon_cards.txt/.json in the format the scraper takes.
   SCOPE_LIST="$OUT/all_pokemon_cards.txt"
@@ -45,12 +46,12 @@ if [ "$SCOPE" = "full" ]; then
     SCOPE_LIST="$OUT/scope.txt"
   fi
 else
-  # top-60 subjects at every year, plus the vintage-checklist species (nightly/vintage_species.txt) at <= 2013
+  # roster candidates (nightly/subjects.txt) at every year, plus the vintage-checklist species at <= 2013
   $PY nightly/filter_subjects.py "$OUT/all_pokemon_cards.json" nightly/subjects.txt "$OUT/scope.txt" "${NIGHTLY_LIMIT:-0}" nightly/vintage_species.txt 2013
   SCOPE_LIST="$OUT/scope.txt"
 fi
 
-echo "--- 3/5 scrape ---"
+echo "--- 3/6 scrape ---"
 # caffeinate (macOS only) keeps the machine from idle-sleeping mid-run; a
 # closed lid still sleeps, launchd resumes the job on wake. No-op elsewhere.
 CAFF=""; command -v caffeinate >/dev/null && CAFF="caffeinate -i"
@@ -76,9 +77,12 @@ echo "=== scrape done $(date '+%F %T'): $ROWS rows in $OUT/cards.csv ==="
 
 if [ -n "${NIGHTLY_SKIP_HISTORY:-}" ]; then exit 0; fi
 
-echo "--- 4/5 ingest into history/ ---"
+echo "--- 4/6 ingest into history/ ---"
 $PY history/ingest.py "$OUT" --date "$DAY"
 
-echo "--- 5/5 rebuild latest/ ---"
+echo "--- 5/6 rebuild latest/ ---"
 $PY history/metrics.py
+
+echo "--- 6/6 per-character coverage ---"
+$PY history/coverage.py
 echo "=== all done $(date '+%F %T') ==="

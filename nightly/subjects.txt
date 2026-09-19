@@ -1,4 +1,5 @@
-# Nightly scrape scope: top 60 Pokemon by market cap, in order (Samay, 2026-09-11).
+# Nightly scrape scope: PokeSniper's roster candidates (top 60 by market cap, Samay 2026-09-11,
+# plus Sid's 41 further candidates and Bulbasaur, 2026-09-18), in order.
 # One name per line. Matched as a whole word against alt.xyz's `subject`
 # field, the same rule pokesniper-server/src/lib/samayData.js uses, so
 # "Mew" never pulls in Mewtwo and multi-Pokemon cards count for every name.

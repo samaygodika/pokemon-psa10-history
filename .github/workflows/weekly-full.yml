@@ -1,5 +1,5 @@
 # Weekly scrape of EVERY graded Pokemon card alt.xyz indexes (~65k), so cards
-# outside the nightly top-60 scope (chase-checklist species, roster
+# outside the nightly scope (chase-checklist species, roster
 # candidates) still get refreshed. Same pipeline, NIGHTLY_SCOPE=full.
 name: weekly scrape (full index)
 on:

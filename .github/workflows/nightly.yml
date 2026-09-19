@@ -1,9 +1,9 @@
-# Nightly top-60 scrape. Runs the same nightly/run_nightly.sh a laptop would,
+# Nightly scrape of PokeSniper's roster candidates + the vintage checklist. Runs the same nightly/run_nightly.sh a laptop would,
 # then commits history/ and latest/ back to the repo. PokeSniper's server
 # downloads latest/ straight from this repo's raw GitHub URLs.
 # A manual run with `limit` set is a smoke test: it scrapes N cards and
 # skips the history/commit steps so a partial day never lands in history/.
-name: nightly scrape (top 60 + vintage checklist)
+name: nightly scrape (roster candidates + vintage checklist)
 on:
   schedule:
     - cron: "0 7 * * *"   # 07:00 UTC = 03:00 ET, after the day's eBay sales settle
@@ -40,7 +40,7 @@ jobs:
           git config user.name "alt.xyz nightly"
           git config user.email "nightly@users.noreply.github.com"
           git add history latest
-          git commit -m "nightly $(date -u +%F): $(python3 -c 'import json;s=json.load(open("latest/summary.json"));print(s["assets"],"assets,",s["psa10_sales"],"sales")')" || { echo "nothing to commit"; exit 0; }
+          git commit -m "$(python3 -c 'import json;s=json.load(open("latest/summary.json"));print("nightly",s["data_date"]+":",s["assets"],"assets,",s["psa10_sales"],"sales")')" || { echo "nothing to commit"; exit 0; }
           git pull --rebase
           git push
       - name: keep the raw run as a downloadable artifact (7 days)
