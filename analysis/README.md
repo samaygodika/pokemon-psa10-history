@@ -93,6 +93,84 @@ lost 30% a year in 2021–23; their IC above $150 is not distinguishable
 from zero. Volume surge stays the most reliable ranking signal and it is
 negative. The full tables are in `out/backtest_money*.md`.
 
+## Valuation features (2026-09-19)
+
+Sid's four "undervalued / overvalued" candidates (PR #1, 2026-09-19), built
+as point-in-time panel features and run under the money target exactly like
+the trending signals. Definitions in `panel.py`:
+
+- `band_z` (Bollinger): log ref(t) vs the mean and std of the card's own
+  sales in the trailing year (≥ 5 sales). Signal `band_low = −band_z`.
+- `peer_resid` (relative value vs peers): log ref(t) minus a two-way
+  fixed-effects fit on that month's liquid universe, one effect per
+  (set, finish, language) and one per subject, so "cheap" means cheaper than
+  set-mates of the same finish after allowing for the character's tier.
+  Signal `peer_cheap = −peer_resid`. NaN when the set/finish group has < 3
+  liquid cards.
+- `scarcity_gap` (scarcity-to-price): within (era, language), percentile rank
+  of −log pop minus percentile rank of price. **Uses today's PSA 10 pop**,
+  because pop history only starts 2026-09-11; that is not point-in-time
+  (today's pop is an upper bound on pop at t), so it is kept out of the fitted
+  models and only reported under `--with-pop`.
+- Mean reversion is the momentum test with the sign flipped; nothing new.
+
+Signed so that IC > 0 means "the cheap side outperforms". English cards,
+15% haircut on illiquid marks, top-decile figures are net:
+
+| signal | 90d, all: IC (t) / top net / univ | 90d, ≥$150: IC (t) / top net / univ | 180d, ≥$150: IC (t) / top net / univ / LB90 |
+|---|---:|---:|---:|
+| band_low | +0.017 (2.8) / −34% / −32% | +0.039 (2.8) / −21% / −20% | +0.035 (3.2) / −15% / −12% / −19% |
+| peer_cheap | +0.007 (0.9) / −34% / −32% | +0.047 (3.2) / −18% / −20% | **+0.053 (3.9) / −9% / −12% / −14%** |
+| scarcity_gap (today's pop) | +0.007 (0.7) / −43% / −32% | — | +0.103 (5.3) / −9% / −12% / −15%, **71% illiquid** |
+| char_mom30 (for scale) | +0.026 (4.9) / −33% / −31% | +0.024 (2.3) / −19% / −20% | +0.013 (1.4) / −12% / −12% |
+| shuffled | 0.00 / −32% | 0.01 / −21% | 0.00 / −13% |
+
+By year, the only one worth a second look, `peer_cheap` at 180 days ≥ $150
+(top-decile mean net / median net / share of illiquid marks):
+
+| year | IC | mean net | median net | illiquid |
+|---|---:|---:|---:|---:|
+| 2021 | +0.09 | −34% | −40% | 20% |
+| 2022 | −0.01 | −33% | −35% | 26% |
+| 2023 | +0.03 | −29% | −31% | 31% |
+| 2024 | −0.03 | −1% | −9% | 25% |
+| 2025 | +0.18 | +41% | +21% | 23% |
+| 2026 | +0.09 | +12% | −7% | 70% |
+
+**Reading it.**
+
+- **Below-its-own-band (`band_low`) is a real but tiny effect**: IC positive in
+  62–68% of months with t ≈ 3 at every horizon, and its top decile earns the
+  universe return, not more. Cards do drift back toward their own year's
+  range; the drift is smaller than the costs. Fine as a descriptive label
+  ("below its 1-year range"), useless as a buy signal.
+- **Cheap-vs-peers (`peer_cheap`) is the vintage-premium trade in disguise.**
+  Its top decile is the second-tier WOTC holos (Base Set Machamp and Zapdos,
+  Fossil, Skyridge, Team Rocket; median age 22 years, median price ~$340). It
+  correlates +0.25 with card age and −0.28 with turnover. It lost 29–34% a
+  year in 2021–23, broke even in 2024 and made +41% in 2025 (the year the
+  vintage premium ran) with a 2026 top decile that is 70% illiquid marks.
+  Same conclusion as the 6-month GBM on 09-15: a regime, not a mispricing
+  detector. Median net over all years −14% vs −17.5% for everything else.
+- **Scarcity-to-price cannot be tested honestly yet, and what it shows is
+  liquidity, not value.** With today's pop it posts the best IC on the page
+  (+0.10, t 5.3), but 71% of its top decile never found a buyer inside the
+  exit window (marked, then haircut). Low pop and low price together mostly
+  means "nobody trades this card". Revisit when the daily pop snapshots
+  cover a year, using pop-at-t and with the illiquid share reported next to
+  every number.
+- **Nothing here changes what ships**: no valuation signal makes money at 90
+  days in any year; at 180 days the only positive years are 2025–26 for
+  every signal at once, which is the market, not the signal. A
+  "fair value" label built from `peer_resid` and `band_z` can be shown as
+  what it is, a relative-price description with the 2021–23 base rates next
+  to it, never as an expected return.
+
+Runs: `backtest.py --target money90|money180 --english [--min-price 150]
+[--with-pop] [--haircut 0.30]`; tables in `out/backtest_money*_en*.md`. Leak
+tests for the new features in `test_panel.py` (band_z ignores planted future
+sales; peer_resid is cross-sectional and NaN in thin groups).
+
 ## Findings (2026-09-15, seed history: newest 200 sales per card)
 
 - **Price/volume momentum predicts nothing at 2–3 months.** mom30/mom90 IC ≈ 0,

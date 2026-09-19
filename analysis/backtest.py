@@ -79,8 +79,13 @@ EMBARGO_DAYS = 90
 TRAIN_MIN_MONTHS = 18
 FEATURES = ["mom30", "mom90", "mom180", "mom365", "accel", "vol30", "vol90", "vol365", "vol_surge",
             "days_since_sale", "log_price", "n_sales_to_date", "dispersion", "bin_share90", "ebay_share90",
-            "rel_mom30", "char_mom30", "char_n", "age_years"]
-HAND_SIGNALS = ["mom30", "mom90", "rel_mom30", "accel", "vol_surge", "char_mom30"]
+            "rel_mom30", "char_mom30", "char_n", "age_years", "band_z", "peer_resid"]
+# Valuation signals are signed so that IC > 0 means "the cheap side outperforms":
+# band_low = -band_z (below its own year's range), peer_cheap = -peer_resid (cheaper
+# than set-mates of the same finish after the character effect), scarcity_gap
+# (scarcer than its price rank; uses TODAY's pop, see panel.py, --with-pop only).
+HAND_SIGNALS = ["mom30", "mom90", "rel_mom30", "accel", "vol_surge", "char_mom30", "band_low", "peer_cheap"]
+POP_SIGNALS = ["scarcity_gap"]
 
 
 def rank_within(df, cols):
@@ -207,7 +212,11 @@ def main():
     ap.add_argument("--haircut", type=float, default=0.15, help="money targets: haircut applied to illiquid marks (0 / 0.15 / 0.30)")
     ap.add_argument("--promo", action="store_true", help="money targets: apply eBay's 50%%-off fee promotion on $1,000+ singles")
     ap.add_argument("--english", action="store_true", help="drop Japanese-language cards (PokeSniper's universe)")
+    ap.add_argument("--with-pop", action="store_true", help="include scarcity_gap (built from TODAY's pop, not point-in-time) as a hand signal and a model feature")
     args = ap.parse_args()
+    if args.with_pop:
+        FEATURES.append("scarcity_gap")
+        HAND_SIGNALS.extend(POP_SIGNALS)
     TARGET, RAW_TARGET, GROSS_TARGET, NET_ALREADY = TARGETS[args.target]
     panel = pd.read_csv(OUT / "panel.csv", parse_dates=["date"])
     if args.english:
@@ -222,7 +231,9 @@ def main():
     if args.min_price:
         panel = panel[panel.ref >= args.min_price].reset_index(drop=True)
     tag = f"{args.target}" + (f"_min{int(args.min_price)}" if args.min_price else "") + ("_en" if args.english else "") \
-        + (f"_hc{int(args.haircut * 100)}" if NET_ALREADY and args.haircut != 0.15 else "") + ("_promo" if args.promo else "")
+        + (f"_hc{int(args.haircut * 100)}" if NET_ALREADY and args.haircut != 0.15 else "") + ("_promo" if args.promo else "") + ("_pop" if args.with_pop else "")
+    panel["band_low"] = -panel.band_z
+    panel["peer_cheap"] = -panel.peer_resid
     print(f"panel: {len(panel)} rows, {panel.date.nunique()} months, {panel[TARGET].notna().sum()} with target")
 
     # hand-picked signals + composite
@@ -243,7 +254,7 @@ def main():
     monthly = pd.concat([evaluate(panel, s, s.replace("score_", "")) for s in signals], ignore_index=True)
     monthly.to_csv(OUT / f"backtest_monthly_{tag}.csv", index=False)
     summary = summarize(monthly)
-    years = by_year(monthly, ["mom30", "mom90", "vol_surge", "composite", "ridge", "gbm"])
+    years = by_year(monthly, ["mom30", "vol_surge", "band_low", "peer_cheap"] + (POP_SIGNALS if args.with_pop else []) + ["ridge", "gbm"])
 
     lines = [f"# Trending backtest — target `{args.target}` ({TARGET})" + (f", cards ≥ ${args.min_price:,.0f}" if args.min_price else ""), "",
              f"Panel: {len(panel):,} asset-months over {panel.date.nunique()} months ({panel.date.min().date()} → {panel.date.max().date()}), "

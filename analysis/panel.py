@@ -36,6 +36,29 @@ Features (all as of t):
   char_n             how many other liquid cards that subject had at t
   age_years          t.year - card year (vintage-ness)
 
+  Valuation features (2026-09-19, Sid's four candidate theories):
+  band_z             Bollinger-style: (log ref(t) - mean log price of the card's
+                     own sales in (t-365d, t]) / their std, needs >= BAND_MIN_SALES.
+                     Negative = trading below its own year's range.
+  peer_resid         relative value vs peers: log10 ref(t) minus a two-way
+                     fixed-effects fit on the liquid universe at t — one effect
+                     per (set, finish, language) and one per subject (the
+                     character tier), fitted by alternating median demeaning.
+                     Negative = cheaper than its set-mates of the same finish
+                     after allowing for how its character prices in general.
+                     NaN when the (set, finish, language) group has fewer than
+                     PEER_MIN_GROUP liquid cards that month.
+  scarcity_gap       scarcity-to-price: within (era, language) at t, percentile
+                     rank of scarcity (-log pop) minus percentile rank of price.
+                     Positive = scarcer than its price rank says. *** NOT
+                     point-in-time: pop is today's PSA 10 pop (latest/cards.csv),
+                     the daily snapshots start 2026-09-11. Pop only grows, so
+                     today's pop is an upper bound on pop at t and the rank is
+                     roughly preserved for vintage cards, badly wrong for modern
+                     ones. Kept out of the fitted models unless --with-pop. ***
+                     "Mean reversion" is the momentum test with the sign flipped;
+                     nothing new to add.
+
 Targets (all strictly after t):
   fwd60, fwd90       ref(t+N)/ref(t) - 1, only when >= MIN_FWD_SALES sales
                      happened in (t, t+N] (otherwise the "future price" would
@@ -120,6 +143,11 @@ EXIT_QUANTILE = 0.40
 ILLIQUID_HAIRCUT = 0.15    # default haircut on an illiquid mark (backtest sweeps 0 / 15 / 30%)
 PRICE_BINS = [0, 50, 100, 250, 500, 1000, 2500, 10000, np.inf]   # cost-matched benchmark bins for the money target's excess return
 MIN_BIN_ROWS = 20
+BAND_MIN_SALES = 5         # band_z needs this many sales in the trailing year
+PEER_MIN_GROUP = 3         # peer_resid needs this many liquid cards in the (set, finish, language) group that month
+SCARCITY_MIN_GROUP = 20    # scarcity_gap needs this many liquid cards in the (era, language) group that month
+ERA_BINS = [-np.inf, 2003, 2013, 2019, np.inf]   # wotc / vintage / modern / current
+ERA_LABELS = ["wotc", "vintage", "modern", "current"]
 AUCTION_HOUSE_RX = "auction"   # sources containing this (Goldin Auctions, Heritage Auctions, PWCC Weekly/Premier Auctions, Pristine Auction, Lelands Auctions)
 
 
@@ -159,7 +187,55 @@ def ref_price(prices, lo, hi):
     return float(np.median(prices[max(lo, hi - 3):hi]))
 
 
-def build_panel(sales, assets, rebalance_dates):
+def finish_tag(variety):
+    v = (variety or "").lower()
+    return ("1st " if "1st" in v else "") + ("rev" if "reverse" in v else "holo" if "holo" in v else "plain")
+
+
+def language_tag(text):
+    t = (text or "").lower()
+    for lang in ("japanese", "german", "italian", "french", "spanish", "portuguese", "korean", "chinese", "dutch"):
+        if lang in t:
+            return lang
+    return "english"
+
+
+def two_way_resid(lp, key1, key2, min_group=PEER_MIN_GROUP, iters=8):
+    """lp minus a (key1 effect + key2 effect), effects fitted by alternating
+    median demeaning within one cross-section. NaN where key1's group is thin."""
+    fe2 = pd.Series(0.0, index=lp.index)
+    for _ in range(iters):
+        fe1 = (lp - fe2).groupby(key1).transform("median")
+        fe2 = (lp - fe1).groupby(key2).transform("median")
+    resid = lp - fe1 - fe2
+    n1 = lp.groupby(key1).transform("size")
+    return resid.where(n1 >= min_group)
+
+
+def add_valuation_features(panel, pops=None):
+    """Cross-sectional valuation features, one cross-section per date."""
+    panel["finish"] = panel.variety.fillna("").astype(str).map(finish_tag)
+    panel["lang"] = (panel.variety.fillna("") + " " + panel.set.fillna("")).map(language_tag)
+    key1 = panel.set.fillna("") + "|" + panel.finish + "|" + panel.lang
+    resid = pd.Series(np.nan, index=panel.index)
+    for _, idx in panel.groupby("date").indices.items():
+        idx = panel.index[idx]
+        resid[idx] = two_way_resid(panel.loc[idx, "log_price"], key1[idx], panel.loc[idx, "subject"].fillna(""))
+    panel["peer_resid"] = resid
+    panel["scarcity_gap"] = np.nan
+    if pops is not None:
+        panel["pop_today"] = panel.asset_id.map(pops)
+        panel["era"] = pd.cut(pd.to_numeric(panel.year, errors="coerce"), ERA_BINS, labels=ERA_LABELS).astype(str)
+        ok = panel.pop_today > 0
+        grp = panel[ok].groupby(["date", "era", "lang"])
+        n = grp.log_price.transform("size")
+        scarcity_rank = (-np.log10(panel.loc[ok, "pop_today"])).groupby([panel.loc[ok, "date"], panel.loc[ok, "era"], panel.loc[ok, "lang"]]).rank(pct=True)
+        price_rank = grp.log_price.rank(pct=True)
+        panel.loc[ok, "scarcity_gap"] = (scarcity_rank - price_rank).where(n >= SCARCITY_MIN_GROUP)
+    return panel
+
+
+def build_panel(sales, assets, rebalance_dates, pops=None):
     T = np.array(rebalance_dates, dtype="datetime64[D]")
     rows = []
     day = np.timedelta64(1, "D")
@@ -202,6 +278,12 @@ def build_panel(sales, assets, rebalance_dates):
             row["bin_share90"] = bin_[lo90:hi].mean() if hi > lo90 else np.nan
             row["ebay_share90"] = ebay[lo90:hi].mean() if hi > lo90 else np.nan
             row["accel"] = row["mom30"] - row["mom90"] / 3 if not np.isnan(row["mom90"]) else np.nan
+            if hi - lo365 >= BAND_MIN_SALES:
+                lp365 = np.log10(p[lo365:hi])
+                sd = lp365.std(ddof=1)
+                row["band_z"] = (np.log10(ref) - lp365.mean()) / sd if sd > 0 else 0.0
+            else:
+                row["band_z"] = np.nan
             # targets: strictly after t
             for h in HORIZONS:
                 th = t + h * day
@@ -256,8 +338,12 @@ def build_panel(sales, assets, rebalance_dates):
     panel = pd.DataFrame(rows)
     if panel.empty:
         return panel
-    panel = panel.merge(assets[["asset_id", "subject", "year", "set"]], on="asset_id", how="left")
+    cols = ["asset_id", "subject", "year", "set"] + (["variety"] if "variety" in assets.columns else [])
+    panel = panel.merge(assets[cols], on="asset_id", how="left")
+    if "variety" not in panel.columns:
+        panel["variety"] = ""
     panel["age_years"] = panel.date.dt.year - pd.to_numeric(panel.year, errors="coerce")
+    add_valuation_features(panel, pops)
 
     # market and character context, per date, computed from the universe at that date
     panel["mkt_mom30"] = panel.groupby("date").mom30.transform("median")
@@ -308,13 +394,15 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
     print("loading sales…")
     sales = load_clean_sales()
-    assets = pd.read_csv(ROOT / "history" / "assets.csv", usecols=["asset_id", "subject", "year", "set"])
+    assets = pd.read_csv(ROOT / "history" / "assets.csv", usecols=["asset_id", "subject", "year", "set", "variety"], dtype={"variety": str})
+    feed = pd.read_csv(ROOT / "latest" / "cards.csv", usecols=["asset_id", "pop_at_grade"])
+    pops = pd.to_numeric(feed.pop_at_grade, errors="coerce").set_axis(feed.asset_id).dropna()
     data_date = sales.date.max()
     last_rebalance = data_date - pd.Timedelta(days=max(HORIZONS))
     dates = pd.date_range(REBALANCE_START, last_rebalance, freq="MS")
     print(f"{len(sales)} clean sales on {sales.asset_id.nunique()} assets (>= {MIN_TOTAL_SALES} sales each), data through {data_date.date()}")
     print(f"{len(dates)} monthly rebalance dates {dates[0].date()} .. {dates[-1].date()}")
-    panel = build_panel(sales, assets, dates)
+    panel = build_panel(sales, assets, dates, pops)
     panel.to_csv(OUT / "panel.csv", index=False)
     liquid = panel.groupby("date").size()
     print(f"panel: {len(panel)} asset-months, {panel.asset_id.nunique()} assets; liquid universe per month min {liquid.min()} median {int(liquid.median())} max {liquid.max()}")

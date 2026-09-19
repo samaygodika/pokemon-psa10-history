@@ -20,7 +20,7 @@ def make_sales(rows):
     return df.sort_values(["asset_id", "date"]).reset_index(drop=True)
 
 
-ASSETS = pd.DataFrame({"asset_id": ["a", "b"], "subject": ["Charizard", "Charizard"], "year": [1999, 1999], "set": ["Base", "Base"]})
+ASSETS = pd.DataFrame({"asset_id": ["a", "b"], "subject": ["Charizard", "Charizard"], "year": [1999, 1999], "set": ["Base", "Base"], "variety": ["Holo", "Holo"]})
 
 
 def test_future_sales_do_not_touch_features():
@@ -145,3 +145,29 @@ if __name__ == "__main__":
         if name.startswith("test_"):
             fn()
             print("ok", name)
+
+
+def test_band_z_ignores_future_and_needs_a_years_history():
+    # 6 sales in the trailing year at 100/100/100/100/100/200: ref = median(100,100,200) = 100 -> below the year mean
+    base = [("a", f"2024-0{m}-15", 100.0, "eBay", "AUCTION") for m in range(1, 6)] + [("a", "2024-05-20", 200.0, "eBay", "AUCTION")]
+    planted = [("a", "2024-06-02", 1_000_000.0, "eBay", "AUCTION"), ("a", "2024-06-20", 1_000_000.0, "eBay", "AUCTION")]
+    p0 = panel.build_panel(make_sales(base), ASSETS, [pd.Timestamp("2024-06-01")])
+    p1 = panel.build_panel(make_sales(base + planted), ASSETS, [pd.Timestamp("2024-06-01")])
+    assert p0.iloc[0].band_z < 0 and abs(p0.iloc[0].band_z - p1.iloc[0].band_z) < 1e-12
+    thin = [("a", f"2024-0{m}-15", 100.0, "eBay", "AUCTION") for m in range(2, 6)]   # 4 sales < BAND_MIN_SALES
+    assert np.isnan(panel.build_panel(make_sales(thin), ASSETS, [pd.Timestamp("2024-06-01")]).iloc[0].band_z)
+
+
+def test_peer_resid_is_cross_sectional_and_thin_groups_are_nan():
+    # three Base Set Holo Charizard-subject cards at 100 / 400 / 400: the cheap one sits below its peers
+    rows = []
+    for aid, price in (("a", 100.0), ("b", 400.0), ("c", 400.0)):
+        rows += [(aid, f"2024-0{m}-15", price, "eBay", "AUCTION") for m in range(1, 6)]
+    assets = pd.DataFrame({"asset_id": list("abc"), "subject": ["Charizard"] * 3, "year": [1999] * 3, "set": ["Base"] * 3, "variety": ["Holo"] * 3})
+    p = panel.build_panel(make_sales(rows), assets, [pd.Timestamp("2024-06-01")]).set_index("asset_id")
+    assert p.loc["a", "peer_resid"] < -0.5 and abs(p.loc["b", "peer_resid"]) < 1e-9
+    # two cards only -> the (set, finish, language) group is below PEER_MIN_GROUP -> NaN, never a fake 0
+    p2 = panel.build_panel(make_sales([r for r in rows if r[0] != "c"]), assets, [pd.Timestamp("2024-06-01")])
+    assert p2.peer_resid.isna().all()
+    # scarcity_gap only exists when pops are supplied
+    assert p.scarcity_gap.isna().all()
