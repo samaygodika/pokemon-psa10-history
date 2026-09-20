@@ -34,15 +34,13 @@ jobs:
           NIGHTLY_LIMIT: ${{ inputs.limit }}
           NIGHTLY_SKIP_HISTORY: ${{ inputs.limit != '' && '1' || '' }}
         run: nightly/run_nightly.sh
+      # Re-derives on top of origin/main instead of rebasing if another run's
+      # commit landed meanwhile (the generated files always conflict).
       - name: commit history/ and latest/
         if: ${{ inputs.limit == '' }}
-        run: |
-          git config user.name "alt.xyz nightly"
-          git config user.email "nightly@users.noreply.github.com"
-          git add history latest
-          git commit -m "$(python3 -c 'import json;s=json.load(open("latest/summary.json"));print("nightly",s["data_date"]+":",s["assets"],"assets,",s["psa10_sales"],"sales")')" || { echo "nothing to commit"; exit 0; }
-          git pull --rebase
-          git push
+        run: nightly/commit_results.sh
+      # The raw run, so a failed commit can be re-ingested by hand
+      # (python3 history/ingest.py <dir> --date <day>) instead of re-scraped.
       - name: keep the raw run as a downloadable artifact (7 days)
         if: always()
         uses: actions/upload-artifact@v4
@@ -50,5 +48,6 @@ jobs:
           name: snapshot-${{ github.run_id }}
           path: |
             snapshots/*/cards.csv
+            snapshots/*/sales.csv
             snapshots/*/run.log
           retention-days: 7

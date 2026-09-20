@@ -29,6 +29,7 @@ SCOPE=${NIGHTLY_SCOPE:-top60}
 OUT="snapshots/$DAY"
 if [ "$SCOPE" = "full" ]; then OUT="snapshots/$DAY-full"; fi
 mkdir -p "$OUT"
+printf 'OUT=%s\nDAY=%s\n' "$OUT" "$DAY" > snapshots/last_run.env   # for nightly/commit_results.sh
 LOG="$OUT/run.log"
 exec > >(tee -a "$LOG") 2>&1
 echo "=== $SCOPE scrape $DAY started $(date '+%F %T') ==="

@@ -26,11 +26,23 @@ jobs:
           NIGHTLY_WORKERS: "6"
           NIGHTLY_DELAY: "0"
         run: nightly/run_nightly.sh
+      # Re-derives on top of origin/main instead of rebasing if another run's
+      # commit landed meanwhile: on 2026-09-20 the nightly's push landed seconds
+      # before this job's checkout and the rebase conflicted on every generated
+      # file, losing the run.
       - name: commit history/ and latest/
-        run: |
-          git config user.name "alt.xyz nightly"
-          git config user.email "nightly@users.noreply.github.com"
-          git add history latest
-          git commit -m "weekly full $(date -u +%F)" || { echo "nothing to commit"; exit 0; }
-          git pull --rebase
-          git push
+        env:
+          COMMIT_PREFIX: weekly full
+        run: nightly/commit_results.sh
+      # The raw run (~65k cards, every sale), so a failed commit can be
+      # re-ingested by hand instead of re-scraped for 5 h.
+      - name: keep the raw run as a downloadable artifact (7 days)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: snapshot-full-${{ github.run_id }}
+          path: |
+            snapshots/*/cards.csv
+            snapshots/*/sales.csv
+            snapshots/*/run.log
+          retention-days: 7
