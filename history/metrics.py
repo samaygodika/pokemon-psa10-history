@@ -83,6 +83,9 @@ OUTLIER_LOW, OUTLIER_HIGH = 0.25, 6.0          # band around the running referen
 OUTLIER_REF, OUTLIER_MIN_ACCEPTED = 12, 4       # reference = median of the last 12 accepted sales, needs 4
 OUTLIER_RESET_RUN_LOW, OUTLIER_RESET_RUN_HIGH = 5, 2   # consecutive same-side rejections that confirm a real move
 OUTLIER_REF_MAX_AGE = timedelta(days=365)      # a reference older than this says nothing about today
+OUTLIER_STALE_MIN = 3                          # with fewer than OUTLIER_MIN_ACCEPTED same-year sales, fall back to the last
+OUTLIER_STALE_LOW, OUTLIER_STALE_HIGH = 0.1, 10.0   # OUTLIER_REF accepted sales of any age, with this wider band (2026-09-21)
+OUTLIER_CONTINUATION = 2.0                     # a sale within this factor of the LAST accepted sale is never an outlier
 WINDOWS = {"30d": 30, "90d": 90, "1y": 365}
 
 
@@ -164,23 +167,61 @@ def drop_outliers(sales):
         dozen accepted sales are years old can't anchor a stale price.
     Result on 2026-09-16 data: newest-sale rejections 2,658 -> 144, sales
     dropped 0.67% -> 0.16%, every known junk case still clean, and the
-    sales it still rejects are mostly never confirmed."""
+    sales it still rejects are mostly never confirmed.
+
+    Stale-reference fallback (2026-09-21, after Sid found a PSA 5 sold at
+    $31.20 sitting in a Meganium Prime's PSA 10 history): the one-year
+    reference left every card with fewer than four sales that year with NO
+    filter at all, and 3% of all sales (83k) fall in that gap, including 963
+    cards whose newest sale is 10x+ their whole history (alt.xyz's Goldin and
+    PWCC ingestion attaches unrelated lots: a "Crown Zenith" $122,000 sale
+    whose URL is a signed Steve Jobs job application). So when the year has
+    fewer than OUTLIER_MIN_ACCEPTED accepted sales but the card has at least
+    OUTLIER_STALE_MIN, the reference is the last OUTLIER_REF accepted sales
+    of any age with a wider band, 1/10x .. 10x, and the same confirmation
+    runs. Measured on that population: low-side sales below 1/10x are later
+    confirmed 5% of the time (junk), high-side sales above 10x about 65-70%
+    of the time (mostly real re-pricings of long-dormant vintage cards), so
+    the high side is a hold-until-confirmed, not a verdict: the literal sale
+    still ships as last_sale_price with last_sale_unconfirmed = 1, and the
+    clean price / change columns wait for the second sale.
+
+    Once a run is confirmed the reference really does jump to it: only sales
+    from the confirmed run onward feed the reference (a regime), and one such
+    sale is enough. Without that, the median of the last 12 accepted sales
+    stayed anchored to the old level after a confirmed 10x move and held
+    back every later sale at the new level in pairs (seen 2026-09-21 on the
+    first version of the stale fallback: 700+ cards flagged unconfirmed on a
+    newest sale within 1% of the previous one). And a sale within
+    OUTLIER_CONTINUATION of the last accepted sale is accepted whatever the
+    median says: a slow-moving 12-sale median can sit just under the band's
+    edge after one accepted 9x sale, and the next sale at the same level
+    must not be called an outlier."""
     keep, dropped = [], 0
     accepted = []  # accepted sales (date, price, source), in date order
     run = []       # consecutive rejected sales, same side
+    regime = 0     # index into accepted: the first sale of the last confirmed run (0 = no confirmed move yet)
     for sale in sales:
         price = sale[1]
-        recent = [a[1] for a in accepted[-OUTLIER_REF:] if sale[0] - a[0] <= OUTLIER_REF_MAX_AGE]
-        if len(recent) >= OUTLIER_MIN_ACCEPTED:
-            ref = statistics.median(recent)
-            low, high = price < OUTLIER_LOW * ref, price > OUTLIER_HIGH * ref
+        pool = accepted[regime:]
+        recent = [a[1] for a in pool[-OUTLIER_REF:] if sale[0] - a[0] <= OUTLIER_REF_MAX_AGE]
+        if len(recent) >= (OUTLIER_MIN_ACCEPTED if regime == 0 else 1):
+            ref, lo_b, hi_b = statistics.median(recent), OUTLIER_LOW, OUTLIER_HIGH
+        elif len(pool) >= (OUTLIER_STALE_MIN if regime == 0 else 1):
+            # stale reference: not enough sales this year, so the last 12 of any age with the wider band
+            ref, lo_b, hi_b = statistics.median([a[1] for a in pool[-OUTLIER_REF:]]), OUTLIER_STALE_LOW, OUTLIER_STALE_HIGH
+        else:
+            ref = None
+        if ref is not None and not (accepted and 1 / OUTLIER_CONTINUATION <= price / accepted[-1][1] <= OUTLIER_CONTINUATION):
+            low, high = price < lo_b * ref, price > hi_b * ref
             if low or high:
                 side = "low" if low else "high"
                 if run and run[0][0] != side:
                     run = []
                 run.append((side, sale))
                 if len(run) >= (OUTLIER_RESET_RUN_LOW if side == "low" else OUTLIER_RESET_RUN_HIGH):
-                    # confirmed move (high) or regime change (low): the run is real
+                    # confirmed move (high) or regime change (low): the run is real, and the reference jumps to it
+                    regime = len(accepted)
                     for _, r in run:
                         keep.append(r)
                         accepted.append(r)

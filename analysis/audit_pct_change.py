@@ -12,7 +12,12 @@ Definitions audited (README, "The data PokeSniper gets"):
                    excluded), after the sequential outlier filter: reference =
                    median of the last 12 accepted sales within one year, needs 4;
                    a sale below 1/4x or above 6x is held back unless confirmed
-                   (2 consecutive highs, 5 consecutive lows).
+                   (2 consecutive highs, 5 consecutive lows); with fewer than 4
+                   same-year sales but at least 3 ever, the reference is the last
+                   12 of any age and the band 1/10x .. 10x. After a confirmed
+                   run only sales from that run onward form the reference, and
+                   one of them is enough. A sale within 2x of the last accepted
+                   sale is never held.
   ref(t)           median of the up-to-3 newest clean sales in (t-180d, t].
   price_chg_Nd_pct ref(today) vs ref(today-N), only when both exist and at
                    least one clean sale fell in (today-N, today].
@@ -39,6 +44,8 @@ OUT_LOW, OUT_HIGH = 0.25, 6.0
 OUT_REF_N, OUT_MIN_ACCEPTED = 12, 4
 OUT_RUN_LOW, OUT_RUN_HIGH = 5, 2
 OUT_REF_MAX_AGE = 365
+OUT_STALE_MIN, OUT_STALE_LOW, OUT_STALE_HIGH = 3, 0.1, 10.0
+OUT_CONTINUATION = 2.0
 
 
 def load_sales():
@@ -66,20 +73,27 @@ def clean_sales(sales):
     accepted, kept = [], []
     run_side, run = None, []
     dropped = 0
+    regime = 0
     for sd, price, src, flagged in sales:
         if flagged:
             continue
         sale = (sd, price, src)
-        window = [a for a in accepted[-OUT_REF_N:] if (sd - a[0]).days <= OUT_REF_MAX_AGE]
-        if len(window) >= OUT_MIN_ACCEPTED:
-            ref = statistics.median(a[1] for a in window)
-            side = "low" if price < OUT_LOW * ref else "high" if price > OUT_HIGH * ref else None
+        pool = accepted[regime:]
+        window = [a for a in pool[-OUT_REF_N:] if (sd - a[0]).days <= OUT_REF_MAX_AGE]
+        ref = None
+        if len(window) >= (OUT_MIN_ACCEPTED if regime == 0 else 1):
+            ref, lo_b, hi_b = statistics.median(a[1] for a in window), OUT_LOW, OUT_HIGH
+        elif len(pool) >= (OUT_STALE_MIN if regime == 0 else 1):
+            ref, lo_b, hi_b = statistics.median(a[1] for a in pool[-OUT_REF_N:]), OUT_STALE_LOW, OUT_STALE_HIGH
+        if ref is not None and not (accepted and 1 / OUT_CONTINUATION <= price / accepted[-1][1] <= OUT_CONTINUATION):
+            side = "low" if price < lo_b * ref else "high" if price > hi_b * ref else None
             if side:
                 if run_side != side:
                     run_side, run = side, []
                 run.append(sale)
                 need = OUT_RUN_LOW if side == "low" else OUT_RUN_HIGH
                 if len(run) >= need:
+                    regime = len(accepted)
                     kept.extend(run)
                     accepted.extend(run)
                     dropped -= len(run) - 1
