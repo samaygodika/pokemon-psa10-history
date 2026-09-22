@@ -14,7 +14,9 @@ Store layout (all plain CSV, all append/merge-friendly so git diffs stay small):
                                   asset (pop, totals, last sale, index counts,
                                   listing). Re-ingesting the same day merges by
                                   asset, newest scraped_at wins.
-    history/sales/<YYYY-MM>.csv   every PSA 10 sale ever seen, bucketed by sale
+    history/sales/<YYYY-MM>.csv   every PSA 10 sale ever seen (plus PSA 9 sales for
+                                  cards scraped with --also-grade 9; the grade
+                                  column tells them apart), bucketed by sale
                                   month, deduplicated by sale URL (or by
                                   asset+date+price+source when there is no URL).
                                   Old months are never rewritten unless a scrape
@@ -40,7 +42,8 @@ ASSET_COLS = IDENTITY_COLS + ["first_seen", "last_seen"]
 DAILY_COLS = ["asset_id", "pop_at_grade", "company_total_pop", "index_total_pop", "index_transaction_count",
               "num_sales", "last_sale_price", "last_sale_date", "last_sale_source", "avg_last_3_sales",
               "highest_sale", "lowest_sale", "scraped_at", "alt_public_url",
-              "listing_source", "listing_grade", "listing_grading_company", "listing_price", "listing_url"]
+              "listing_source", "listing_grade", "listing_grading_company", "listing_price", "listing_url",
+              "pop_at_grade_9", "extra_grades"]
 SALE_COLS = ["asset_id", "date", "price", "grading_company", "grade", "source", "sale_type", "url",
              "label", "subject_to_change", "skipped_reason"]
 

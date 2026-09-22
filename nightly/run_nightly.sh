@@ -10,14 +10,15 @@
 #   2. scope filter   -> snapshots/<date>/scope.txt (+ .json sidecar)
 #   3. scrape         -> snapshots/<date>/cards.csv, sales.csv, run.log   (retries failed cards twice)
 #   4. ingest         -> history/assets.csv, history/daily/<date>.csv, history/sales/<month>.csv
-#   5. metrics        -> latest/cards.csv, latest/series/*.csv, latest/recent_sales/*.csv, latest/summary.json
+#   5. metrics        -> latest/cards.csv, latest/series/*.csv, latest/recent_sales{,_psa9}/*.csv, latest/summary.json
 #   6. coverage       -> latest/characters.csv (per-character alt-side market cap and coverage)
 #
 # Only history/ and latest/ are committed; snapshots/ is raw and gitignored.
 # Every dated snapshot is kept locally on purpose (cheap, and lets a bad ingest
 # be redone), prune old ones by hand if disk gets tight.
 #
-# Env knobs: NIGHTLY_SCOPE (top60 = the subjects lists | full), NIGHTLY_WORKERS (4), NIGHTLY_DELAY
+# Env knobs: NIGHTLY_SCOPE (top60 = the subjects lists | full), NIGHTLY_ALSO_GRADE (9 on the nightly scope,
+# empty on full; "" turns it off), NIGHTLY_WORKERS (4), NIGHTLY_DELAY
 # (0.25 s per worker between requests), NIGHTLY_LIMIT (scrape only the first N
 # cards, for smoke tests), NIGHTLY_DATE (override the folder/day name),
 # NIGHTLY_SKIP_HISTORY=1 (stop after the scrape).
@@ -63,7 +64,14 @@ CAFF=""; command -v caffeinate >/dev/null && CAFF="caffeinate -i"
 # written with pop_at_grade = 0 (a real zero) instead of being skipped, so
 # PokeSniper's Categories tab can say "PSA 10 pop: 0" (Sid, 2026-09-17).
 # Blank pop still means "alt.xyz has no PSA rows at all" — a different fact.
-SCRAPE=($PY alt_scraper.py --workers "${NIGHTLY_WORKERS:-4}" --delay "${NIGHTLY_DELAY:-0.25}" --max-sales 0 --keep-empty --out "$OUT" "$SCOPE_LIST")
+# --also-grade 9 (nightly scope only): PSA 9 sales too, one more request per
+# card that has any PSA 9s (~+0.7 sale rows per PSA 10 row), for the PSA 9 feed
+# columns and the "PSA 9s lag a PSA 10 pump" research (2026-09-22). The weekly
+# full run leaves it off: 65k cards is already ~5 h of a 6 h job limit.
+if [ "$SCOPE" = "full" ]; then ALSO_GRADE="${NIGHTLY_ALSO_GRADE-}"; else ALSO_GRADE="${NIGHTLY_ALSO_GRADE-9}"; fi
+SCRAPE=($PY alt_scraper.py --workers "${NIGHTLY_WORKERS:-4}" --delay "${NIGHTLY_DELAY:-0.25}" --max-sales 0 --keep-empty --out "$OUT")
+if [ -n "$ALSO_GRADE" ]; then SCRAPE+=(--also-grade "$ALSO_GRADE"); fi
+SCRAPE+=("$SCOPE_LIST")
 $CAFF "${SCRAPE[@]}" || true
 # Retry pass: --resume skips everything already in cards.csv, so only the
 # cards that failed (network blips) get fetched again. Up to 2 passes.

@@ -8,6 +8,7 @@ Usage
   python3 alt_scraper.py cards.txt                 # one alt.xyz URL, ID, or search per line
   python3 alt_scraper.py https://alt.xyz/itm/<id>/external ...
   python3 alt_scraper.py --grade 9 cards.txt       # PSA 9 instead of PSA 10
+  python3 alt_scraper.py --also-grade 9 cards.txt  # PSA 10 rows, plus PSA 9 sales in sales.csv
   python3 alt_scraper.py --company BGS --grade 9.5 cards.txt
   python3 alt_scraper.py --find "charizard base set"   # look up cards by name, print asset IDs
   python3 alt_scraper.py --list charizard              # write EVERY matching card to charizard_cards.txt
@@ -25,7 +26,7 @@ Accepted inputs (one per line, blank lines and # comments ignored):
 
 Outputs (written next to this script unless --out is given):
   cards.csv        one row per card: population + price summary
-  sales.csv        one row per recorded sale at the chosen grade
+  sales.csv        one row per recorded sale at the chosen grade (and at any --also-grade)
 
 Only the Python standard library is used.
 """
@@ -259,7 +260,7 @@ def normalise_grade(g):
     return f"{float(g):.1f}"
 
 
-def summarise(asset, pops, sales, company, grade, source_input, listing, public_url=""):
+def summarise(asset, pops, sales, company, grade, source_input, listing, public_url="", extra_grades=()):
     pop_by = {(p["gradingCompany"], p["gradeNumber"]): p["count"] for p in pops}
     company_total = sum(c for (co, _), c in pop_by.items() if co == company)
     # No rows at all for the chosen company means "alt.xyz has no <company> data for this
@@ -291,6 +292,10 @@ def summarise(asset, pops, sales, company, grade, source_input, listing, public_
         "grading_company": company,
         "grade": grade,
         "pop_at_grade": pop_by.get((company, grade), 0) if pops_known else None,
+        # PSA 9 pop rides along for free (same cardPops response); PSA 9 sales only
+        # when --also-grade 9 asked for them, and extra_grades says so.
+        "pop_at_grade_9": pop_by.get((company, "9.0"), 0) if pops_known else None,
+        "extra_grades": " ".join(extra_grades),
         "company_total_pop": company_total if pops_known else None,
         "index_total_pop": asset.get("index_total_pop"),
         "index_transaction_count": asset.get("index_transaction_count"),
@@ -311,7 +316,7 @@ def summarise(asset, pops, sales, company, grade, source_input, listing, public_
 CARD_COLS = ["input", "asset_id", "card_name", "alt_url", "alt_public_url", "year", "set", "card_number", "subject", "variety",
              "grading_company", "grade", "pop_at_grade", "company_total_pop", "index_total_pop", "index_transaction_count", "num_sales",
              "last_sale_price", "last_sale_date", "last_sale_source", "avg_last_3_sales",
-             "highest_sale", "lowest_sale", "scraped_at"]
+             "highest_sale", "lowest_sale", "scraped_at", "pop_at_grade_9", "extra_grades"]
 LISTING_COLS = ["listing_source", "listing_grade", "listing_grading_company", "listing_price", "listing_url"]
 SALE_COLS = ["asset_id", "card_name", "alt_url", "date", "price", "grading_company", "grade", "source",
              "sale_type", "url", "label", "subject_to_change", "skipped_reason"]
@@ -527,6 +532,9 @@ def main():
                     help=f"pause after each request, per worker. Default {DELAY_SECONDS}")
     ap.add_argument("--company", default="PSA", help="grading company (PSA, BGS, CGC, SGC). Default PSA")
     ap.add_argument("--grade", default="10", help="grade to pull sales for. Default 10")
+    ap.add_argument("--also-grade", action="append", default=[], metavar="G",
+                    help="also pull sales at this grade (same company) into sales.csv, e.g. --also-grade 9. "
+                         "One extra request per card; the card row's stats stay on --grade. Repeatable")
     ap.add_argument("--category", default="POKEMON_CARDS", help="search category filter, or ALL. Default POKEMON_CARDS")
     ap.add_argument("--loose", action="store_true", help="with --list: also keep cards that only mention TEXT in the set name")
     ap.add_argument("--min-pop", type=int, default=0, metavar="N",
@@ -570,13 +578,14 @@ def main():
 
     company = args.company.upper()
     grade = normalise_grade(args.grade)
+    also_grades = [g for g in dict.fromkeys(normalise_grade(g) for g in args.also_grade) if g != grade]
     DELAY_SECONDS = max(0.0, args.delay)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
 
     inputs, sidecar = read_inputs(args.inputs)
     n = len(inputs)
-    print(f"{n} card(s) to fetch, {company} {grade}, {args.workers} worker(s), {DELAY_SECONDS}s pause"
+    print(f"{n} card(s) to fetch, {company} {grade}" + "".join(f" + {g} sales" for g in also_grades) + f", {args.workers} worker(s), {DELAY_SECONDS}s pause"
           + (f", {len(sidecar)} card details preloaded" if sidecar else "") + "\n")
 
     seen_assets = already_done(out / "cards.csv") if args.resume else set()
@@ -624,11 +633,17 @@ def main():
                 return "skipped", header + f"\n        no {company} {grade} copies graded, skipped", None, []
             sales = fetch_sales(asset["id"], company, grade)
             public_url = fetch_public_page(asset["id"], company, grade)
-            row = summarise(asset, pops, sales, company, grade, raw, listing, public_url)
+            row = summarise(asset, pops, sales, company, grade, raw, listing, public_url, also_grades)
+            extra_sales = []
+            for g in also_grades:
+                # a pop table that has this company's rows but no copies at g can't have sales at g
+                if company_rows and not any(p["gradingCompany"] == company and p["gradeNumber"] == g and p["count"] for p in pops):
+                    continue
+                extra_sales += list(sale_rows(asset, fetch_sales(asset["id"], company, g), args.max_sales))
             pop_label = row["pop_at_grade"] if company_rows else f"unknown (no {company} rows in the pop table; index says {row['index_total_pop']} graded across all companies)"
             msg = (header + f"\n        {company} {grade} pop: {pop_label}   sales: {row['num_sales']}"
                    f"   last: ${row['last_sale_price']} on {row['last_sale_date']}")
-            return "ok", msg, row, list(sale_rows(asset, sales, args.max_sales))
+            return "ok", msg, row, list(sale_rows(asset, sales, args.max_sales)) + extra_sales
         except Exception as e:  # keep going on a bad line
             return "failed", f"[{i}/{n}] FAILED {raw}: {e}", None, []
 

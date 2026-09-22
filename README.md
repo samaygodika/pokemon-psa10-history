@@ -32,6 +32,10 @@ say", never 0:
 | `volume_30d`, `_90d`, `_1y` | clean PSA 10 sales in the window. |
 | `pop_30d_ago`, `pop_chg_30d`, `mkt_cap_chg_30d_pct` | need 30 days of daily snapshots; blank until the series is that old (first daily file: 2026-09-11). |
 | `median_last_3`, `sales_first_date`, `sales_total`, `history_days` | how much history stands behind the row. |
+| `pop_at_grade_9` | PSA 9 pop, same blank-vs-0 rule as `pop_at_grade`. Every run. |
+| `psa9_scraped_date` | newest nightly that pulled this card's PSA 9 sales (nightly scope only, from 2026-09-23). **Blank = PSA 9 sales not collected**, and then every `psa9_*` sale column below is blank too. |
+| `psa9_last_sale_price/date/source`, `psa9_clean_last_sale_price`, `psa9_last_sale_unconfirmed`, `psa9_median_last_3`, `psa9_volume_30d`, `psa9_price_chg_30d_pct`, `psa9_sales_total` | the PSA 10 definitions above applied to PSA 9 sales (same mirror rule and outlier filter). `psa9_sales_total` = 0 means collected and none sold. |
+| `psa9_to_psa10_ratio` | `psa9_median_last_3` / `median_last_3`. |
 
 `latest/series/<first two hex of asset_id>.csv` holds the weekly PSA 10 sale
 series per asset (`week_start, n_sales, median_price, low, high`) for charts;
@@ -40,6 +44,7 @@ the server's `GET /api/samay-data/series?ids=…` reads one shard per lookup.
 first, including sales alt.xyz flags (`status` = ok / RELISTED / NOT_PAID /
 PENDING …) and sales the filter is holding back (`outlier` = 1), with the sale
 URL — `GET /api/samay-data/recent-sales?ids=…` for the app's price dropdown.
+`latest/recent_sales_psa9/<xx>.csv` is the same for PSA 9 sales (same columns).
 
 `latest/characters.csv` (from `history/coverage.py`) has one row per name in
 `nightly/subjects.txt`: English rows in the feed, how many have a PSA 10 pop /

@@ -52,6 +52,19 @@ never as 0.
   sales_first_date, sales_total, history_days: how much history stands behind
                          the row.
 
+PSA 9 (2026-09-22; the idea to test: PSA 9s lag a PSA 10 pump by weeks):
+  pop_at_grade_9       = PSA 9 population, from every run (same pop response).
+  psa9_scraped_date    = newest run that pulled this card's PSA 9 sales
+                         (--also-grade 9; the nightly scope only). Blank = PSA 9
+                         sales not collected, so every psa9_* sale column is
+                         blank too; psa9_sales_total = 0 means none sold.
+  psa9_last_sale_*, psa9_clean_last_sale_price, psa9_last_sale_unconfirmed,
+  psa9_median_last_3, psa9_volume_30d, psa9_price_chg_30d_pct, psa9_sales_total
+                       = the PSA 10 definitions above, applied to PSA 9 sales
+                         (same mirror rule, same outlier filter).
+  psa9_to_psa10_ratio  = psa9_median_last_3 / median_last_3.
+  latest/recent_sales_psa9/<xx>.csv = recent_sales/ for PSA 9, same columns.
+
 "today" is the data date (the newest daily file), not the wall clock, so
 rebuilding latest/ from the same history always gives the same file.
 """
@@ -92,6 +105,10 @@ OUTLIER_STALE_LOW, OUTLIER_STALE_HIGH = 0.1, 10.0   # OUTLIER_REF accepted sales
 OUTLIER_CONTINUATION = 2.0                     # a sale within this factor of the LAST accepted sale is never an outlier
 WINDOWS = {"30d": 30, "90d": 90, "1y": 365}
 MIRROR_HOSTS = {"fanaticscollect.com", "pwccmarketplace.com"}   # one PWCC lot, two URLs (2026-09-22)
+GRADES = ("10.0", "9.0")   # PSA 9 sales exist only for cards scraped with --also-grade 9
+PSA9_COLS = ["pop_at_grade_9", "psa9_scraped_date", "psa9_last_sale_price", "psa9_last_sale_date", "psa9_last_sale_source",
+             "psa9_clean_last_sale_price", "psa9_last_sale_unconfirmed", "psa9_median_last_3", "psa9_volume_30d",
+             "psa9_price_chg_30d_pct", "psa9_sales_total", "psa9_to_psa10_ratio"]
 
 
 def d(s):
@@ -144,15 +161,16 @@ def drop_mirror_copies(rows):
 
 
 def load_sales(store):
-    """{asset_id: [(date, price), ...] sorted ascending}, PSA 10 only, skipped
-    sales (alt.xyz's own outlier/bad-data flag) and PWCC mirror copies
-    excluded."""
-    by_asset = defaultdict(list)
-    raw = defaultdict(list)   # every PSA 10 sale incl. flagged ones: (date, price, source, sale_type, status, url)
+    """{grade: (by_asset, n, outliers, raw)} for each of GRADES, one pass over
+    the history. by_asset = {asset_id: [(date, price, source), ...] ascending}
+    with skipped sales (alt.xyz's own outlier/bad-data flag), PWCC mirror
+    copies and outliers excluded; raw = every sale incl. flagged ones as
+    (date, price, source, sale_type, status, url), mirror copies excluded."""
+    raw = {g: defaultdict(list) for g in GRADES}
     for p in sorted((store / "sales").glob("*.csv")):
         with open(p, newline="", encoding="utf-8") as f:
             for s in csv.DictReader(f):
-                if s.get("grading_company") != "PSA" or s.get("grade") != "10.0":
+                if s.get("grading_company") != "PSA" or s.get("grade") not in raw:
                     continue
                 try:
                     price = float(s["price"])
@@ -160,7 +178,12 @@ def load_sales(store):
                     continue
                 if price <= 0:
                     continue
-                raw[s["asset_id"]].append((d(s["date"]), price, s.get("source") or "", s.get("sale_type") or "", s.get("skipped_reason") or "ok", s.get("url") or ""))
+                raw[s["grade"]][s["asset_id"]].append((d(s["date"]), price, s.get("source") or "", s.get("sale_type") or "", s.get("skipped_reason") or "ok", s.get("url") or ""))
+    return {g: clean_grade(g, raw[g]) for g in GRADES}
+
+
+def clean_grade(grade, raw):
+    by_asset = defaultdict(list)
     n = mirrors = 0
     for aid in list(raw):
         raw[aid], dropped = drop_mirror_copies(raw[aid])
@@ -169,7 +192,7 @@ def load_sales(store):
             if status == "ok":
                 by_asset[aid].append((dt_, price, source))
                 n += 1
-    print(f"  {mirrors} PWCC mirror copies dropped", file=sys.stderr)
+    print(f"  PSA {grade}: {mirrors} PWCC mirror copies dropped", file=sys.stderr)
     outliers = {}
     for aid, v in by_asset.items():
         v.sort()
@@ -310,12 +333,63 @@ def to_int(s):
         return None
 
 
+def psa9_cols(aid, num, scraped_day, s9, raw9, ref10, today):
+    """The PSA 9 columns for one card. pop_at_grade_9 comes with every run (it
+    is in the same pop response as PSA 10); the sale columns only exist for
+    cards some run scraped with --also-grade 9 (psa9_scraped_date), so blank
+    there means "not collected", while psa9_sales_total = 0 means none sold."""
+    out = {c: "" for c in PSA9_COLS}
+    out["pop_at_grade_9"] = num.get("pop_at_grade_9", "")
+    if not scraped_day and not raw9:
+        return out
+    out["psa9_scraped_date"] = scraped_day or ""
+    last = s9[-1] if s9 else None
+    ok = [t for t in raw9 if t[4] == "ok"]
+    newest = max(ok) if ok else None
+    if newest:
+        out["psa9_last_sale_price"], out["psa9_last_sale_date"], out["psa9_last_sale_source"] = fmt(newest[1]), newest[0].isoformat(), newest[2]
+    out["psa9_clean_last_sale_price"] = fmt(last[1]) if last else ""
+    out["psa9_last_sale_unconfirmed"] = 1 if (newest and last and (newest[0], newest[1]) != (last[0], last[1]) and newest[0] >= last[0]) else 0
+    ref9 = ref_price(s9, today)
+    out["psa9_median_last_3"] = fmt(ref9)
+    start = today - timedelta(days=30)
+    vol = count_in(s9, start, today)
+    out["psa9_volume_30d"] = vol
+    out["psa9_price_chg_30d_pct"] = fmt(pct(ref9, ref_price(s9, start)) if vol > 0 else None)
+    out["psa9_sales_total"] = len(s9)
+    out["psa9_to_psa10_ratio"] = f"{ref9 / ref10:.4f}" if (ref9 and ref10) else ""
+    return out
+
+
+def write_recent(recent_dir, raw_sales, sales):
+    recent_dir.mkdir(parents=True, exist_ok=True)
+    for old_f in recent_dir.glob("*.csv"):
+        old_f.unlink()
+    rshards = defaultdict(list)
+    n_recent = 0
+    for aid, lst in raw_sales.items():
+        clean_keys = {(t[0], t[1]) for t in sales.get(aid, [])}
+        lst.sort(reverse=True)
+        for sd, price, src, stype, status, url in lst[:RECENT_N]:
+            outlier = 1 if (status == "ok" and (sd, price) not in clean_keys) else 0
+            rshards[aid[:2]].append([aid, sd.isoformat(), fmt(price), src, stype, status, outlier, url])
+            n_recent += 1
+    for shard, rows_ in rshards.items():
+        with open(recent_dir / f"{shard}.csv", "w", newline="", encoding="utf-8") as f:
+            w = csv.writer(f)
+            w.writerow(RECENT_COLS)
+            w.writerows(rows_)
+    return n_recent
+
+
 def build(store=HERE, out=LATEST):
     assets = {a["asset_id"]: a for a in read_csv(store / "assets.csv")}
     daily, days = load_daily(store)
     today = d(days[-1])
-    sales, n_sales, outliers, raw_sales = load_sales(store)
-    print(f"{len(assets)} assets, {len(days)} daily files ({days[0]}..{days[-1]}), {n_sales} PSA 10 sales")
+    by_grade = load_sales(store)
+    sales, n_sales, outliers, raw_sales = by_grade["10.0"]
+    sales9, n_sales9, _, raw_sales9 = by_grade["9.0"]
+    print(f"{len(assets)} assets, {len(days)} daily files ({days[0]}..{days[-1]}), {n_sales} PSA 10 sales, {n_sales9} PSA 9 sales")
 
     # Newest numbers per asset, and the first day each asset appears.
     latest_row, first_day = {}, {}
@@ -323,6 +397,12 @@ def build(store=HERE, out=LATEST):
         for aid, row in daily[day].items():
             latest_row[aid] = (day, row)
             first_day.setdefault(aid, day)
+    # Newest run that also pulled PSA 9 sales, per asset (--also-grade 9).
+    psa9_day = {}
+    for day in days:
+        for aid, row in daily[day].items():
+            if "9.0" in (row.get("extra_grades") or "").split():
+                psa9_day[aid] = day
     # Newest daily file at least 30 days old, per asset.
     cutoff30 = (today - timedelta(days=30)).isoformat()
     pop_30 = {}
@@ -380,11 +460,14 @@ def build(store=HERE, out=LATEST):
         row["sales_first_date"] = s[0][0].isoformat() if s else ""
         row["sales_total"] = len(s)
         row["history_days"] = (today - d(first_day[aid])).days
+        row.update(psa9_cols(aid, num, psa9_day.get(aid), sales9.get(aid, []), raw_sales9.get(aid, []), ref_now, today))
+        if row["psa9_last_sale_price"]:
+            filled["psa9_last_sale_price"] += 1
         rows.append(row)
 
     out.mkdir(parents=True, exist_ok=True)
     with open(out / "cards.csv", "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=CARD_COLS + DERIVED_COLS, extrasaction="ignore")
+        w = csv.DictWriter(f, fieldnames=CARD_COLS + DERIVED_COLS + PSA9_COLS, extrasaction="ignore")
         w.writeheader()
         w.writerows(rows)
 
@@ -415,25 +498,10 @@ def build(store=HERE, out=LATEST):
 
     # Last RECENT_N sales per asset, newest first, flagged rows included with
     # their status, held-back rows marked outlier=1 — for the app's "last 10
-    # sales" dropdown. Sharded like series/.
-    recent_dir = out / "recent_sales"
-    recent_dir.mkdir(exist_ok=True)
-    for old_f in recent_dir.glob("*.csv"):
-        old_f.unlink()
-    rshards = defaultdict(list)
-    n_recent = 0
-    for aid, lst in raw_sales.items():
-        clean_keys = {(t[0], t[1]) for t in sales.get(aid, [])}
-        lst.sort(reverse=True)
-        for sd, price, src, stype, status, url in lst[:RECENT_N]:
-            outlier = 1 if (status == "ok" and (sd, price) not in clean_keys) else 0
-            rshards[aid[:2]].append([aid, sd.isoformat(), fmt(price), src, stype, status, outlier, url])
-            n_recent += 1
-    for shard, rows_ in rshards.items():
-        with open(recent_dir / f"{shard}.csv", "w", newline="", encoding="utf-8") as f:
-            w = csv.writer(f)
-            w.writerow(RECENT_COLS)
-            w.writerows(rows_)
+    # sales" dropdown. Sharded like series/. PSA 9 gets the same files under
+    # recent_sales_psa9/.
+    n_recent = write_recent(out / "recent_sales", raw_sales, sales)
+    n_recent9 = write_recent(out / "recent_sales_psa9", raw_sales9, sales9)
 
     summary = {
         "data_date": today.isoformat(),
@@ -445,6 +513,9 @@ def build(store=HERE, out=LATEST):
         "outliers_excluded": sum(outliers.values()),
         "series_rows": n_series,
         "recent_sales_rows": n_recent,
+        "psa9_sales": n_sales9,
+        "psa9_recent_sales_rows": n_recent9,
+        "rows_with_psa9_last_sale": filled["psa9_last_sale_price"],
         "rows_unconfirmed_last_sale": sum(1 for r in rows if r["last_sale_unconfirmed"] == 1),
         "rows_with": {k: filled[k] for k in ("price_chg_30d_pct", "price_chg_90d_pct", "price_chg_1y_pct", "mkt_cap_chg_30d_pct")},
     }
