@@ -9,7 +9,8 @@ latest/cards.csv. Any card where the two disagree is printed.
 
 Definitions audited (README, "The data PokeSniper gets"):
   clean sales      PSA 10 sales alt.xyz does not flag (RELISTED/NOT_PAID/PENDING
-                   excluded), after the sequential outlier filter: reference =
+                   excluded), PWCC lots listed under both fanaticscollect.com and
+                   pwccmarketplace.com counted once, after the sequential outlier filter: reference =
                    median of the last 12 accepted sales within one year, needs 4;
                    a sale below 1/4x or above 6x is held back unless confirmed
                    (2 consecutive highs, 5 consecutive lows); with fewer than 4
@@ -48,9 +49,21 @@ OUT_STALE_MIN, OUT_STALE_LOW, OUT_STALE_HIGH = 3, 0.1, 10.0
 OUT_CONTINUATION = 2.0
 
 
+MIRRORS = ("fanaticscollect.com", "pwccmarketplace.com")
+
+
+def mirror_of(url):
+    """Which of the two PWCC mirror hosts a sale URL is on, else None."""
+    host = url.split("://", 1)[-1].split("/", 1)[0].lower().removeprefix("www.")
+    return host if host in MIRRORS else None
+
+
 def load_sales():
-    """asset_id -> list of (date, price, source, flagged) sorted by (date, price, source)."""
-    by = defaultdict(list)
+    """asset_id -> list of (date, price, source, flagged) sorted by (date, price, source).
+    A PWCC lot recorded under both mirror hosts (same asset, date, price) is one
+    sale: per (asset, date, price) keep the host with more rows (fanaticscollect
+    on a tie) and drop the other's."""
+    rows = []
     for p in sorted((STORE / "sales").glob("*.csv")):
         with open(p, newline="", encoding="utf-8") as f:
             for s in csv.DictReader(f):
@@ -62,7 +75,22 @@ def load_sales():
                     continue
                 if price <= 0:
                     continue
-                by[s["asset_id"]].append((date.fromisoformat(s["date"][:10]), price, s["source"] or "", bool(s["skipped_reason"])))
+                rows.append((s["asset_id"], date.fromisoformat(s["date"][:10]), price, s["source"] or "",
+                             bool(s["skipped_reason"]), mirror_of(s["url"] or "")))
+    per_host = defaultdict(lambda: {m: 0 for m in MIRRORS})
+    for aid, sd, price, _, _, m in rows:
+        if m:
+            per_host[(aid, sd, price)][m] += 1
+    loser = {}
+    for k, c in per_host.items():
+        fan, pwcc = c["fanaticscollect.com"], c["pwccmarketplace.com"]
+        if fan and pwcc:
+            loser[k] = "pwccmarketplace.com" if fan >= pwcc else "fanaticscollect.com"
+    by = defaultdict(list)
+    for aid, sd, price, source, flagged, m in rows:
+        if m and loser.get((aid, sd, price)) == m:
+            continue
+        by[aid].append((sd, price, source, flagged))
     for v in by.values():
         v.sort(key=lambda t: (t[0], t[1], t[2]))
     return by

@@ -9,6 +9,9 @@ daily numbers, plus the derived columns below. Every derived column is blank
 when the history can't support it honestly — the server renders blank as "—",
 never as 0.
 
+  mirror copies        = a PWCC lot listed under both fanaticscollect.com and
+                         pwccmarketplace.com (same asset, date, price) counts
+                         once, everywhere below including recent_sales/.
   outlier sales        = alt.xyz already flags RELISTED / NOT_PAID rows (kept
                          out here via skipped_reason). On top of that, a sale
                          below 1/4x or above 6x the running median of the
@@ -59,6 +62,7 @@ import sys
 from collections import defaultdict
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from urllib.parse import urlparse
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -87,6 +91,7 @@ OUTLIER_STALE_MIN = 3                          # with fewer than OUTLIER_MIN_ACC
 OUTLIER_STALE_LOW, OUTLIER_STALE_HIGH = 0.1, 10.0   # OUTLIER_REF accepted sales of any age, with this wider band (2026-09-21)
 OUTLIER_CONTINUATION = 2.0                     # a sale within this factor of the LAST accepted sale is never an outlier
 WINDOWS = {"30d": 30, "90d": 90, "1y": 365}
+MIRROR_HOSTS = {"fanaticscollect.com", "pwccmarketplace.com"}   # one PWCC lot, two URLs (2026-09-22)
 
 
 def d(s):
@@ -109,12 +114,41 @@ def load_daily(store):
     return daily, sorted(daily)
 
 
+def url_host(url):
+    h = urlparse(url).hostname or ""
+    return h[4:] if h.startswith("www.") else h
+
+
+def drop_mirror_copies(rows):
+    """alt.xyz records each PWCC Weekly Auctions lot twice, once under
+    fanaticscollect.com and once under pwccmarketplace.com: same asset, date
+    and price, different URL, so the URL dedup in ingest.py keeps both. Left
+    in, the copy confirms its own original in drop_outliers (Legendary
+    Collection Articuno RH: one $204,000 lot read as a confirmed +1,260%).
+    Within each (date, price) the two hosts describe the same sales, so keep
+    whichever host has more rows (several copies of a card can sell in one
+    auction at one price) and drop the other's. rows: (date, price, ..., url)
+    tuples with url last. Returns (kept, n_dropped)."""
+    groups = defaultdict(lambda: defaultdict(list))
+    for i, r in enumerate(rows):
+        h = url_host(r[-1])
+        if h in MIRROR_HOSTS:
+            groups[(r[0], r[1])][h].append(i)
+    drop = set()
+    for by_host in groups.values():
+        if len(by_host) < 2:
+            continue
+        fan, pwcc = by_host["fanaticscollect.com"], by_host["pwccmarketplace.com"]
+        drop.update(pwcc if len(fan) >= len(pwcc) else fan)
+    return [r for i, r in enumerate(rows) if i not in drop], len(drop)
+
+
 def load_sales(store):
     """{asset_id: [(date, price), ...] sorted ascending}, PSA 10 only, skipped
-    sales (alt.xyz's own outlier/bad-data flag) excluded."""
+    sales (alt.xyz's own outlier/bad-data flag) and PWCC mirror copies
+    excluded."""
     by_asset = defaultdict(list)
     raw = defaultdict(list)   # every PSA 10 sale incl. flagged ones: (date, price, source, sale_type, status, url)
-    n = 0
     for p in sorted((store / "sales").glob("*.csv")):
         with open(p, newline="", encoding="utf-8") as f:
             for s in csv.DictReader(f):
@@ -127,10 +161,15 @@ def load_sales(store):
                 if price <= 0:
                     continue
                 raw[s["asset_id"]].append((d(s["date"]), price, s.get("source") or "", s.get("sale_type") or "", s.get("skipped_reason") or "ok", s.get("url") or ""))
-                if s.get("skipped_reason"):
-                    continue
-                by_asset[s["asset_id"]].append((d(s["date"]), price, s.get("source") or ""))
+    n = mirrors = 0
+    for aid in list(raw):
+        raw[aid], dropped = drop_mirror_copies(raw[aid])
+        mirrors += dropped
+        for dt_, price, source, _, status, _ in raw[aid]:
+            if status == "ok":
+                by_asset[aid].append((dt_, price, source))
                 n += 1
+    print(f"  {mirrors} PWCC mirror copies dropped", file=sys.stderr)
     outliers = {}
     for aid, v in by_asset.items():
         v.sort()
