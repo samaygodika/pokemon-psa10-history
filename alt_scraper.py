@@ -27,6 +27,9 @@ Accepted inputs (one per line, blank lines and # comments ignored):
 Outputs (written next to this script unless --out is given):
   cards.csv        one row per card: population + price summary
   sales.csv        one row per recorded sale at the chosen grade (and at any --also-grade)
+  listings.csv     one row per listing live right now at the chosen grade (eBay / Fanatics
+                   Collect / CardHobby via alt.xyz): Buy It Now price, or auction end time,
+                   bid count and current bid
 
 Only the Python standard library is used.
 """
@@ -43,7 +46,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 ENDPOINT = "https://alt-platform-server.production.internal.onlyalt.com/graphql/"
@@ -123,7 +126,9 @@ query AssetLiveExternalTransactions($id: ID!, $transactionsFilter: TransactionsF
   asset(id: $id) {
     id
     liveExternalTransactions(transactionsFilter: $transactionsFilter) {
-      id auctionHouse attributes { grade gradingCompany itemDetailUrl }
+      id auctionHouse buyItNowPrice
+      auctionInfo { endDate numBids highestBid }
+      attributes { grade gradingCompany itemDetailUrl }
     }
   }
 }
@@ -234,18 +239,25 @@ def research_url(asset_id):
     return f"https://alt.xyz/research/{asset_id}"
 
 
-def fetch_public_page(asset_id, company, grade):
+def fetch_live_listings(asset_id, company, grade):
+    """Everything listed for sale right now at this company + grade, as alt.xyz mirrors it
+    from eBay / Fanatics Collect / CardHobby: Buy It Now listings with their price, and
+    running auctions with end time, bid count and current high bid (checked against eBay's
+    own page 2026-09-24: same bid, same count, same end minute). Returns None when the
+    request fails, so "couldn't check" never reads as "nothing listed". The filter needs a
+    grade: company alone (or no filter) returns an empty list."""
+    try:
+        d = gql("AssetLiveExternalTransactions", Q_LIVE_LISTINGS,
+                {"id": asset_id, "transactionsFilter": {"gradingCompany": company, "gradeNumber": grade}})
+    except RuntimeError:
+        return None
+    return (d.get("asset") or {}).get("liveExternalTransactions") or []
+
+
+def public_page_url(listings):
     """A public alt.xyz listing page for this card. It shows the same population table and
     recent sales as the research page but without logging in. Blank if nothing is listed."""
-    for flt in ({"gradingCompany": company, "gradeNumber": grade}, {"gradingCompany": company}):
-        try:
-            d = gql("AssetLiveExternalTransactions", Q_LIVE_LISTINGS, {"id": asset_id, "transactionsFilter": flt})
-        except RuntimeError:
-            continue
-        listings = (d.get("asset") or {}).get("liveExternalTransactions") or []
-        if listings:
-            return f"https://alt.xyz/itm/{listings[0]['id']}/external"
-    return ""
+    return f"https://alt.xyz/itm/{listings[0]['id']}/external" if listings else ""
 
 
 def sale_url(tx):
@@ -260,7 +272,7 @@ def normalise_grade(g):
     return f"{float(g):.1f}"
 
 
-def summarise(asset, pops, sales, company, grade, source_input, listing, public_url="", extra_grades=()):
+def summarise(asset, pops, sales, company, grade, source_input, listing, public_url="", extra_grades=(), listings_checked_at=""):
     pop_by = {(p["gradingCompany"], p["gradeNumber"]): p["count"] for p in pops}
     company_total = sum(c for (co, _), c in pop_by.items() if co == company)
     # No rows at all for the chosen company means "alt.xyz has no <company> data for this
@@ -307,6 +319,9 @@ def summarise(asset, pops, sales, company, grade, source_input, listing, public_
         "highest_sale": max(prices) if prices else None,
         "lowest_sale": min(prices) if prices else None,
         "scraped_at": datetime.now().isoformat(timespec="seconds"),
+        # UTC time the live listings were fetched (they go to listings.csv); blank when
+        # that request failed, i.e. unknown, not "nothing listed".
+        "listings_checked_at": listings_checked_at,
     }
     for k in LISTING_COLS:
         row[k] = listing.get(k)
@@ -316,10 +331,35 @@ def summarise(asset, pops, sales, company, grade, source_input, listing, public_
 CARD_COLS = ["input", "asset_id", "card_name", "alt_url", "alt_public_url", "year", "set", "card_number", "subject", "variety",
              "grading_company", "grade", "pop_at_grade", "company_total_pop", "index_total_pop", "index_transaction_count", "num_sales",
              "last_sale_price", "last_sale_date", "last_sale_source", "avg_last_3_sales",
-             "highest_sale", "lowest_sale", "scraped_at", "pop_at_grade_9", "extra_grades"]
+             "highest_sale", "lowest_sale", "scraped_at", "pop_at_grade_9", "extra_grades", "listings_checked_at"]
 LISTING_COLS = ["listing_source", "listing_grade", "listing_grading_company", "listing_price", "listing_url"]
 SALE_COLS = ["asset_id", "card_name", "alt_url", "date", "price", "grading_company", "grade", "source",
              "sale_type", "url", "label", "subject_to_change", "skipped_reason"]
+LIVE_COLS = ["asset_id", "grading_company", "grade", "listing_type", "source", "current_bid", "bid_count", "end_date",
+             "buy_it_now_price", "url", "alt_listing_id", "checked_at"]
+
+
+def live_rows(asset, listings, company, grade, checked_at):
+    """One listings.csv row per live listing. listing_type is AUCTION when alt.xyz has auction
+    info for it (current_bid = the high bid, or the opening price while bid_count is 0),
+    otherwise BUY_IT_NOW. end_date is UTC."""
+    for lt in listings:
+        a = lt.get("attributes") or {}
+        auc = lt.get("auctionInfo") or {}
+        yield {
+            "asset_id": asset["id"],
+            "grading_company": a.get("gradingCompany") or company,
+            "grade": a.get("grade") or grade,
+            "listing_type": "AUCTION" if auc else "BUY_IT_NOW",
+            "source": lt.get("auctionHouse"),
+            "current_bid": auc.get("highestBid"),
+            "bid_count": auc.get("numBids"),
+            "end_date": auc.get("endDate"),
+            "buy_it_now_price": lt.get("buyItNowPrice"),
+            "url": a.get("itemDetailUrl"),
+            "alt_listing_id": lt.get("id"),
+            "checked_at": checked_at,
+        }
 
 
 def sale_rows(asset, sales, max_sales=None):
@@ -594,10 +634,11 @@ def main():
     lock = threading.Lock()
     cards = CsvSink(out / "cards.csv", CARD_COLS + LISTING_COLS, args.resume)
     sales_sink = CsvSink(out / "sales.csv", SALE_COLS, args.resume)
+    live_sink = CsvSink(out / "listings.csv", LIVE_COLS, args.resume)
     counts = {"ok": 0, "skipped": 0, "done": 0, "failed": 0}
 
     def handle(i, raw):
-        """Fetch one card. Runs in a worker thread; returns (status, message, row, sale rows)."""
+        """Fetch one card. Runs in a worker thread; returns (status, message, row, sale rows, listing rows)."""
         try:
             if raw.lower().startswith("search:"):
                 text = raw.split(":", 1)[1].strip()
@@ -610,7 +651,7 @@ def main():
                 aid = extract_id(raw)
                 with lock:
                     if aid in seen_assets:
-                        return "done", None, None, []          # --resume: nothing to fetch
+                        return "done", None, None, [], []      # --resume: nothing to fetch
                 if aid in sidecar:
                     asset, listing = asset_from_search_doc(sidecar[aid]), {}
                 else:
@@ -623,17 +664,19 @@ def main():
                 header = f"[{i}/{n}] {asset['name']}"
             with lock:
                 if asset["id"] in seen_assets:
-                    return "done", header + "\n        (already done, skipped)", None, []
+                    return "done", header + "\n        (already done, skipped)", None, [], []
                 seen_assets.add(asset["id"])
             pops = fetch_pops(asset["id"])
             pop_here = sum(p["count"] for p in pops
                            if p["gradingCompany"] == company and p["gradeNumber"] == grade)
             company_rows = any(p["gradingCompany"] == company for p in pops)
             if pop_here == 0 and company_rows and not args.keep_empty:
-                return "skipped", header + f"\n        no {company} {grade} copies graded, skipped", None, []
+                return "skipped", header + f"\n        no {company} {grade} copies graded, skipped", None, [], []
             sales = fetch_sales(asset["id"], company, grade)
-            public_url = fetch_public_page(asset["id"], company, grade)
-            row = summarise(asset, pops, sales, company, grade, raw, listing, public_url, also_grades)
+            listings = fetch_live_listings(asset["id"], company, grade)
+            checked_at = datetime.now(timezone.utc).isoformat(timespec="seconds") if listings is not None else ""
+            row = summarise(asset, pops, sales, company, grade, raw, listing, public_page_url(listings), also_grades, checked_at)
+            lrows = list(live_rows(asset, listings or [], company, grade, checked_at))
             extra_sales = []
             for g in also_grades:
                 # a pop table that has this company's rows but no copies at g can't have sales at g
@@ -643,18 +686,19 @@ def main():
             pop_label = row["pop_at_grade"] if company_rows else f"unknown (no {company} rows in the pop table; index says {row['index_total_pop']} graded across all companies)"
             msg = (header + f"\n        {company} {grade} pop: {pop_label}   sales: {row['num_sales']}"
                    f"   last: ${row['last_sale_price']} on {row['last_sale_date']}")
-            return "ok", msg, row, list(sale_rows(asset, sales, args.max_sales)) + extra_sales
+            return "ok", msg, row, list(sale_rows(asset, sales, args.max_sales)) + extra_sales, lrows
         except Exception as e:  # keep going on a bad line
-            return "failed", f"[{i}/{n}] FAILED {raw}: {e}", None, []
+            return "failed", f"[{i}/{n}] FAILED {raw}: {e}", None, [], []
 
     def emit(result):
-        status, msg, row, srows = result
+        status, msg, row, srows, lrows = result
         counts[status] += 1
         if msg:
             print(msg, file=sys.stderr if status == "failed" else sys.stdout, flush=True)
         if row is not None:
             cards.write([row])
             sales_sink.write(srows)
+            live_sink.write(lrows)
 
     if args.workers <= 1:
         for i, raw in enumerate(inputs, 1):
@@ -671,6 +715,7 @@ def main():
     print()
     cards.close()
     sales_sink.close()
+    live_sink.close()
     if skipped:
         print(f"  {skipped} card(s) skipped because no {company} {grade} copies exist")
     if failures:

@@ -8,8 +8,8 @@
 # Steps:
 #   1. index listing  -> snapshots/<date>/all_pokemon_cards.{txt,json}   (~260 requests, ~25 min)
 #   2. scope filter   -> snapshots/<date>/scope.txt (+ .json sidecar)
-#   3. scrape         -> snapshots/<date>/cards.csv, sales.csv, run.log   (retries failed cards twice)
-#   4. ingest         -> history/assets.csv, history/daily/<date>.csv, history/sales/<month>.csv
+#   3. scrape         -> snapshots/<date>/cards.csv, sales.csv, listings.csv, run.log   (retries failed cards twice)
+#   4. ingest         -> history/assets.csv, history/daily/<date>.csv, history/sales/<month>.csv, history/live_listings.csv
 #   5. metrics        -> latest/cards.csv, latest/series/*.csv, latest/recent_sales{,_psa9}/*.csv, latest/summary.json
 #   6. coverage       -> latest/characters.csv (per-character alt-side market cap and coverage)
 #

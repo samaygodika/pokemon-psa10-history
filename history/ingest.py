@@ -21,6 +21,16 @@ Store layout (all plain CSV, all append/merge-friendly so git diffs stay small):
                                   asset+date+price+source when there is no URL).
                                   Old months are never rewritten unless a scrape
                                   surfaces an older sale that was missing.
+    history/live_listings.csv     what is for sale RIGHT NOW, not history: every
+                                  live auction plus the cheapest Buy It Now
+                                  listing per asset, from the run's listings.csv.
+                                  An asset's rows are replaced whenever a run
+                                  checked it (listings_checked_at set), so a card
+                                  that sold out drops to zero rows; assets a run
+                                  didn't check keep their older rows. Auctions
+                                  that ended before the run's newest check are
+                                  pruned. Other BIN listings stay in the run
+                                  folder only, to keep the daily git diff small.
 
 Standard library only, like the scraper.
 """
@@ -43,9 +53,11 @@ DAILY_COLS = ["asset_id", "pop_at_grade", "company_total_pop", "index_total_pop"
               "num_sales", "last_sale_price", "last_sale_date", "last_sale_source", "avg_last_3_sales",
               "highest_sale", "lowest_sale", "scraped_at", "alt_public_url",
               "listing_source", "listing_grade", "listing_grading_company", "listing_price", "listing_url",
-              "pop_at_grade_9", "extra_grades"]
+              "pop_at_grade_9", "extra_grades", "listings_checked_at"]
 SALE_COLS = ["asset_id", "date", "price", "grading_company", "grade", "source", "sale_type", "url",
              "label", "subject_to_change", "skipped_reason"]
+LIVE_COLS = ["asset_id", "grading_company", "grade", "listing_type", "source", "current_bid", "bid_count", "end_date",
+             "buy_it_now_price", "url", "checked_at"]
 
 DATE_RX = re.compile(r"\d{4}-\d{2}-\d{2}")
 
@@ -144,7 +156,50 @@ def ingest(run_dir, day, store=HERE):
             write_csv_atomic(path, SALE_COLS, merged)
             added += len(fresh)
     print(f"  sales: {n_in} rows in run, {added} new across {len(incoming)} month files")
-    return {"assets": len(assets), "new_assets": new_assets, "daily_rows": len(daily), "sales_added": added}
+
+    live = ingest_live(run_dir, cards, store)
+    return {"assets": len(assets), "new_assets": new_assets, "daily_rows": len(daily), "sales_added": added, **live}
+
+
+def to_float(s):
+    try:
+        return float(s)
+    except (TypeError, ValueError):
+        return None
+
+
+def ingest_live(run_dir, cards, store):
+    """Fold the run's listings.csv into history/live_listings.csv (see the module doc)."""
+    listings_path = run_dir / "listings.csv"
+    if not listings_path.exists():          # a run from before 2026-09-24 has no listings
+        print("  live_listings.csv: run has no listings.csv, left as is")
+        return {"live_assets_checked": 0}
+    checked = {r["asset_id"]: r["listings_checked_at"] for r in cards if r.get("listings_checked_at")}
+    incoming = defaultdict(list)
+    for r in read_csv(listings_path):
+        if r["asset_id"] in checked:
+            incoming[r["asset_id"]].append(r)
+
+    live_path = store / "live_listings.csv"
+    kept = [r for r in read_csv(live_path) if r["asset_id"] not in checked]
+    fresh = []
+    for aid, rows in incoming.items():
+        fresh += [r for r in rows if r["listing_type"] == "AUCTION"]
+        bins = [r for r in rows if r["listing_type"] != "AUCTION" and to_float(r["buy_it_now_price"])]
+        if bins:
+            fresh.append(min(bins, key=lambda r: to_float(r["buy_it_now_price"])))
+    # An auction whose end is before the newest check anywhere in this run has certainly
+    # ended; the rows of assets this run didn't check are where such leftovers live.
+    horizon = max(checked.values(), default="")
+    rows = [r for r in kept + fresh
+            if not (r["listing_type"] == "AUCTION" and r["end_date"] and r["end_date"] < horizon)]   # both UTC ISO, same format
+    pruned = len(kept) + len(fresh) - len(rows)
+    rows.sort(key=lambda r: (r["asset_id"], r["listing_type"], r["end_date"] or "", r["url"] or ""))
+    write_csv_atomic(live_path, LIVE_COLS, rows)
+    n_auc = sum(1 for r in rows if r["listing_type"] == "AUCTION")
+    print(f"  live_listings.csv: {len(checked)} assets checked this run, {len(rows)} rows "
+          f"({n_auc} auctions, {len(rows) - n_auc} cheapest-BIN), {pruned} ended auctions pruned")
+    return {"live_assets_checked": len(checked), "live_rows": len(rows)}
 
 
 def main():

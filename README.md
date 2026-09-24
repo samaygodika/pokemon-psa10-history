@@ -8,9 +8,9 @@ Pulls PSA population counts and graded sale prices for Pokemon cards from
 as its only PSA 10 price/population source. Python 3.8+ standard library only.
 
 ```
-alt_scraper.py        the scraper (one run = cards.csv + sales.csv)
+alt_scraper.py        the scraper (one run = cards.csv + sales.csv + listings.csv)
 nightly/              scheduled run: index listing -> scope -> scrape -> ingest -> latest/
-history/              the store: assets.csv, daily/<date>.csv, sales/<month>.csv  (committed)
+history/              the store: assets.csv, daily/<date>.csv, sales/<month>.csv, live_listings.csv  (committed)
 latest/               what the server reads: cards.csv, series/<xx>.csv, recent_sales/<xx>.csv, characters.csv, summary.json  (committed)
 snapshots/            raw per-run output (gitignored, hundreds of MB)
 .github/workflows/    GitHub Actions cron: nightly roster candidates + vintage checklist, weekly full index
@@ -36,6 +36,9 @@ say", never 0:
 | `psa9_scraped_date` | newest nightly that pulled this card's PSA 9 sales (nightly scope only, from 2026-09-23). **Blank = PSA 9 sales not collected**, and then every `psa9_*` sale column below is blank too. |
 | `psa9_last_sale_price/date/source`, `psa9_clean_last_sale_price`, `psa9_last_sale_unconfirmed`, `psa9_median_last_3`, `psa9_volume_30d`, `psa9_price_chg_30d_pct`, `psa9_sales_total` | the PSA 10 definitions above applied to PSA 9 sales (same mirror rule and outlier filter). `psa9_sales_total` = 0 means collected and none sold. |
 | `psa9_to_psa10_ratio` | `psa9_median_last_3` / `median_last_3`. |
+| `listings_checked_at` | UTC time alt.xyz was last asked what is for sale right now at PSA 10 (from 2026-09-25: the nightly scope daily, everything else on the weekly full run). **Blank = never checked**, and then every live column below is blank too (unknown, not "nothing listed"). |
+| `live_auction_count`, `next_auction_end`, `next_auction_bid`, `next_auction_bid_count`, `next_auction_source`, `next_auction_url`, `last_auction_end` | the running PSA 10 auctions at that check (eBay, Fanatics Collect, CardHobby as alt.xyz mirrors them; Goldin / Heritage / PWCC weekly lots are not in alt.xyz's feed). `next_*` = the one ending soonest; end times are UTC. **A snapshot, not live:** the app compares the end times with its own clock — while `last_auction_end` is in the future at least one auction may still be running. The bid is the high bid at the check, or the opening price while the bid count is 0; it is not a price for the card (bids jump in the final minutes). |
+| `lowest_bin_price`, `lowest_bin_source`, `lowest_bin_url` | the cheapest PSA 10 Buy It Now listing at that check (PokeSniper's `lowestListingPrice`). It can sell or be pulled between checks; nothing marks that. |
 
 `latest/series/<first two hex of asset_id>.csv` holds the weekly PSA 10 sale
 series per asset (`week_start, n_sales, median_price, low, high`) for charts;
@@ -131,8 +134,10 @@ called with no login for public data. Operations used: `ExternalListing` /
 `PubliclyVisibleItem` (page id -> asset id), `AssetCardPops` (population table),
 `AssetMarketTransactions` (sales, filtered to PSA `"10.0"`; grades must have one
 decimal), `SearchServiceConfig` (short-lived Typesense key for `--find`/`--list`,
-refreshed per page), `AssetLiveExternalTransactions` (live listings, for
-`alt_public_url`). Sales alt.xyz flags as RELISTED / NOT_PAID / PENDING are kept in
+refreshed per page), `AssetLiveExternalTransactions` (live listings at one
+company + grade — company alone returns nothing — with `buyItNowPrice` or
+`auctionInfo { endDate numBids highestBid }`; the source of `listings.csv`,
+`alt_public_url` and the live columns). Sales alt.xyz flags as RELISTED / NOT_PAID / PENDING are kept in
 `sales.csv` with a `skipped_reason` and excluded from every number.
 
 The script waits between requests and retries failed calls three times.
