@@ -67,12 +67,20 @@ PSA 9 (2026-09-22; the idea to test: PSA 9s lag a PSA 10 pump by weeks):
   latest/recent_sales_psa9/<xx>.csv = recent_sales/ for PSA 9, same columns.
 
 Live listings (2026-09-24), from history/live_listings.csv — what is for sale
-right now at PSA 10 on eBay / Fanatics Collect / CardHobby, as alt.xyz mirrors
-it (no Goldin / Heritage / PWCC weekly lots). A snapshot from the card's last
-check, NOT live: the app must compare the end times with its own clock.
-  listings_checked_at  = UTC time of the newest successful check of this card's
+right now at PSA 10, as alt.xyz mirrors it: eBay mostly, then Fanatics Collect
+(including its weekly lots), CardHobby, Pristine Auction and some Goldin. A
+snapshot from the card's last check, NOT live: the app must compare the end
+times with its own clock.
+  listings_checked_at  = UTC time of the newest believable check of this card's
                          listings; blank = never checked, so every live column
-                         is blank = unknown (not "nothing listed").
+                         is blank = unknown (not "nothing listed"). alt.xyz
+                         sometimes answers "nothing" for every card for hours
+                         (2026-09-25); the scraper records those answers as
+                         unchecked (ListingsHealth in alt_scraper.py), so the
+                         card keeps the snapshot from its last believable check
+                         and this time can be days old. Auctions in that snapshot
+                         are pruned once they end; a Buy It Now is dropped after
+                         7 days without alt.xyz showing it again (ingest.py).
   live_auction_count   = auctions running at that check.
   next_auction_end, next_auction_bid, next_auction_bid_count,
   next_auction_source, next_auction_url

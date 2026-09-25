@@ -27,10 +27,17 @@ Store layout (all plain CSV, all append/merge-friendly so git diffs stay small):
                                   An asset's rows are replaced whenever a run
                                   checked it (listings_checked_at set), so a card
                                   that sold out drops to zero rows; assets a run
-                                  didn't check keep their older rows. Auctions
-                                  that ended before the run's newest check are
-                                  pruned. Other BIN listings stay in the run
-                                  folder only, to keep the daily git diff small.
+                                  didn't check keep their older rows. That includes
+                                  cards alt.xyz answered [] for while it was
+                                  answering [] for everyone (the scraper's
+                                  ListingsHealth blanks listings_checked_at for
+                                  those), so the last believable snapshot stands.
+                                  Auctions that ended before the run's newest check
+                                  are pruned; a Buy It Now not re-seen for
+                                  BIN_MAX_AGE_DAYS is dropped (alt.xyz keeps ended
+                                  BINs in its feed for months). Other BIN listings
+                                  stay in the run folder only, to keep the daily
+                                  git diff small.
 
 Standard library only, like the scraper.
 """
@@ -41,6 +48,7 @@ import re
 import sys
 import tempfile
 from collections import defaultdict
+from datetime import datetime, timedelta
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -58,6 +66,7 @@ SALE_COLS = ["asset_id", "date", "price", "grading_company", "grade", "source", 
              "label", "subject_to_change", "skipped_reason"]
 LIVE_COLS = ["asset_id", "grading_company", "grade", "listing_type", "source", "current_bid", "bid_count", "end_date",
              "buy_it_now_price", "url", "checked_at"]
+BIN_MAX_AGE_DAYS = 7   # a Buy It Now row survives this long without alt.xyz showing it again
 
 DATE_RX = re.compile(r"\d{4}-\d{2}-\d{2}")
 
@@ -194,12 +203,23 @@ def ingest_live(run_dir, cards, store):
     rows = [r for r in kept + fresh
             if not (r["listing_type"] == "AUCTION" and r["end_date"] and r["end_date"] < horizon)]   # both UTC ISO, same format
     pruned = len(kept) + len(fresh) - len(rows)
+    # A Buy It Now has no end date, and alt.xyz keeps one in its live feed long after it
+    # sold or was pulled (a Kyogre Gold Star BIN returned as live on 2026-09-25 had ended
+    # on June 16). A card the scraper could not trust an answer for keeps its old rows
+    # too. So a BIN not re-seen within BIN_MAX_AGE_DAYS of this run's newest check goes.
+    aged = 0
+    if horizon:
+        cutoff = (datetime.fromisoformat(horizon) - timedelta(days=BIN_MAX_AGE_DAYS)).isoformat()
+        before = len(rows)
+        rows = [r for r in rows if r["listing_type"] == "AUCTION" or not r["checked_at"] or r["checked_at"] >= cutoff]
+        aged = before - len(rows)
     rows.sort(key=lambda r: (r["asset_id"], r["listing_type"], r["end_date"] or "", r["url"] or ""))
     write_csv_atomic(live_path, LIVE_COLS, rows)
     n_auc = sum(1 for r in rows if r["listing_type"] == "AUCTION")
     print(f"  live_listings.csv: {len(checked)} assets checked this run, {len(rows)} rows "
-          f"({n_auc} auctions, {len(rows) - n_auc} cheapest-BIN), {pruned} ended auctions pruned")
-    return {"live_assets_checked": len(checked), "live_rows": len(rows)}
+          f"({n_auc} auctions, {len(rows) - n_auc} cheapest-BIN), {pruned} ended auctions pruned, "
+          f"{aged} BIN(s) unseen for {BIN_MAX_AGE_DAYS}+ days dropped")
+    return {"live_assets_checked": len(checked), "live_rows": len(rows), "bins_aged_out": aged}
 
 
 def main():
