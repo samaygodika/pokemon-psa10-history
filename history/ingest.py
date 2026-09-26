@@ -23,13 +23,18 @@ Store layout (all plain CSV, all append/merge-friendly so git diffs stay small):
                                   surfaces an older sale that was missing.
     history/live_listings.csv     what is for sale RIGHT NOW, not history: every
                                   live auction plus the cheapest Buy It Now
-                                  listing per asset, from the run's listings.csv.
-                                  An asset's rows are replaced whenever a run
-                                  checked it (listings_checked_at set), so a card
-                                  that sold out drops to zero rows; assets a run
+                                  listing per asset and grade (PSA 10 always; PSA 9
+                                  too once the scraper runs with --also-listings),
+                                  from the run's listings.csv. An asset's rows at a
+                                  grade are replaced whenever a run checked it at
+                                  that grade (listings_checked_at set for PSA 10,
+                                  psa9_listings_checked_at for PSA 9), so a card
+                                  that sold out drops to zero rows; a run that
+                                  checked a card at one grade only leaves its rows
+                                  at the other grade alone, and assets a run
                                   didn't check keep their older rows (a failed
-                                  listings request leaves listings_checked_at
-                                  blank, so the last good snapshot stands).
+                                  listings request leaves the check time blank,
+                                  so the last good snapshot stands).
                                   Auctions that ended before the run's newest check
                                   are pruned; a Buy It Now not re-seen for
                                   BIN_MAX_AGE_DAYS is dropped. Note alt.xyz keeps
@@ -60,12 +65,15 @@ DAILY_COLS = ["asset_id", "pop_at_grade", "company_total_pop", "index_total_pop"
               "num_sales", "last_sale_price", "last_sale_date", "last_sale_source", "avg_last_3_sales",
               "highest_sale", "lowest_sale", "scraped_at", "alt_public_url",
               "listing_source", "listing_grade", "listing_grading_company", "listing_price", "listing_url",
-              "pop_at_grade_9", "extra_grades", "listings_checked_at"]
+              "pop_at_grade_9", "extra_grades", "listings_checked_at", "psa9_listings_checked_at"]
 SALE_COLS = ["asset_id", "date", "price", "grading_company", "grade", "source", "sale_type", "url",
              "label", "subject_to_change", "skipped_reason"]
 LIVE_COLS = ["asset_id", "grading_company", "grade", "listing_type", "source", "current_bid", "bid_count", "end_date",
              "buy_it_now_price", "url", "checked_at"]
 BIN_MAX_AGE_DAYS = 7   # a Buy It Now row survives this long without alt.xyz showing it again
+# grade -> the cards.csv column with the UTC time of the run's believable live-listings check at that
+# grade (blank = not asked, or the request failed); live rows are replaced per (asset, grade)
+LIVE_CHECK_COLS = {"10.0": "listings_checked_at", "9.0": "psa9_listings_checked_at"}
 
 DATE_RX = re.compile(r"\d{4}-\d{2}-\d{2}")
 
@@ -176,22 +184,34 @@ def to_float(s):
         return None
 
 
+def norm_grade(s):
+    """'10' -> '10.0', so a listing row's grade matches LIVE_CHECK_COLS; anything else as is."""
+    try:
+        return f"{float(s):.1f}"
+    except (TypeError, ValueError):
+        return s or ""
+
+
 def ingest_live(run_dir, cards, store):
     """Fold the run's listings.csv into history/live_listings.csv (see the module doc)."""
     listings_path = run_dir / "listings.csv"
     if not listings_path.exists():          # a run from before 2026-09-24 has no listings
         print("  live_listings.csv: run has no listings.csv, left as is")
         return {"live_assets_checked": 0}
-    checked = {r["asset_id"]: r["listings_checked_at"] for r in cards if r.get("listings_checked_at")}
+    # (asset, grade) -> when this run checked that grade's listings. A run that checked a card
+    # at PSA 10 only (no --also-listings, zero PSA 9 copies, or the PSA 9 request failed) must
+    # leave the card's PSA 9 rows alone, and vice versa.
+    checked = {(r["asset_id"], g): r[col] for r in cards for g, col in LIVE_CHECK_COLS.items() if r.get(col)}
     incoming = defaultdict(list)
     for r in read_csv(listings_path):
-        if r["asset_id"] in checked:
-            incoming[r["asset_id"]].append(r)
+        key = (r["asset_id"], norm_grade(r["grade"]))
+        if key in checked:
+            incoming[key].append(r)
 
     live_path = store / "live_listings.csv"
-    kept = [r for r in read_csv(live_path) if r["asset_id"] not in checked]
+    kept = [r for r in read_csv(live_path) if (r["asset_id"], norm_grade(r["grade"])) not in checked]
     fresh = []
-    for aid, rows in incoming.items():
+    for rows in incoming.values():
         fresh += [r for r in rows if r["listing_type"] == "AUCTION"]
         bins = [r for r in rows if r["listing_type"] != "AUCTION" and to_float(r["buy_it_now_price"])]
         if bins:
@@ -214,13 +234,16 @@ def ingest_live(run_dir, cards, store):
         before = len(rows)
         rows = [r for r in rows if r["listing_type"] == "AUCTION" or not r["checked_at"] or r["checked_at"] >= cutoff]
         aged = before - len(rows)
-    rows.sort(key=lambda r: (r["asset_id"], r["listing_type"], r["end_date"] or "", r["url"] or ""))
+    rows.sort(key=lambda r: (r["asset_id"], r["grade"], r["listing_type"], r["end_date"] or "", r["url"] or ""))
     write_csv_atomic(live_path, LIVE_COLS, rows)
     n_auc = sum(1 for r in rows if r["listing_type"] == "AUCTION")
-    print(f"  live_listings.csv: {len(checked)} assets checked this run, {len(rows)} rows "
+    n_assets = len({aid for aid, _ in checked})
+    by_grade = {g: sum(1 for _, gg in checked if gg == g) for g in LIVE_CHECK_COLS}
+    at = ", ".join(f"{n} at PSA {g}" for g, n in by_grade.items() if n)
+    print(f"  live_listings.csv: {n_assets} assets checked this run{f' ({at})' if at else ''}, {len(rows)} rows "
           f"({n_auc} auctions, {len(rows) - n_auc} cheapest-BIN), {pruned} ended auctions pruned, "
           f"{aged} BIN(s) unseen for {BIN_MAX_AGE_DAYS}+ days dropped")
-    return {"live_assets_checked": len(checked), "live_rows": len(rows), "bins_aged_out": aged}
+    return {"live_assets_checked": n_assets, "live_checks": by_grade, "live_rows": len(rows), "bins_aged_out": aged}
 
 
 def main():

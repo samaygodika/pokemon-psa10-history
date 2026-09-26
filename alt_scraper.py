@@ -9,6 +9,7 @@ Usage
   python3 alt_scraper.py https://alt.xyz/itm/<id>/external ...
   python3 alt_scraper.py --grade 9 cards.txt       # PSA 9 instead of PSA 10
   python3 alt_scraper.py --also-grade 9 cards.txt  # PSA 10 rows, plus PSA 9 sales in sales.csv
+  python3 alt_scraper.py --also-grade 9 --also-listings cards.txt  # ...and PSA 9 live listings in listings.csv
   python3 alt_scraper.py --company BGS --grade 9.5 cards.txt
   python3 alt_scraper.py --find "charizard base set"   # look up cards by name, print asset IDs
   python3 alt_scraper.py --list charizard              # write EVERY matching card to charizard_cards.txt
@@ -29,7 +30,8 @@ Outputs (written next to this script unless --out is given):
   sales.csv        one row per recorded sale at the chosen grade (and at any --also-grade)
   listings.csv     one row per listing live right now at the chosen grade (eBay / Fanatics
                    Collect / CardHobby via alt.xyz): Buy It Now price, or auction end time,
-                   bid count and current bid
+                   bid count and current bid. With --also-listings, also at each --also-grade
+                   (the grade column tells them apart)
 
 Only the Python standard library is used.
 """
@@ -323,6 +325,8 @@ def summarise(asset, pops, sales, company, grade, source_input, listing, public_
         # that request failed, i.e. unknown, not "nothing listed".
         "listings_checked_at": listings_checked_at,
     }
+    for g in extra_grades:
+        row[also_listings_col(g)] = ""   # set by the caller once --also-listings has asked at that grade
     for k in LISTING_COLS:
         row[k] = listing.get(k)
     return row
@@ -331,12 +335,20 @@ def summarise(asset, pops, sales, company, grade, source_input, listing, public_
 CARD_COLS = ["input", "asset_id", "card_name", "alt_url", "alt_public_url", "year", "set", "card_number", "subject", "variety",
              "grading_company", "grade", "pop_at_grade", "company_total_pop", "index_total_pop", "index_transaction_count", "num_sales",
              "last_sale_price", "last_sale_date", "last_sale_source", "avg_last_3_sales",
-             "highest_sale", "lowest_sale", "scraped_at", "pop_at_grade_9", "extra_grades", "listings_checked_at"]
+             "highest_sale", "lowest_sale", "scraped_at", "pop_at_grade_9", "extra_grades", "listings_checked_at",
+             "psa9_listings_checked_at"]
 LISTING_COLS = ["listing_source", "listing_grade", "listing_grading_company", "listing_price", "listing_url"]
 SALE_COLS = ["asset_id", "card_name", "alt_url", "date", "price", "grading_company", "grade", "source",
              "sale_type", "url", "label", "subject_to_change", "skipped_reason"]
 LIVE_COLS = ["asset_id", "grading_company", "grade", "listing_type", "source", "current_bid", "bid_count", "end_date",
              "buy_it_now_price", "url", "alt_listing_id", "checked_at"]
+
+
+def also_listings_col(grade):
+    """cards.csv column holding the UTC time of the live-listings check at an --also-grade
+    grade (--also-listings): '9.0' -> 'psa9_listings_checked_at'. Only PSA 9's is in CARD_COLS,
+    so a check at any other extra grade still fills listings.csv but leaves no time behind."""
+    return f"psa{grade.rstrip('0').rstrip('.').replace('.', '_')}_listings_checked_at"
 
 
 def live_rows(asset, listings, company, grade, checked_at):
@@ -615,6 +627,10 @@ def main():
     ap.add_argument("--also-grade", action="append", default=[], metavar="G",
                     help="also pull sales at this grade (same company) into sales.csv, e.g. --also-grade 9. "
                          "One extra request per card; the card row's stats stay on --grade. Repeatable")
+    ap.add_argument("--also-listings", action="store_true",
+                    help="with --also-grade: also fetch the live listings at each of those grades into listings.csv "
+                         "(one more request per card that has copies at the grade) and record the check time in "
+                         "psa9_listings_checked_at. Off by default")
     ap.add_argument("--category", default="POKEMON_CARDS", help="search category filter, or ALL. Default POKEMON_CARDS")
     ap.add_argument("--loose", action="store_true", help="with --list: also keep cards that only mention TEXT in the set name")
     ap.add_argument("--min-pop", type=int, default=0, metavar="N",
@@ -665,7 +681,8 @@ def main():
 
     inputs, sidecar = read_inputs(args.inputs)
     n = len(inputs)
-    print(f"{n} card(s) to fetch, {company} {grade}" + "".join(f" + {g} sales" for g in also_grades) + f", {args.workers} worker(s), {DELAY_SECONDS}s pause"
+    print(f"{n} card(s) to fetch, {company} {grade}" + "".join(f" + {g} sales{' and listings' if args.also_listings else ''}" for g in also_grades)
+          + f", {args.workers} worker(s), {DELAY_SECONDS}s pause"
           + (f", {len(sidecar)} card details preloaded" if sidecar else "") + "\n")
 
     seen_assets = already_done(out / "cards.csv") if args.resume else set()
@@ -678,7 +695,8 @@ def main():
     counts = {"ok": 0, "skipped": 0, "done": 0, "failed": 0}
 
     def handle(i, raw):
-        """Fetch one card. Runs in a worker thread; returns (status, message, row, sale rows, listing rows)."""
+        """Fetch one card. Runs in a worker thread; returns (status, message, row, sale rows, listing rows,
+        listing rows at the --also-grade grades)."""
         try:
             if raw.lower().startswith("search:"):
                 text = raw.split(":", 1)[1].strip()
@@ -691,7 +709,7 @@ def main():
                 aid = extract_id(raw)
                 with lock:
                     if aid in seen_assets:
-                        return "done", None, None, [], []      # --resume: nothing to fetch
+                        return "done", None, None, [], [], []  # --resume: nothing to fetch
                 if aid in sidecar:
                     asset, listing = asset_from_search_doc(sidecar[aid]), {}
                 else:
@@ -704,36 +722,43 @@ def main():
                 header = f"[{i}/{n}] {asset['name']}"
             with lock:
                 if asset["id"] in seen_assets:
-                    return "done", header + "\n        (already done, skipped)", None, [], []
+                    return "done", header + "\n        (already done, skipped)", None, [], [], []
                 seen_assets.add(asset["id"])
             pops = fetch_pops(asset["id"])
             pop_here = sum(p["count"] for p in pops
                            if p["gradingCompany"] == company and p["gradeNumber"] == grade)
             company_rows = any(p["gradingCompany"] == company for p in pops)
             if pop_here == 0 and company_rows and not args.keep_empty:
-                return "skipped", header + f"\n        no {company} {grade} copies graded, skipped", None, [], []
+                return "skipped", header + f"\n        no {company} {grade} copies graded, skipped", None, [], [], []
             sales = fetch_sales(asset["id"], company, grade)
             listings = fetch_live_listings(asset["id"], company, grade)
             checked_at = datetime.now(timezone.utc).isoformat(timespec="seconds") if listings is not None else ""
             row = summarise(asset, pops, sales, company, grade, raw, listing, public_page_url(listings), also_grades, checked_at)
             lrows = list(live_rows(asset, listings or [], company, grade, checked_at))
-            extra_sales = []
+            extra_sales, extra_lrows = [], []   # sales / listings.csv rows at the --also-grade grades
             for g in also_grades:
-                # a pop table that has this company's rows but no copies at g can't have sales at g
+                # a pop table that has this company's rows but no copies at g can't have sales or listings at g
                 if company_rows and not any(p["gradingCompany"] == company and p["gradeNumber"] == g and p["count"] for p in pops):
                     continue
                 extra_sales += list(sale_rows(asset, fetch_sales(asset["id"], company, g), args.max_sales))
+                if args.also_listings:
+                    # checked whenever the request succeeded (an empty answer is "nothing listed at
+                    # this grade"); blank when it failed, or when the card was skipped just above
+                    more = fetch_live_listings(asset["id"], company, g)
+                    checked_g = datetime.now(timezone.utc).isoformat(timespec="seconds") if more is not None else ""
+                    row[also_listings_col(g)] = checked_g
+                    extra_lrows += list(live_rows(asset, more or [], company, g, checked_g))
             pop_label = row["pop_at_grade"] if company_rows else f"unknown (no {company} rows in the pop table; index says {row['index_total_pop']} graded across all companies)"
             msg = (header + f"\n        {company} {grade} pop: {pop_label}   sales: {row['num_sales']}"
                    f"   last: ${row['last_sale_price']} on {row['last_sale_date']}")
-            return "ok", msg, row, list(sale_rows(asset, sales, args.max_sales)) + extra_sales, lrows
+            return "ok", msg, row, list(sale_rows(asset, sales, args.max_sales)) + extra_sales, lrows, extra_lrows
         except Exception as e:  # keep going on a bad line
-            return "failed", f"[{i}/{n}] FAILED {raw}: {e}", None, [], []
+            return "failed", f"[{i}/{n}] FAILED {raw}: {e}", None, [], [], []
 
     stats = ListingsStats()
 
     def emit(result):
-        status, msg, row, srows, lrows = result
+        status, msg, row, srows, lrows, extra_lrows = result
         counts[status] += 1
         if msg:
             print(msg, file=sys.stderr if status == "failed" else sys.stdout, flush=True)
@@ -746,6 +771,7 @@ def main():
             cards.write([row])
             sales_sink.write(srows)
             live_sink.write(lrows)
+            live_sink.write(extra_lrows)   # the --also-listings rows (PSA 9), written as answered
 
     if args.workers <= 1:
         for i, raw in enumerate(inputs, 1):

@@ -18,7 +18,9 @@
 # be redone), prune old ones by hand if disk gets tight.
 #
 # Env knobs: NIGHTLY_SCOPE (top60 = the subjects lists | full), NIGHTLY_ALSO_GRADE (9 on the nightly scope,
-# empty on full; "" turns it off), NIGHTLY_WORKERS (4), NIGHTLY_DELAY
+# empty on full; "" turns it off), NIGHTLY_ALSO_LISTINGS (1 = also fetch the live listings at the
+# --also-grade grade, i.e. PSA 9 listings; default empty = off, and never on the full run, which
+# has no --also-grade), NIGHTLY_WORKERS (4), NIGHTLY_DELAY
 # (0.25 s per worker between requests), NIGHTLY_LIMIT (scrape only the first N
 # cards, for smoke tests), NIGHTLY_DATE (override the folder/day name),
 # NIGHTLY_SKIP_HISTORY=1 (stop after the scrape).
@@ -68,9 +70,16 @@ CAFF=""; command -v caffeinate >/dev/null && CAFF="caffeinate -i"
 # card that has any PSA 9s (~+0.7 sale rows per PSA 10 row), for the PSA 9 feed
 # columns and the "PSA 9s lag a PSA 10 pump" research (2026-09-22). The weekly
 # full run leaves it off: 65k cards is already ~5 h of a 6 h job limit.
+# --also-listings (only ever with --also-grade, so never on the full run): PSA 9 live listings
+# too, one more request per card that has any PSA 9s, for the psa9_listings_checked_at /
+# psa9_live_* / psa9_lowest_bin_* feed columns. On by default since 2026-09-26 (Sid asked for the 9s' buy /
+# auction data; ~+33k requests a night); NIGHTLY_ALSO_LISTINGS=0 turns it off. Was: off until set to 1 (in the
+# workflow env, or change the default below); those feed columns stay blank until then.
 if [ "$SCOPE" = "full" ]; then ALSO_GRADE="${NIGHTLY_ALSO_GRADE-}"; else ALSO_GRADE="${NIGHTLY_ALSO_GRADE-9}"; fi
+ALSO_LISTINGS="${NIGHTLY_ALSO_LISTINGS-1}"
 SCRAPE=($PY alt_scraper.py --workers "${NIGHTLY_WORKERS:-4}" --delay "${NIGHTLY_DELAY:-0.25}" --max-sales 0 --keep-empty --out "$OUT")
 if [ -n "$ALSO_GRADE" ]; then SCRAPE+=(--also-grade "$ALSO_GRADE"); fi
+if [ -n "$ALSO_GRADE" ] && [ "$ALSO_LISTINGS" = "1" ]; then SCRAPE+=(--also-listings); fi
 SCRAPE+=("$SCOPE_LIST")
 $CAFF "${SCRAPE[@]}" || true
 # Retry pass: --resume skips everything already in cards.csv, so only the

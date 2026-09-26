@@ -39,6 +39,8 @@ say", never 0:
 | `listings_checked_at` | UTC time alt.xyz was last asked what is for sale right now at PSA 10 (from 2026-09-25: the nightly scope daily, everything else on the weekly full run). **Blank = never checked**, and then every live column below is blank too (unknown, not "nothing listed"). Whether a card has anything listed tracks its PSA 10 pop closely (pop 1000+: ~99% do; pop 26–100: ~60%; pop 1–2: ~10%; pop 0: ~1%), so a low-pop card with a check time and no listing is a real "nothing listed". (For one day, 2026-09-26, 14,828 of these were blanked by a mistaken "alt.xyz outage" rule in the scraper — the nightly scope is sorted by pop, so the falling listing rate through a run is the cards, not the endpoint. Reverted the same day.) |
 | `live_auction_count`, `next_auction_end`, `next_auction_bid`, `next_auction_bid_count`, `next_auction_source`, `next_auction_url`, `last_auction_end` | the running PSA 10 auctions at that check, as alt.xyz mirrors them: eBay (~75%), Fanatics Collect including its weekly lots (the six-figure vintage auctions), CardHobby, Pristine Auction, a few Goldin; no Heritage. `next_*` = the one ending soonest; end times are UTC. **A snapshot, not live:** the app compares the end times with its own clock — while `last_auction_end` is in the future at least one auction may still be running. The bid is the high bid at the check, or the opening price while the bid count is 0; it is not a price for the card (bids jump in the final minutes). A listing can also be pulled early: a link may lead to eBay's "similar items" page. |
 | `lowest_bin_price`, `lowest_bin_source`, `lowest_bin_url` | the cheapest PSA 10 Buy It Now listing at that check (PokeSniper's `lowestListingPrice`). It can sell or be pulled between checks, and alt.xyz itself keeps ended BINs in its feed for months and re-serves them on every check (one returned as live on 2026-09-25 had ended on June 16; the listing record has no date or status field to tell), so treat the link as "was listed at", not "is listed at". Ended *auctions* alt.xyz does drop within hours. A BIN alt.xyz has not shown again for 7 days is dropped (`history/ingest.py`). |
+| `psa9_listings_checked_at` | the PSA 9 counterpart of `listings_checked_at`: UTC time of the last answer from alt.xyz about what is for sale at PSA 9 (set whenever that request succeeded, even with nothing listed; blank when it failed). **On from the 2026-09-26 nightly** (`NIGHTLY_ALSO_LISTINGS`, default 1; `--also-listings` in the scraper); blank in feeds built before that. Nightly scope only, like `psa9_scraped_date`; cards with zero PSA 9 copies are not asked and stay blank; blank = never checked at PSA 9, so every `psa9_live_*` / `psa9_lowest_bin_*` column below is blank too. |
+| `psa9_live_auction_count`, `psa9_next_auction_end`, `psa9_next_auction_bid`, `psa9_next_auction_bid_count`, `psa9_next_auction_source`, `psa9_next_auction_url`, `psa9_last_auction_end`, `psa9_lowest_bin_price`, `psa9_lowest_bin_source`, `psa9_lowest_bin_url` | the ten live columns above for PSA 9 listings: same meanings and caveats (a snapshot at `psa9_listings_checked_at`, not live; ended auctions pruned, a BIN dropped after 7 days unseen). On from the 2026-09-26 nightly. A count of 0 = checked, nothing running. |
 
 `latest/series/<first two hex of asset_id>.csv` holds the weekly PSA 10 sale
 series per asset (`week_start, n_sales, median_price, low, high`) for charts;
@@ -91,8 +93,10 @@ Laptop fallback: `nightly/com.samaygodika.altscrape.plist` runs the same script 
 2026-09-12 run took 33 h that way, which is why the GitHub Actions cron is the
 primary schedule.
 
-Env knobs: `NIGHTLY_SCOPE` (top60 = the subjects lists | full), `NIGHTLY_WORKERS` (4), `NIGHTLY_DELAY`
-(0.25 s per worker), `NIGHTLY_LIMIT`, `NIGHTLY_DATE`, `NIGHTLY_SKIP_HISTORY=1`.
+Env knobs: `NIGHTLY_SCOPE` (top60 = the subjects lists | full), `NIGHTLY_ALSO_GRADE` (9 on the
+nightly scope, empty on full), `NIGHTLY_ALSO_LISTINGS` (1 = PSA 9 live listings too, needs an
+also-grade; off by default), `NIGHTLY_WORKERS` (4), `NIGHTLY_DELAY` (0.25 s per worker),
+`NIGHTLY_LIMIT`, `NIGHTLY_DATE`, `NIGHTLY_SKIP_HISTORY=1`.
 
 ## Running the scraper by itself
 
@@ -105,8 +109,11 @@ python3 alt_scraper.py --workers 4 --delay 0 --max-sales 0 --out pokemon pokemon
 ```
 
 Writes `cards.csv` (one row per card) and `sales.csv` (every PSA 10 sale, with the
-sale's own eBay/Goldin/Alt link; `--max-sales N` keeps the newest N). Rows are
-written as each card finishes; `--resume` skips cards already in `cards.csv`.
+sale's own eBay/Goldin/Alt link; `--max-sales N` keeps the newest N), plus
+`listings.csv` (what is for sale right now at PSA 10). `--also-grade 9` adds PSA 9
+sales; `--also-listings` then adds the PSA 9 live listings too, one more request per
+card with any PSA 9s, its check time in `psa9_listings_checked_at` (on by default in the nightly since 2026-09-26).
+Rows are written as each card finishes; `--resume` skips cards already in `cards.csv`.
 `--list` also writes a `.json` sidecar the scraper uses to skip per-card lookups.
 Low-pop cards are the interesting ones, so nothing is filtered by population
 unless you pass `--min-pop N`. Cards with zero PSA 10s ever graded are skipped

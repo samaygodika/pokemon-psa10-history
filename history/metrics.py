@@ -95,6 +95,17 @@ times with its own clock.
                        = the cheapest Buy It Now listing at that check (the
                          spec's lowestListingPrice). A BIN listing can sell or
                          be pulled between checks; nothing marks that.
+  psa9_listings_checked_at, psa9_live_auction_count, psa9_next_auction_*,
+  psa9_last_auction_end, psa9_lowest_bin_*
+                       = the same eleven columns for PSA 9 listings, from the
+                         card's PSA 9 rows in live_listings.csv and the
+                         psa9_listings_checked_at the scraper writes with
+                         --also-listings (set whenever that request succeeded,
+                         blank when it failed or the card has no PSA 9 copies).
+                         Off until the nightly switches it on
+                         (NIGHTLY_ALSO_LISTINGS=1), so all blank until then;
+                         once on, blank still = never checked at PSA 9, and a
+                         count of 0 = checked, nothing running.
 
 "today" is the data date (the newest daily file), not the wall clock, so
 rebuilding latest/ from the same history always gives the same file.
@@ -142,6 +153,8 @@ PSA9_COLS = ["pop_at_grade_9", "psa9_scraped_date", "psa9_last_sale_price", "psa
              "psa9_price_chg_30d_pct", "psa9_sales_total", "psa9_to_psa10_ratio"]
 LIVE_COLS = ["listings_checked_at", "live_auction_count", "next_auction_end", "next_auction_bid", "next_auction_bid_count",
              "next_auction_source", "next_auction_url", "last_auction_end", "lowest_bin_price", "lowest_bin_source", "lowest_bin_url"]
+PSA9_LIVE_COLS = ["psa9_" + c for c in LIVE_COLS]   # the same eleven for PSA 9 listings; the very end of cards.csv
+LIVE_CHECK_COLS = {"10.0": "listings_checked_at", "9.0": "psa9_listings_checked_at"}   # grade -> daily column with its check time
 
 
 def d(s):
@@ -394,13 +407,22 @@ def psa9_cols(aid, num, scraped_day, s9, raw9, ref10, today):
     return out
 
 
+def norm_grade(s):
+    """'10' -> '10.0', so a listing row's grade matches LIVE_CHECK_COLS; anything else as is."""
+    try:
+        return f"{float(s):.1f}"
+    except (TypeError, ValueError):
+        return s or ""
+
+
 def load_live(store):
-    """{asset_id: [listing rows]} from history/live_listings.csv (absent before 2026-09-24)."""
+    """{(asset_id, grade): [listing rows]} from history/live_listings.csv (absent before
+    2026-09-24; PSA 10 rows only until the scraper runs with --also-listings)."""
     path = store / "live_listings.csv"
     out = defaultdict(list)
     if path.exists():
         for r in read_csv(path):
-            out[r["asset_id"]].append(r)
+            out[(r["asset_id"], norm_grade(r["grade"]))].append(r)
     return out
 
 
@@ -411,11 +433,12 @@ def to_float(s):
         return None
 
 
-def live_cols(checked_at, listings):
-    """The live-listing columns for one card (see the module doc)."""
+def live_cols(checked_at, listings, prefix=""):
+    """The live-listing columns for one card (see the module doc). prefix="psa9_" names the
+    PSA 9 set (PSA9_LIVE_COLS): same rules, fed the card's PSA 9 rows and PSA 9 check time."""
     out = {c: "" for c in LIVE_COLS}
     if not checked_at:
-        return out
+        return {prefix + c: v for c, v in out.items()}
     out["listings_checked_at"] = checked_at
     auctions = sorted((r for r in listings if r["listing_type"] == "AUCTION" and r["end_date"]), key=lambda r: r["end_date"])
     out["live_auction_count"] = len(auctions)
@@ -433,7 +456,7 @@ def live_cols(checked_at, listings):
         out["lowest_bin_price"] = fmt(to_float(low["buy_it_now_price"]))
         out["lowest_bin_source"] = low["source"]
         out["lowest_bin_url"] = low["url"]
-    return out
+    return {prefix + c: v for c, v in out.items()}
 
 
 def write_recent(recent_dir, raw_sales, sales):
@@ -467,15 +490,17 @@ def build(store=HERE, out=LATEST):
     print(f"{len(assets)} assets, {len(days)} daily files ({days[0]}..{days[-1]}), {n_sales} PSA 10 sales, {n_sales9} PSA 9 sales")
 
     live = load_live(store)
-    # Newest numbers per asset, the first day each asset appears, and the newest
-    # successful live-listings check (a run whose check failed leaves it blank).
-    latest_row, first_day, checked_at = {}, {}, {}
+    # Newest numbers per asset, the first day each asset appears, and per grade the newest
+    # successful live-listings check (a run whose check failed, or that never asked at that
+    # grade, leaves the column blank).
+    latest_row, first_day, checked_at = {}, {}, {g: {} for g in LIVE_CHECK_COLS}
     for day in days:
         for aid, row in daily[day].items():
             latest_row[aid] = (day, row)
             first_day.setdefault(aid, day)
-            if row.get("listings_checked_at"):
-                checked_at[aid] = max(checked_at.get(aid, ""), row["listings_checked_at"])
+            for g, col in LIVE_CHECK_COLS.items():
+                if row.get(col):
+                    checked_at[g][aid] = max(checked_at[g].get(aid, ""), row[col])
     # Newest run that also pulled PSA 9 sales, per asset (--also-grade 9).
     psa9_day = {}
     for day in days:
@@ -542,12 +567,13 @@ def build(store=HERE, out=LATEST):
         row.update(psa9_cols(aid, num, psa9_day.get(aid), sales9.get(aid, []), raw_sales9.get(aid, []), ref_now, today))
         if row["psa9_last_sale_price"]:
             filled["psa9_last_sale_price"] += 1
-        row.update(live_cols(checked_at.get(aid), live.get(aid, [])))
+        row.update(live_cols(checked_at["10.0"].get(aid), live.get((aid, "10.0"), [])))
+        row.update(live_cols(checked_at["9.0"].get(aid), live.get((aid, "9.0"), []), prefix="psa9_"))
         rows.append(row)
 
     out.mkdir(parents=True, exist_ok=True)
     with open(out / "cards.csv", "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=CARD_COLS + DERIVED_COLS + PSA9_COLS + LIVE_COLS, extrasaction="ignore")
+        w = csv.DictWriter(f, fieldnames=CARD_COLS + DERIVED_COLS + PSA9_COLS + LIVE_COLS + PSA9_LIVE_COLS, extrasaction="ignore")
         w.writeheader()
         w.writerows(rows)
 
@@ -600,6 +626,9 @@ def build(store=HERE, out=LATEST):
         "rows_listings_checked": sum(1 for r in rows if r["listings_checked_at"]),
         "rows_with_live_auction": sum(1 for r in rows if r["live_auction_count"]),
         "rows_with_bin_listing": sum(1 for r in rows if r["lowest_bin_price"]),
+        "rows_psa9_listings_checked": sum(1 for r in rows if r["psa9_listings_checked_at"]),
+        "rows_with_psa9_live_auction": sum(1 for r in rows if r["psa9_live_auction_count"]),
+        "rows_with_psa9_bin_listing": sum(1 for r in rows if r["psa9_lowest_bin_price"]),
         "rows_with": {k: filled[k] for k in ("price_chg_30d_pct", "price_chg_90d_pct", "price_chg_1y_pct", "mkt_cap_chg_30d_pct")},
     }
     with open(out / "summary.json", "w") as f:
