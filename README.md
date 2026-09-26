@@ -94,9 +94,22 @@ Laptop fallback: `nightly/com.samaygodika.altscrape.plist` runs the same script 
 primary schedule.
 
 Env knobs: `NIGHTLY_SCOPE` (top60 = the subjects lists | full), `NIGHTLY_ALSO_GRADE` (9 on the
-nightly scope, empty on full), `NIGHTLY_ALSO_LISTINGS` (1 = PSA 9 live listings too, needs an
-also-grade; off by default), `NIGHTLY_WORKERS` (4), `NIGHTLY_DELAY` (0.25 s per worker),
-`NIGHTLY_LIMIT`, `NIGHTLY_DATE`, `NIGHTLY_SKIP_HISTORY=1`.
+nightly scope, empty on full), `NIGHTLY_ALSO_LISTINGS` (PSA 9 live listings too, needs an
+also-grade; on by default since 2026-09-26, 0 turns it off), `NIGHTLY_WORKERS` (4; the Actions
+workflows use 6), `NIGHTLY_DELAY` (0.25 s per worker; Actions uses 0.05), `NIGHTLY_LIMIT`,
+`NIGHTLY_DATE`, `NIGHTLY_SKIP_HISTORY=1`, `NIGHTLY_SKIP_UNCHANGED=1`.
+
+`NIGHTLY_SKIP_UNCHANGED=1` (off by default, never on the weekly full run) skips the two sale
+requests for cards whose sales cannot have changed since the previous run, and carries that
+run's sale summary (`num_sales`, `last_sale_*`, `avg_last_3_sales`, `highest_sale`, `lowest_sale`)
+into the new daily row with `sales_fetched` = 0; pops and live listings are still fetched, and
+Sunday's full run refetches everything. Which cards qualify is decided by `sales_skip_reason`
+in `alt_scraper.py`: today that is the ~14.5k cards (43% of the nightly scope) with no PSA 10
+copies in the pop table and no PSA 10 sale on record. alt.xyz's search index carries no per-card
+transaction counter (`index_transaction_count` is blank for all but one card), so an
+"unchanged count" rule has nothing to work with yet; the code checks the field anyway in case
+that changes. Measured on the 2026-09-22..25 nightlies: ~27k of ~134k requests a night (about
+38 minutes of a 3 h scrape) and 0 of the 10,886 new PSA 10 sales those nights recorded.
 
 ## Running the scraper by itself
 

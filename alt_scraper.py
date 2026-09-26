@@ -14,6 +14,8 @@ Usage
   python3 alt_scraper.py --find "charizard base set"   # look up cards by name, print asset IDs
   python3 alt_scraper.py --list charizard              # write EVERY matching card to charizard_cards.txt
   python3 alt_scraper.py --list charizard --min-pop 100   # ...only cards with 100+ graded copies
+  python3 alt_scraper.py --skip-unchanged-sales history/daily/2026-09-25.csv cards.txt
+                                                   # don't refetch sales that cannot have changed since that run
 
 Cards with zero copies at the chosen grade (e.g. no PSA 10 exists) are skipped, so every row
 in cards.csv is a card you can actually buy in that grade. --keep-empty writes them anyway.
@@ -320,6 +322,9 @@ def summarise(asset, pops, sales, company, grade, source_input, listing, public_
         "avg_last_3_sales": round(sum(last3) / len(last3), 2) if last3 else None,
         "highest_sale": max(prices) if prices else None,
         "lowest_sale": min(prices) if prices else None,
+        # 1 = this run asked alt.xyz for the card's sales; 0 = the seven summary columns above
+        # were carried over from the previous run's daily row (--skip-unchanged-sales).
+        "sales_fetched": 1,
         "scraped_at": datetime.now().isoformat(timespec="seconds"),
         # UTC time the live listings were fetched (they go to listings.csv); blank when
         # that request failed, i.e. unknown, not "nothing listed".
@@ -336,7 +341,12 @@ CARD_COLS = ["input", "asset_id", "card_name", "alt_url", "alt_public_url", "yea
              "grading_company", "grade", "pop_at_grade", "company_total_pop", "index_total_pop", "index_transaction_count", "num_sales",
              "last_sale_price", "last_sale_date", "last_sale_source", "avg_last_3_sales",
              "highest_sale", "lowest_sale", "scraped_at", "pop_at_grade_9", "extra_grades", "listings_checked_at",
-             "psa9_listings_checked_at"]
+             "psa9_listings_checked_at", "sales_fetched"]
+# The sale-summary columns of a card row: what --skip-unchanged-sales copies from the previous
+# daily row when a card's sales are not refetched. Everything else in the row (pops, listing,
+# index counts, scraped_at) is fresh either way.
+SALE_SUMMARY_COLS = ["num_sales", "last_sale_price", "last_sale_date", "last_sale_source", "avg_last_3_sales",
+                     "highest_sale", "lowest_sale"]
 LISTING_COLS = ["listing_source", "listing_grade", "listing_grading_company", "listing_price", "listing_url"]
 SALE_COLS = ["asset_id", "card_name", "alt_url", "date", "price", "grading_company", "grade", "source",
              "sale_type", "url", "label", "subject_to_change", "skipped_reason"]
@@ -435,6 +445,64 @@ def sale_rows(asset, sales, max_sales=None):
             "subject_to_change": s.get("subjectToChange"),
             "skipped_reason": s.get("consolidatedSkippedReason"),
         }
+
+
+# --------------------------------------------------------------------------
+# --skip-unchanged-sales: which cards' sale requests can be skipped
+# --------------------------------------------------------------------------
+def load_prev_daily(path):
+    """{asset_id: row} of a history/daily/<date>.csv (or any cards.csv with the same
+    columns): the previous run's numbers, for --skip-unchanged-sales."""
+    with open(path, newline="", encoding="utf-8") as f:
+        return {r["asset_id"]: r for r in csv.DictReader(f)}
+
+
+def pop_count(pops, company, grade):
+    return sum(p["count"] for p in pops if p["gradingCompany"] == company and p["gradeNumber"] == grade)
+
+
+SKIP_INDEX, SKIP_DORMANT = "index count unchanged", "dormant"
+
+
+def sales_skip_reason(prev, asset, pops, company, grade):
+    """Why this card's sale requests can be skipped this run, or None to fetch them.
+
+    Skipping means: no AssetMarketTransactions request at the main grade, nor at the
+    --also-grade grades (except that a dormant card's extra grade is still fetched where
+    the pop table shows copies at it, see handle); the row's SALE_SUMMARY_COLS copied from
+    `prev`, the previous run's daily row for the asset; sales_fetched written as 0; and
+    extra_grades listing only the grades this run asked for or knows to be empty, so
+    metrics.py's psa9_scraped_date stays at the last real pull. Pops and live listings are
+    fetched as usual. Two reasons, either is enough:
+
+    SKIP_INDEX   the search index's per-asset transaction counter (index_transaction_count,
+                 from the --list sidecar) is present in both runs and unchanged. Note that
+                 as of 2026-09-25 alt.xyz's index does NOT carry this field: it is blank
+                 for 33,760 of the 33,761 nightly-scope cards (one stray record has it),
+                 so this clause is dormant until alt.xyz fills it. Blank is unknown, not
+                 unchanged: a card with a blank counter is fetched.
+    SKIP_DORMANT the previous run recorded no clean sale at this grade (num_sales 0) and
+                 today's pop table shows no copies at it, either a real 0 or no rows for
+                 the company at all. Measured over the four nightlies 2026-09-22..25
+                 (33.7k cards each, new sale rows taken from the store's daily commits):
+                 14,530-14,550 such cards per night (43%), 0 of the 10,886 new PSA 10
+                 rows belonged to one, and the blank-pop ones (12.8k) produced 0 new PSA 9
+                 rows on the normal nights (4 of 1.59M on the PSA 9 backfill night).
+                 Cards whose pop says 0 but which have recorded sales (29 in the nightly
+                 scope: split records, mislabeled lots) have num_sales > 0 and are fetched.
+
+    The keys that were tried and rejected on the same data (the numbers are in the
+    2026-09-26 report): "index_total_pop unchanged" skips 94% of cards but misses 51% of
+    new PSA 10 rows; "pop_at_grade unchanged" 97% / 64%. New sales mostly arrive without
+    a new graded copy, so population is no sales signal."""
+    if not prev:
+        return None
+    cur = asset.get("index_transaction_count")
+    if cur not in (None, "") and str(cur) == (prev.get("index_transaction_count") or ""):
+        return SKIP_INDEX
+    if pop_count(pops, company, grade) == 0 and (prev.get("num_sales") or "0") == "0":
+        return SKIP_DORMANT
+    return None
 
 
 # --------------------------------------------------------------------------
@@ -640,6 +708,11 @@ def main():
     ap.add_argument("--resume", action="store_true", help="append to existing CSVs and skip cards already in cards.csv")
     ap.add_argument("--max-sales", type=int, default=200, metavar="N",
                     help="most recent sales per card kept in sales.csv (0 = all). Default 200. Summary stats always use all sales")
+    ap.add_argument("--skip-unchanged-sales", metavar="PREV_DAILY_CSV",
+                    help="skip the sale requests of cards whose sales cannot have changed since the run recorded in "
+                         "PREV_DAILY_CSV (a history/daily/<date>.csv): their sale summary is copied from that file, "
+                         "sales_fetched is written as 0 and no sales.csv rows are written for the grades not asked. Pops "
+                         "and live listings are fetched as usual. Which cards qualify: see sales_skip_reason")
     ap.add_argument("--out", default=str(Path(__file__).parent), help="output directory")
     args = ap.parse_args()
 
@@ -684,6 +757,10 @@ def main():
     print(f"{n} card(s) to fetch, {company} {grade}" + "".join(f" + {g} sales{' and listings' if args.also_listings else ''}" for g in also_grades)
           + f", {args.workers} worker(s), {DELAY_SECONDS}s pause"
           + (f", {len(sidecar)} card details preloaded" if sidecar else "") + "\n")
+    prev_daily = None
+    if args.skip_unchanged_sales:
+        prev_daily = load_prev_daily(args.skip_unchanged_sales)
+        print(f"--skip-unchanged-sales: {len(prev_daily)} card(s) in {args.skip_unchanged_sales}; sales that cannot have changed since then are not refetched\n")
 
     seen_assets = already_done(out / "cards.csv") if args.resume else set()
     if seen_assets:
@@ -693,6 +770,7 @@ def main():
     sales_sink = CsvSink(out / "sales.csv", SALE_COLS, args.resume)
     live_sink = CsvSink(out / "listings.csv", LIVE_COLS, args.resume)
     counts = {"ok": 0, "skipped": 0, "done": 0, "failed": 0}
+    carried = {SKIP_INDEX: 0, SKIP_DORMANT: 0}   # cards whose sales were not refetched, by reason
 
     def handle(i, raw):
         """Fetch one card. Runs in a worker thread; returns (status, message, row, sale rows, listing rows,
@@ -725,32 +803,52 @@ def main():
                     return "done", header + "\n        (already done, skipped)", None, [], [], []
                 seen_assets.add(asset["id"])
             pops = fetch_pops(asset["id"])
-            pop_here = sum(p["count"] for p in pops
-                           if p["gradingCompany"] == company and p["gradeNumber"] == grade)
+            pop_here = pop_count(pops, company, grade)
             company_rows = any(p["gradingCompany"] == company for p in pops)
             if pop_here == 0 and company_rows and not args.keep_empty:
                 return "skipped", header + f"\n        no {company} {grade} copies graded, skipped", None, [], [], []
-            sales = fetch_sales(asset["id"], company, grade)
+            # --skip-unchanged-sales: the previous run's row for this card, and whether it
+            # settles the sales question without a request (None = fetch as usual)
+            prev = prev_daily.get(asset["id"]) if prev_daily else None
+            carry = sales_skip_reason(prev, asset, pops, company, grade) if prev else None
+            sales = [] if carry else fetch_sales(asset["id"], company, grade)
             listings = fetch_live_listings(asset["id"], company, grade)
             checked_at = datetime.now(timezone.utc).isoformat(timespec="seconds") if listings is not None else ""
-            row = summarise(asset, pops, sales, company, grade, raw, listing, public_page_url(listings), also_grades, checked_at)
-            lrows = list(live_rows(asset, listings or [], company, grade, checked_at))
-            extra_sales, extra_lrows = [], []   # sales / listings.csv rows at the --also-grade grades
+            extra_sales, extra_lrows, pulled = [], [], []   # pulled: the extra grades this run can vouch for (fetched, or a known zero)
+            also_checked = {}                                # grade -> check time of its --also-listings request
             for g in also_grades:
+                copies = pop_count(pops, company, g) > 0
                 # a pop table that has this company's rows but no copies at g can't have sales or listings at g
-                if company_rows and not any(p["gradingCompany"] == company and p["gradeNumber"] == g and p["count"] for p in pops):
+                if company_rows and not copies:
+                    pulled.append(g)
                     continue
-                extra_sales += list(sale_rows(asset, fetch_sales(asset["id"], company, g), args.max_sales))
                 if args.also_listings:
-                    # checked whenever the request succeeded (an empty answer is "nothing listed at
-                    # this grade"); blank when it failed, or when the card was skipped just above
+                    # Live listings are today's state, not history, so they are fetched even when the
+                    # card's sales are carried. Checked whenever the request succeeded (an empty answer
+                    # is "nothing listed at this grade"); blank when it failed or the card was skipped above.
                     more = fetch_live_listings(asset["id"], company, g)
-                    checked_g = datetime.now(timezone.utc).isoformat(timespec="seconds") if more is not None else ""
-                    row[also_listings_col(g)] = checked_g
-                    extra_lrows += list(live_rows(asset, more or [], company, g, checked_g))
+                    also_checked[g] = datetime.now(timezone.utc).isoformat(timespec="seconds") if more is not None else ""
+                    extra_lrows += list(live_rows(asset, more or [], company, g, also_checked[g]))
+                # a carried card's extra grades stay with the previous run too, except that a
+                # dormant card (no copies at the main grade) may well have copies, and sales, at g
+                if carry and not (carry == SKIP_DORMANT and copies):
+                    continue
+                pulled.append(g)
+                extra_sales += list(sale_rows(asset, fetch_sales(asset["id"], company, g), args.max_sales))
+            row = summarise(asset, pops, sales, company, grade, raw, listing, public_page_url(listings), pulled, checked_at)
+            for g, checked_g in also_checked.items():
+                row[also_listings_col(g)] = checked_g
+            if carry:
+                for k in SALE_SUMMARY_COLS:
+                    row[k] = prev.get(k, "")
+                row["sales_fetched"] = 0
+                with lock:
+                    carried[carry] += 1
+            lrows = list(live_rows(asset, listings or [], company, grade, checked_at))
             pop_label = row["pop_at_grade"] if company_rows else f"unknown (no {company} rows in the pop table; index says {row['index_total_pop']} graded across all companies)"
             msg = (header + f"\n        {company} {grade} pop: {pop_label}   sales: {row['num_sales']}"
-                   f"   last: ${row['last_sale_price']} on {row['last_sale_date']}")
+                   f"   last: ${row['last_sale_price']} on {row['last_sale_date']}"
+                   + (f"   (sales not refetched: {carry}; summary carried from the previous run)" if carry else ""))
             return "ok", msg, row, list(sale_rows(asset, sales, args.max_sales)) + extra_sales, lrows, extra_lrows
         except Exception as e:  # keep going on a bad line
             return "failed", f"[{i}/{n}] FAILED {raw}: {e}", None, [], [], []
@@ -791,6 +889,11 @@ def main():
     live_sink.close()
     if counts["ok"]:
         print(stats.summary())
+    if prev_daily is not None:
+        n_carried = sum(carried.values())
+        print(f"  --skip-unchanged-sales: {n_carried} card(s) kept the sale summary of {args.skip_unchanged_sales} "
+              f"({carried[SKIP_INDEX]} {SKIP_INDEX}, {carried[SKIP_DORMANT]} {SKIP_DORMANT}); "
+              f"{counts['ok'] - n_carried} card(s) had their sales fetched")
     if skipped:
         print(f"  {skipped} card(s) skipped because no {company} {grade} copies exist")
     if failures:

@@ -13,7 +13,12 @@ Store layout (all plain CSV, all append/merge-friendly so git diffs stay small):
     history/daily/<date>.csv      the numbers from that day's run(s), one row per
                                   asset (pop, totals, last sale, index counts,
                                   listing). Re-ingesting the same day merges by
-                                  asset, newest scraped_at wins.
+                                  asset, newest scraped_at wins. sales_fetched
+                                  (2026-09-26) is 1 when that run asked alt.xyz
+                                  for the card's sales and 0 when the scraper's
+                                  --skip-unchanged-sales carried the sale summary
+                                  over from the previous daily row; files from
+                                  before the column read as fetched (blank).
     history/sales/<YYYY-MM>.csv   every PSA 10 sale ever seen (plus PSA 9 sales for
                                   cards scraped with --also-grade 9; the grade
                                   column tells them apart), bucketed by sale
@@ -65,7 +70,7 @@ DAILY_COLS = ["asset_id", "pop_at_grade", "company_total_pop", "index_total_pop"
               "num_sales", "last_sale_price", "last_sale_date", "last_sale_source", "avg_last_3_sales",
               "highest_sale", "lowest_sale", "scraped_at", "alt_public_url",
               "listing_source", "listing_grade", "listing_grading_company", "listing_price", "listing_url",
-              "pop_at_grade_9", "extra_grades", "listings_checked_at", "psa9_listings_checked_at"]
+              "pop_at_grade_9", "extra_grades", "listings_checked_at", "psa9_listings_checked_at", "sales_fetched"]
 SALE_COLS = ["asset_id", "date", "price", "grading_company", "grade", "source", "sale_type", "url",
              "label", "subject_to_change", "skipped_reason"]
 LIVE_COLS = ["asset_id", "grading_company", "grade", "listing_type", "source", "current_bid", "bid_count", "end_date",

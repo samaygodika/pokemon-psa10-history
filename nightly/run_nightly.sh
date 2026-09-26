@@ -23,7 +23,14 @@
 # has no --also-grade), NIGHTLY_WORKERS (4), NIGHTLY_DELAY
 # (0.25 s per worker between requests), NIGHTLY_LIMIT (scrape only the first N
 # cards, for smoke tests), NIGHTLY_DATE (override the folder/day name),
-# NIGHTLY_SKIP_HISTORY=1 (stop after the scrape).
+# NIGHTLY_SKIP_HISTORY=1 (stop after the scrape), NIGHTLY_SKIP_UNCHANGED=1
+# (default off, ignored on the full scope: don't refetch the sales of cards whose
+# sales cannot have changed since the previous run — the newest history/daily/*.csv
+# dated before DAY — and carry that run's sale summary instead; the scraper's
+# --skip-unchanged-sales, rules and measurements in sales_skip_reason there. The
+# 2026-09-22..25 nightlies: ~14.5k of 33.7k cards qualify, ~27k of ~134k requests,
+# ~38 min of a 3 h scrape, 0 of 10,886 new PSA 10 sales missed. Sunday's full run
+# refetches everything, so nothing is carried for more than a week).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 PY=${PYTHON:-python3}
@@ -80,6 +87,22 @@ ALSO_LISTINGS="${NIGHTLY_ALSO_LISTINGS-1}"
 SCRAPE=($PY alt_scraper.py --workers "${NIGHTLY_WORKERS:-4}" --delay "${NIGHTLY_DELAY:-0.25}" --max-sales 0 --keep-empty --out "$OUT")
 if [ -n "$ALSO_GRADE" ]; then SCRAPE+=(--also-grade "$ALSO_GRADE"); fi
 if [ -n "$ALSO_GRADE" ] && [ "$ALSO_LISTINGS" = "1" ]; then SCRAPE+=(--also-listings); fi
+# NIGHTLY_SKIP_UNCHANGED=1: pass the previous run's daily file (newest history/daily/*.csv
+# dated before DAY; the names are YYYY-MM-DD so lexical order is date order). Never on the
+# full scope, which is what refetches every carried card once a week.
+if [ -n "${NIGHTLY_SKIP_UNCHANGED:-}" ] && [ "$SCOPE" != "full" ]; then
+  PREV_DAILY=""
+  for f in history/daily/*.csv; do
+    [ -e "$f" ] || continue
+    if [ "$(basename "$f" .csv)" \< "$DAY" ]; then PREV_DAILY="$f"; fi
+  done
+  if [ -n "$PREV_DAILY" ]; then
+    echo "skip-unchanged sales: previous run = $PREV_DAILY"
+    SCRAPE+=(--skip-unchanged-sales "$PREV_DAILY")
+  else
+    echo "skip-unchanged sales: no history/daily file dated before $DAY, every card's sales are fetched"
+  fi
+fi
 SCRAPE+=("$SCOPE_LIST")
 $CAFF "${SCRAPE[@]}" || true
 # Retry pass: --resume skips everything already in cards.csv, so only the
