@@ -71,16 +71,17 @@ right now at PSA 10, as alt.xyz mirrors it: eBay mostly, then Fanatics Collect
 (including its weekly lots), CardHobby, Pristine Auction and some Goldin. A
 snapshot from the card's last check, NOT live: the app must compare the end
 times with its own clock.
-  listings_checked_at  = UTC time of the newest believable check of this card's
-                         listings; blank = never checked, so every live column
-                         is blank = unknown (not "nothing listed"). alt.xyz
-                         sometimes answers "nothing" for every card for hours
-                         (2026-09-25); the scraper records those answers as
-                         unchecked (ListingsHealth in alt_scraper.py), so the
-                         card keeps the snapshot from its last believable check
-                         and this time can be days old. Auctions in that snapshot
-                         are pruned once they end; a Buy It Now is dropped after
-                         7 days without alt.xyz showing it again (ingest.py).
+  listings_checked_at  = UTC time of the newest successful check of this card's
+                         listings; blank = never checked (or every check failed),
+                         so every live column is blank = unknown (not "nothing
+                         listed"). The share of cards with anything listed
+                         tracks PSA 10 pop (pop 1000+: ~99%; pop 1-2: ~10%;
+                         pop 0: ~1%), so most low-pop cards are a real "checked,
+                         nothing listed". Auctions are pruned once they end; a
+                         Buy It Now is dropped after 7 days without alt.xyz
+                         showing it again (ingest.py) — but alt.xyz re-serves
+                         ended BINs indefinitely, so a BIN link means "was
+                         listed at", not "is for sale".
   live_auction_count   = auctions running at that check.
   next_auction_end, next_auction_bid, next_auction_bid_count,
   next_auction_source, next_auction_url

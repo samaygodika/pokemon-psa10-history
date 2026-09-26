@@ -27,17 +27,16 @@ Store layout (all plain CSV, all append/merge-friendly so git diffs stay small):
                                   An asset's rows are replaced whenever a run
                                   checked it (listings_checked_at set), so a card
                                   that sold out drops to zero rows; assets a run
-                                  didn't check keep their older rows. That includes
-                                  cards alt.xyz answered [] for while it was
-                                  answering [] for everyone (the scraper's
-                                  ListingsHealth blanks listings_checked_at for
-                                  those), so the last believable snapshot stands.
+                                  didn't check keep their older rows (a failed
+                                  listings request leaves listings_checked_at
+                                  blank, so the last good snapshot stands).
                                   Auctions that ended before the run's newest check
                                   are pruned; a Buy It Now not re-seen for
-                                  BIN_MAX_AGE_DAYS is dropped (alt.xyz keeps ended
-                                  BINs in its feed for months). Other BIN listings
-                                  stay in the run folder only, to keep the daily
-                                  git diff small.
+                                  BIN_MAX_AGE_DAYS is dropped. Note alt.xyz keeps
+                                  ended BINs in its own feed for months and re-serves
+                                  them every check, so this only catches BINs alt
+                                  has itself dropped. Other BIN listings stay in the
+                                  run folder only, to keep the daily git diff small.
 
 Standard library only, like the scraper.
 """
@@ -205,8 +204,10 @@ def ingest_live(run_dir, cards, store):
     pruned = len(kept) + len(fresh) - len(rows)
     # A Buy It Now has no end date, and alt.xyz keeps one in its live feed long after it
     # sold or was pulled (a Kyogre Gold Star BIN returned as live on 2026-09-25 had ended
-    # on June 16). A card the scraper could not trust an answer for keeps its old rows
-    # too. So a BIN not re-seen within BIN_MAX_AGE_DAYS of this run's newest check goes.
+    # on June 16) — and re-serves it on every check, so this rule cannot catch that case.
+    # It does bound how long a BIN survives for a card whose listings request failed or
+    # that dropped out of the scope: not re-seen within BIN_MAX_AGE_DAYS of this run's
+    # newest check, it goes.
     aged = 0
     if horizon:
         cutoff = (datetime.fromisoformat(horizon) - timedelta(days=BIN_MAX_AGE_DAYS)).isoformat()

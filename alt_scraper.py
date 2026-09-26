@@ -362,69 +362,44 @@ def live_rows(asset, listings, company, grade, checked_at):
         }
 
 
-class ListingsHealth:
-    """Decides whether an EMPTY live-listings answer can be believed.
+class ListingsStats:
+    """End-of-run sanity table for the live-listings answers: the share of cards with any
+    listing, by PSA 10 pop.
 
-    alt.xyz's live-listings query fails silently: instead of an error it returns [] for
-    every card, for hours at a time (2026-09-25: the share of cards with any listing fell
-    from ~100% at the start of the nightly to 0.1% two hours in, and at 20:15 UTC it
-    answered [] for a Gengar auction that eBay showed live with 53 bids). Recorded as-is,
-    that reads as "checked, nothing listed" for tens of thousands of cards. So an empty
-    answer counts as a real check only while the endpoint is plainly still answering:
-    at least MIN_RATE of the last WINDOW answers had a listing. Below that, empty answers
-    are recorded as unchecked (listings_checked_at blank), which lets history/ingest.py
-    keep the card's previous snapshot. A non-empty answer is always trusted.
+    Lesson from 2026-09-25: the nightly's scope is sorted by pop, biggest first, so the
+    share of cards with a listing falls from ~99% at the start of a run to ~0% at the end
+    (pop 1000+: 99.7% have one; pop 1-2: 10%; pop 0: 1%). That is the cards, not the
+    endpoint. Reading the fall as a silent outage and blanking those checks (5fd79ce)
+    turned 14,828 real "checked, nothing listed" answers into "unknown" for a day; reverted
+    2026-09-26. A real outage would show up here as a low rate in the high-pop rows, so
+    the table is printed every run and nothing is gated on it."""
 
-    Gating on the recent rate rather than a fixed floor means a stretch of genuinely
-    quiet cards (obscure foreign-language vintage, say) can trip it too; the cost of
-    that is a missing "nothing listed", the cost of the other mistake is a false one.
-    Called from the single emitting thread, in input order."""
-
-    WINDOW = 200         # answers in the rolling window
-    MIN_RATE = 0.10      # below this the endpoint counts as quiet (a random feed card has a
-                         # listing ~31% of the time: 250-card sample, 2026-09-24)
-    RECOVER_RATE = 0.20  # ...and it has to climb back above this to count as answering again
-                         # (without the gap it flipped 33 times in 14 minutes on 2026-09-25's run)
-    MIN_SEEN = 100       # no verdict on the first cards of a run
+    BINS = ((0, 0), (1, 5), (6, 25), (26, 100), (101, 1000), (1001, float("inf")))
 
     def __init__(self):
-        from collections import deque
-        self.recent = deque(maxlen=self.WINDOW)
-        self.healthy = True
-        self.checked = self.untrusted = 0
-        self.flips = []       # (card #, checked_at, healthy) whenever the verdict changes
+        self.counts = {b: [0, 0] for b in self.BINS}   # pop bin -> [cards asked, cards with a listing]
+        self.unknown_pop = [0, 0]
+        self.failed = 0
 
-    def record(self, listings, checked_at):
-        """Feed one answer; returns True when it may be recorded as a check."""
-        self.checked += 1
-        self.recent.append(1 if listings else 0)
-        if len(self.recent) >= self.MIN_SEEN:
-            rate = sum(self.recent) / len(self.recent)
-            healthy = rate >= (self.RECOVER_RATE if not self.healthy else self.MIN_RATE)
-            if healthy != self.healthy:
-                self.healthy = healthy
-                self.flips.append((self.checked, checked_at, healthy))
-        if listings or self.healthy:
-            return True
-        self.untrusted += 1
-        return False
-
-    def flip_note(self):
-        """A log line for the flip that just happened, if any."""
-        if not self.flips or self.flips[-1][0] != self.checked:
-            return None
-        n, at, healthy = self.flips[-1]
-        rate = 100 * sum(self.recent) / len(self.recent)
-        if healthy:
-            return f"  listings: alt.xyz is answering again ({rate:.0f}% of the last {len(self.recent)} cards had a listing); empty answers count as checks again (card {n}, {at})"
-        return (f"  listings: alt.xyz has stopped returning listings ({rate:.0f}% of the last {len(self.recent)} cards had one); "
-                f"empty answers are now recorded as unchecked, not as 'nothing listed' (card {n}, {at})")
+    def record(self, pop, listings):
+        try:
+            pop = float(pop)
+        except (TypeError, ValueError):
+            c = self.unknown_pop
+        else:
+            c = next(self.counts[b] for b in self.BINS if b[0] <= pop <= b[1])
+        c[0] += 1
+        c[1] += 1 if listings else 0
 
     def summary(self):
-        s = f"  live listings: {self.checked} card(s) asked, {self.untrusted} empty answer(s) recorded as unchecked"
-        if self.flips:
-            s += " (" + "; ".join(f"{'answering' if h else 'quiet'} from card {n} at {at[11:16]}Z" for n, at, h in self.flips) + ")"
-        return s
+        asked = sum(c[0] for c in self.counts.values()) + self.unknown_pop[0]
+        lines = [f"  live listings: {asked} card(s) asked, {self.failed} request(s) failed (left unchecked); share with any listing by PSA 10 pop:"]
+        for (lo, hi), (n, k) in self.counts.items():
+            if n:
+                lines.append(f"    pop {lo:>4}-{'inf' if hi == float('inf') else int(hi):<5} {n:6} cards  {100 * k / n:5.1f}%")
+        if self.unknown_pop[0]:
+            lines.append(f"    pop unknown  {self.unknown_pop[0]:6} cards  {100 * self.unknown_pop[1] / self.unknown_pop[0]:5.1f}%")
+        return "\n".join(lines)
 
 
 def sale_rows(asset, sales, max_sales=None):
@@ -755,21 +730,18 @@ def main():
         except Exception as e:  # keep going on a bad line
             return "failed", f"[{i}/{n}] FAILED {raw}: {e}", None, [], []
 
-    health = ListingsHealth()
+    stats = ListingsStats()
 
     def emit(result):
         status, msg, row, srows, lrows = result
         counts[status] += 1
         if msg:
             print(msg, file=sys.stderr if status == "failed" else sys.stdout, flush=True)
-        if row is not None and row["listings_checked_at"]:
-            # An empty answer while alt.xyz is answering nothing for anyone is not a check
-            # (see ListingsHealth); the card keeps its previous snapshot in history/.
-            if not health.record(lrows, row["listings_checked_at"]):
-                row["listings_checked_at"] = ""
-            note = health.flip_note()
-            if note:
-                print(note, flush=True)
+        if row is not None:
+            if row["listings_checked_at"]:
+                stats.record(row["pop_at_grade"], lrows)
+            else:
+                stats.failed += 1     # the listings request failed: unchecked, not "nothing listed"
         if row is not None:
             cards.write([row])
             sales_sink.write(srows)
@@ -791,8 +763,8 @@ def main():
     cards.close()
     sales_sink.close()
     live_sink.close()
-    if health.checked:
-        print(health.summary())
+    if counts["ok"]:
+        print(stats.summary())
     if skipped:
         print(f"  {skipped} card(s) skipped because no {company} {grade} copies exist")
     if failures:
