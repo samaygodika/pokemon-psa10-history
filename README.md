@@ -88,6 +88,18 @@ python3 history/metrics.py                                # rebuild latest/ only
 python3 history/coverage.py                               # rebuild latest/characters.csv only
 ```
 
+Ingest lets a later run overwrite what the store knows about a sale (`merge_sales` in
+`history/ingest.py`, 2026-09-26): alt.xyz keeps editing sales after listing them (about
+1% get a new date or price, 0.4% are flagged RELISTED / NOT_PAID or go from PENDING to
+settled), and the clean price and % change columns are built from those fields. A URL is
+not one sale either: an eBay multi-quantity Buy It Now listing keeps its item id while it
+sells the same card again and again (54k of the 3.9M URLs in one nightly carry more than
+one sale). Rows are matched by URL when the URL carries one sale in both the run and the
+store (then a re-dated sale moves month), otherwise by URL + date + price. Before this the
+store kept one row per URL per month and never changed it, so repeat sales were dropped
+(~69k came back on the first run with the fix, raising `sales_total` on ~3,300 cards) and
+status flips never arrived.
+
 Laptop fallback: `nightly/com.samaygodika.altscrape.plist` runs the same script at
 02:00 via launchd (a closed lid still sleeps; launchd resumes on wake). The
 2026-09-12 run took 33 h that way, which is why the GitHub Actions cron is the

@@ -22,10 +22,17 @@ Store layout (all plain CSV, all append/merge-friendly so git diffs stay small):
     history/sales/<YYYY-MM>.csv   every PSA 10 sale ever seen (plus PSA 9 sales for
                                   cards scraped with --also-grade 9; the grade
                                   column tells them apart), bucketed by sale
-                                  month, deduplicated by sale URL (or by
+                                  month, keyed by sale URL (or by
                                   asset+date+price+source when there is no URL).
-                                  Old months are never rewritten unless a scrape
-                                  surfaces an older sale that was missing.
+                                  A sale the run lists again takes the run's
+                                  values: alt.xyz later re-dates or re-prices
+                                  ~1% of sales and flags or settles 0.4%
+                                  (RELISTED / NOT_PAID / PENDING), and the clean
+                                  price columns depend on those fields. A sale
+                                  re-dated into another month moves there. Only
+                                  month files with a change are rewritten
+                                  (merge_sales, 2026-09-26; before that the
+                                  store was append-only and never saw a flip).
     history/live_listings.csv     what is for sale RIGHT NOW, not history: every
                                   live auction plus the cheapest Buy It Now
                                   listing per asset and grade (PSA 10 always; PSA 9
@@ -148,7 +155,7 @@ def ingest(run_dir, day, store=HERE):
     write_csv_atomic(daily_path, DAILY_COLS, sorted(daily.values(), key=lambda d: d["asset_id"]))
     print(f"  daily/{day}.csv: {len(daily)} rows ({replaced} replaced by a newer scrape of the same asset)")
 
-    # --- sales/<month>.csv: dedup by URL, append only what's new ---------
+    # --- sales/<month>.csv: keyed by URL; new rows appended, known rows refreshed ---------
     sales_dir = store / "sales"
     incoming = defaultdict(list)
     n_in = 0
@@ -159,27 +166,101 @@ def ingest(run_dir, day, store=HERE):
             if not DATE_RX.match(d):
                 continue
             incoming[d[:7]].append({c: s.get(c, "") for c in SALE_COLS})
-    added = 0
-    for month in sorted(incoming):
-        path = sales_dir / f"{month}.csv"
-        existing = read_csv(path)
-        seen = {sale_key(s) for s in existing}
-        fresh = []
-        for s in incoming[month]:
-            k = sale_key(s)
-            if k in seen:
-                continue
-            seen.add(k)
-            fresh.append(s)
-        if fresh:
-            merged = existing + fresh
-            merged.sort(key=lambda s: (s["date"], s["asset_id"], s["url"]))
-            write_csv_atomic(path, SALE_COLS, merged)
-            added += len(fresh)
-    print(f"  sales: {n_in} rows in run, {added} new across {len(incoming)} month files")
+    stats = merge_sales(sales_dir, incoming)
+    print(f"  sales: {n_in} rows in run, {stats['sales_added']} new, {stats['sales_updated']} changed in place, "
+          f"{stats['sales_moved']} moved to another month, {stats['sales_month_files_rewritten']} month files rewritten")
 
     live = ingest_live(run_dir, cards, store)
-    return {"assets": len(assets), "new_assets": new_assets, "daily_rows": len(daily), "sales_added": added, **live}
+    return {"assets": len(assets), "new_assets": new_assets, "daily_rows": len(daily), **stats, **live}
+
+
+def merge_sales(sales_dir, incoming):
+    """Fold {month: [sale rows]} into sales/<month>.csv (see the module doc).
+
+    Two facts drive this. (1) alt.xyz keeps editing sales after it first lists them: about
+    1% of rows later get a different date or price (a re-attributed lot), 0.4% are flagged
+    RELISTED / NOT_PAID or go from PENDING to settled, and metrics.py builds the clean price
+    and change columns from exactly those fields. (2) A URL is not one sale: an eBay
+    multi-quantity Buy It Now listing keeps its item id while it sells the same card again
+    and again, sometimes for a year (54k of the 3.9M URLs in the 2026-09-26 run carry more
+    than one sale, one of them 150). Until 2026-09-26 the store kept one row per URL per
+    month, so those repeat sales were dropped; they come back as their cards are refetched.
+
+    So a stored row is matched to the run like this (grade and company must agree; a URL
+    under another grade is a mislabeled twin and is left alone, as before):
+      - the URL carries ONE sale in the run and ONE in the whole store -> the same sale:
+        any column different -> replaced with the run's row; dated into another month ->
+        the old row goes and the new month gets it (an append-only store kept both);
+      - otherwise (a repeat-sale listing) -> rows match on URL + date + price: a matching
+        row takes the run's status columns, unmatched run rows are added, and stored rows
+        the run no longer lists at that date and price stay (they may be old repeats).
+    Every month file is read twice (URL counts, then the merge) but only changed ones are
+    rewritten. Cards a run did not fetch are untouched."""
+    def fine_key(s):
+        return (sale_key(s), s.get("date") or "", s.get("price") or "")
+
+    inc_rows = defaultdict(list)                      # URL -> the run's rows for it, any month
+    for rows in incoming.values():
+        for s in rows:
+            inc_rows[sale_key(s)].append(s)
+    months = sorted(set(incoming) | {p.stem for p in sales_dir.glob("*.csv")})
+    store_count = defaultdict(int)                    # URL -> rows in the whole store, for URLs the run lists
+    for month in months:
+        for r in read_csv(sales_dir / f"{month}.csv"):
+            if sale_key(r) in inc_rows:
+                store_count[sale_key(r)] += 1
+
+    def same_grade(a, b):
+        return (a.get("grade"), a.get("grading_company")) == (b.get("grade"), b.get("grading_company"))
+
+    added = updated = moved = rewritten = 0
+    for month in months:
+        path = sales_dir / f"{month}.csv"
+        existing = read_csv(path)
+        pending = {}                                  # this month's run rows not yet matched to a stored row
+        for s in incoming.get(month, []):
+            pending.setdefault(fine_key(s), s)        # the same URL, date and price twice in one run: one sale
+        kept, changed = [], False
+        for r in existing:
+            k = sale_key(r)
+            runs = inc_rows.get(k)
+            if not runs:
+                kept.append(r)                        # not in this run (card not fetched, or sale gone from alt.xyz)
+                continue
+            if not any(same_grade(s, r) for s in runs):
+                kept.append(r)                        # the same URL under another grade: the stored row stands
+                for s in runs:
+                    pending.pop(fine_key(s), None)
+                continue
+            if len(runs) == 1 and store_count[k] == 1:
+                s = runs[0]                           # one sale, here and there: the run's version of it
+                if (s.get("date") or "")[:7] != month:
+                    moved += 1                        # re-dated into another month; written there as a fresh row
+                    changed = True
+                    continue
+                pending.pop(fine_key(s), None)
+                if any((r.get(c) or "") != (s.get(c) or "") for c in SALE_COLS):
+                    kept.append(s)
+                    updated += 1
+                    changed = True
+                else:
+                    kept.append(r)
+                continue
+            s = pending.pop(fine_key(r), None)        # a repeat-sale listing: match on URL + date + price
+            if s is not None and same_grade(s, r) and any((r.get(c) or "") != (s.get(c) or "") for c in SALE_COLS):
+                kept.append(s)
+                updated += 1
+                changed = True
+            else:
+                kept.append(r)
+        fresh = list(pending.values())
+        if fresh or changed:
+            merged = kept + fresh
+            merged.sort(key=lambda s: (s["date"], s["asset_id"], s["url"], s["price"]))
+            write_csv_atomic(path, SALE_COLS, merged)
+            added += len(fresh)
+            rewritten += 1
+    return {"sales_added": added, "sales_updated": updated, "sales_moved": moved, "sales_month_files_rewritten": rewritten}
 
 
 def to_float(s):
