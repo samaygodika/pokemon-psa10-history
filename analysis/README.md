@@ -171,6 +171,166 @@ Runs: `backtest.py --target money90|money180 --english [--min-price 150]
 tests for the new features in `test_panel.py` (band_z ignores planted future
 sales; peer_resid is cross-sectional and NaN in thin groups).
 
+## PSA 9 lag (2026-09-26)
+
+Sid's proposed "PSA 9 lag" buy signal: when a card's PSA 10 price jumps, buy
+the PSA 9 because it follows about a month later. `psa9_lag.py` is the
+backtest that had to say whether the effect exists before anything ships,
+in both directions (PSA 10 leading PSA 9, PSA 9 leading PSA 10). Data: the
+3.12M PSA 10 and 1.52M PSA 9 clean sales (PSA 9 backfilled 2026-09-22/23 for
+the ~33k nightly-scope cards), skipped rows out, PWCC mirror copies and
+outliers removed per (card, grade) with `history/metrics.py`'s own rules,
+and the 1,556 (card, date, price) rows alt.xyz lists under *both* grades
+dropped from both so the two series never share a sale. Universe: cards with
+≥ 12 months having a sale in each grade since 2021: **7,524 cards (4,653
+vintage ≤ 2013, 2,871 modern)**, 185k card-months with a median in both
+grades, 121k with a return in both. Monthly bucket = log of the median clean
+price; returns are consecutive-month differences, clipped at ±log 3 (3,225
+of 392k touched; the outlier filter admits confirmed runs, so a few
+mislabeled runs survive). All standard errors are two-way clustered by card
+and month.
+
+```bash
+analysis/.venv/bin/python analysis/test_psa9_lag.py   # planted-future-sale and estimator checks
+analysis/.venv/bin/python analysis/psa9_lag.py        # ~40 s to clean and cache the sales, ~70 s per run after -> analysis/out/psa9_lag.md
+analysis/.venv/bin/python analysis/psa9_lag.py --min-months 18 --min-bucket-sales 2 --english   # stricter liquidity / app universe
+```
+
+**Lead–lag on monthly returns, month fixed effects** (corr(r9ₜ, r10ₜ₋ₖ);
+k > 0 = PSA 10 leads, k < 0 = PSA 9 leads; t in brackets):
+
+| era | k = −3 | −2 | −1 | 0 | +1 | +2 | +3 |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| all (6.7k cards) | 0.002 (0.3) | 0.011 (1.9) | 0.022 (4.0) | **0.074 (10.7)** | 0.034 (4.4) | 0.021 (4.2) | 0.009 (1.8) |
+| vintage | 0.003 (0.5) | 0.004 (0.6) | 0.004 (0.7) | 0.044 (5.5) | 0.014 (1.7) | 0.012 (1.8) | 0.007 (1.4) |
+| modern | 0.000 (0.0) | 0.016 (2.1) | 0.029 (4.6) | 0.090 (12.9) | 0.040 (4.9) | 0.023 (3.9) | 0.009 (1.2) |
+
+Weekly buckets on the 1,238 busiest cards (≥ 100 weeks with a sale in each
+grade), lags −8..+8 weeks: 0.026 (t 6.1) at lag 0, every other lag within
+±0.012. Panel regression with month fixed effects and own lags, all cards:
+r9ₜ on r10ₜ₋₁ / ₋₂ / ₋₃ = 0.154 (t 11.6) / 0.149 (12.6) / 0.078 (8.9);
+the reverse, r10ₜ on r9ₜ₋₁ / ₋₂ / ₋₃ = 0.081 (9.0) / 0.072 (5.6) / 0.034
+(2.9). Own-lag coefficients are −0.55 and −0.24 in both grades: a bucket
+median is noisy and reverts by half the next month, which is why any
+"PSA 9 hasn't moved yet" cut must be read against a control with the same
+conditioning (below). Note also that a calendar-month bucket is dated by the
+card's own sales, so a jump late in month t lands in that month's PSA 10
+bucket and in the *next* month's PSA 9 bucket whenever the PSA 9 happened to
+sell earlier: the ±1-month correlations are partly this artefact, which is
+why they are nearly symmetric (0.034 vs 0.022) and why the event study
+below, whose PSA 9 entry is strictly after detection, is the real test.
+
+**Event study.** A PSA 10 move = the reference price (median of the ≤ 3 most
+recent clean PSA 10 sales, sales dated ≤ d only) up ≥ 30% (or ≥ 50%) on its
+level 30 days earlier, with ≥ 3 PSA 10 sales in the last 30 days and the
+earlier reference at most four months old; one event per card per 90 days.
+Windows are 30-day medians of log price: baseline [d−90, d−30), `move`
+[d−30, d], then (d, d+30], (d+30, d+60], (d+60, d+90]. "Excess" = minus the
+median of every universe card anchored at every month start (the
+cross-section that month). 27,624 events at ≥ 30% on 5,775 cards; the top
+10 cards are 0.7% of them; 75–89% of events have a PSA 9 sale in every window.
+
+| sample | n | PSA 10 in `move` | PSA 9 in `move` | PSA 9 after detection, excess: +30d / +60d / +90d (t) | median +60d | month-2, month-3 increments | PSA 9/PSA 10 ratio vs baseline: `move` → +90d | PSA 10 after, excess +90d |
+|---|---:|---:|---:|---|---:|---|---|---:|
+| PSA 10 up ≥ 30% | 27,624 | +19.7% | +4.0% | +1.1 (2.3) / +1.6 (2.4) / +1.4 (1.9) | +0.6% | +0.4 (1.0), +0.5 (1.3) | −13.4% → −12.7% (medians −9.9 → −10.3) | −2.0% (−2.2) |
+| vintage | 10,215 | +30.1% | +5.9% | +2.3 (2.5) / +3.9 (2.7) / +4.5 (2.9) | +2.2% | +1.6 (2.0), +1.5 (2.6) | −22.5% → −18.5% | −1.5% (−0.5) |
+| modern | 17,409 | +14.0% | +2.9% | +0.4 (0.9) / +0.3 (0.5) / −0.3 (−0.3) | −0.0% | −0.2 (−0.5), −0.1 (−0.2) | −8.4% → −10.0% | −2.2% (−2.6) |
+| PSA 10 up ≥ 50% | 16,689 | +26.7% | +6.2% | +2.3 (3.4) / +3.0 (3.3) / +2.6 (2.5) | +2.3% | +0.7 (1.3), +0.0 (0.1) | −17.8% → −15.6% | −2.7% (−2.5) |
+| flat control (same cards, PSA 10 within ±10%) | 12,999 | −0.9% | +0.3% | −1.7 (−3.6) / −3.1 (−4.5) / −3.4 (−4.1) | −3.2% | −1.7, −0.1 | +1.0% → +3.3% | −6.5% (−9.0) |
+| universe at month starts | 496,584 | +3.2% | +1.7% | +0.1 / +0.2 / +0.2 | 0.0% | +0.2, +0.2 | −1.8% → −5.2% | +0.9% |
+
+By year, ≥ 30% events, excess PSA 9 drift over the 60 days after detection
+(mean / median): 2021 −2.4 / −2.0, 2022 −0.1 / −0.1, 2023 +0.5 / 0.0,
+2024 +2.0 / +1.6, 2025 +2.4 / +1.8, 2026 +2.8 / +0.5. Vintage's 90-day
+excess by year: −2.6, +2.3, +3.1, −0.5, +5.0, **+10.7 (2026)**; modern's:
+−3.6, +0.7, +0.3, +2.9, +0.5, −4.7.
+
+**The "PSA 10 up, PSA 9 not yet" state.** At detection the PSA 9's own
+30-day change was below +10% in 68% of events (median 0.0%); on monthly
+buckets the state "PSA 10 up ≥ 30% and PSA 9 up < 10%" is 7.1% of all
+card-months (53% of PSA-10-up months). It is common, and most of what
+follows it is noise reversal, not catch-up:
+
+| state this month (monthly buckets) | card-months | next-month PSA 9 excess, mean / median | next-month PSA 10 excess |
+|---|---:|---:|---:|
+| PSA 10 up ≥ 30% and PSA 9 up < 10% | 8,547 | +6.7% / +5.4% | −9.1% |
+| PSA 10 up < 30% and PSA 9 up < 10% (a plain low PSA 9 bucket) | 70,665 | +3.8% / +1.8% | +0.6% |
+| PSA 10 up ≥ 30% and PSA 9 up ≥ 10% (both moved) | 7,709 | −4.2% / −2.3% | −6.1% |
+| PSA 10 up ≥ 30%, any PSA 9 | 16,256 | +1.5% / +1.9% | −7.7% |
+
+In the event study the same cut ("PSA 9 not yet up 10%") shows +5.7% excess
+drift at 60 days measured from the `move` window, but −5.7% *during* the move
+window and only +1.4% excess measured from the pre-move baseline; flat-PSA-10
+dates with the same PSA 9 condition show +0.8%. Roughly +3 points of the +6.7
+is attributable to the PSA 10 move, the rest is the low bucket bouncing.
+
+**Trade** (buy the PSA 9 at the first PSA 9 sale in (d, d+21] — 72% of
+events had one, median 4 days after detection — sell at the first PSA 9 sale
+≥ h days after entry within a further 60 days, net of a 13% sell-side fee;
+only signals whose exit window closed before 2026-09-25 count):
+
+| sample | hold | trades | no exit | hit | mean net | median net | trades / yr |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| PSA 10 up ≥ 30% | 60d | 17,097 | 4.5% | 44.3% | +4.3% | **−5.9%** | 2,850 |
+| PSA 10 up ≥ 30% | 90d | 16,245 | 4.5% | 45.3% | +7.0% | −4.9% | 2,708 |
+| PSA 10 up ≥ 50% | 60d | 10,318 | 4.6% | 45.3% | +6.0% | −4.8% | 1,720 |
+| ≥ 30%, PSA 9 entry ≥ $100 (16% of events) | 60d | 3,207 | 4.3% | 46.3% | +3.5% | −2.9% | 535 |
+| ≥ 30%, PSA 9 entry ≥ $100 | 90d | 2,877 | 4.2% | 50.2% | +9.9% | +0.2% | 480 |
+| flat control (same cards) | 60d | 6,766 | 5.8% | 34.0% | −5.5% | −13.3% | 1,128 |
+| universe (every card, every month start) | 60d | 187,572 | 11.3% | 38.9% | −0.2% | −10.5% | 31,262 |
+| universe, PSA 9 entry ≥ $100 | 60d | 56,260 | 8.0% | 33.6% | −6.5% | −12.4% | 9,377 |
+
+By year at 60 days, event trade vs universe (mean / median net): 2021
+−16.8 / −23.2 vs −15.1 / −23.1; 2022 −5.2 / −15.7 vs −7.8 / −16.7; 2023
+−3.8 / −13.2 vs −6.3 / −15.2; 2024 +3.2 / −6.6 vs +0.3 / −9.8; 2025
++6.3 / −2.6 vs +5.7 / −4.3; 2026 +21.0 / +8.7 vs +20.2 / +6.9. Matched to the
+same month, the median event trade beat the median PSA 9 bought that month by
++1.1 points (−1.0 to +2.5 by year) and 51% of event trades beat their month's
+median. The ≥ $100 rows look better only because those events are 2025–26
+heavy: against the ≥ $100 universe in the same month the medians by year are
+−2.5, −1.3, −3.5, +2.6, +3.0, −2.3. The median PSA 9 entry is **$36**
+(quartiles $20–$83), where the cost model's break-even move is 61%.
+
+**The PSA 9 / PSA 10 ratio itself** (median across the universe): 0.37
+(2021), 0.35, 0.37, 0.38 (2024), 0.30 (2025), **0.21 (2026)**; vintage 0.35 →
+0.17, modern 0.40 → 0.28; per card, the median 2022 → 2026 change in the log
+ratio is −57%. The 2025–26 run was a PSA 10 run, and twenty months on the
+PSA 9s have not followed it.
+
+**Verdict.**
+
+- **PSA 9 does not follow PSA 10 with a lag of about a month; it moves in the
+  same month, by less, and then mostly stays put.** The correlation peaks at
+  lag 0 (0.074) and the one-month value (0.034) is small, half artefact, and
+  nearly matched by the reverse direction (0.022). After a ≥ 30% PSA 10
+  move the PSA 9 has already made ~4% of the PSA 10's ~20% window move by
+  detection, adds +1.1% excess in the next 30 days, and then nothing (+0.4%
+  and +0.5% a month, t ≈ 1). Two-thirds of the relative move is still there
+  90 days later (ratio −10% at the median), and what closes is half the PSA
+  10 giving back 2%.
+- **Both directions exist and neither is tradable.** PSA 10 → PSA 9 is about
+  1.5–2× the reverse (regression 0.154 vs 0.081); both are same-month or
+  next-bucket co-movement, not a lead you can buy after.
+- **How big, how reliable.** +1.6% excess at 60 days (median +0.6%, t 2.4),
+  negative in 2021–22, positive in 2023–26. Modern: zero. Vintage: +4.5%
+  over 90 days (t 2.9), but that is −2.6 in 2021, ~+2.5 in 2022–23, −0.5 in
+  2024, +5 in 2025 and +10.7 in 2026: the vintage premium again, not a lag.
+- **Not tradable after fees.** Median net −5.9% at 60 days and negative in
+  every year until 2026, when every PSA 9 made money; the mean (+4.3%) is
+  skew from a few multi-baggers; ~1 point better than buying any PSA 9 that
+  month, a coin flip against it.
+- **What the app should do with PSA 9 prices.** Do not ship a "PSA 9 lag" or
+  "PSA 9 catch-up" buy signal or any expected return built on it.
+  `psa9_to_psa10_ratio` and its change against the card's own history can be
+  shown as a *description* ("the PSA 9 has not repriced with the PSA 10"),
+  with the base rate next to it: the gap usually persists. The PSA 9 is a
+  usable *confirmation* of a PSA 10 move: when the PSA 9 also moved ≥ 10%,
+  the PSA 10 held its gain (+0.3 to +1.2% excess over 30–90 days); when it
+  did not, the PSA 10 gave back 2–3% (t ≈ −3). And do not chase the PSA 10
+  spike itself: −1.7 to −2.0% excess over the following 30–90 days, −7.7%
+  the next bucket-month after a ≥ 30% month (mostly bucket-noise reversal).
+  Full tables in `out/psa9_lag.md`.
+
 ## Findings (2026-09-15, seed history: newest 200 sales per card)
 
 - **Price/volume momentum predicts nothing at 2–3 months.** mom30/mom90 IC ≈ 0,
