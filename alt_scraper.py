@@ -349,7 +349,7 @@ SALE_SUMMARY_COLS = ["num_sales", "last_sale_price", "last_sale_date", "last_sal
                      "highest_sale", "lowest_sale"]
 LISTING_COLS = ["listing_source", "listing_grade", "listing_grading_company", "listing_price", "listing_url"]
 SALE_COLS = ["asset_id", "card_name", "alt_url", "date", "price", "grading_company", "grade", "source",
-             "sale_type", "url", "label", "subject_to_change", "skipped_reason"]
+             "sale_type", "url", "label", "subject_to_change", "skipped_reason", "alt_tx_id"]
 LIVE_COLS = ["asset_id", "grading_company", "grade", "listing_type", "source", "current_bid", "bid_count", "end_date",
              "buy_it_now_price", "url", "alt_listing_id", "checked_at"]
 
@@ -444,6 +444,10 @@ def sale_rows(asset, sales, max_sales=None):
             "label": s.get("label"),
             "subject_to_change": s.get("subjectToChange"),
             "skipped_reason": s.get("consolidatedSkippedReason"),
+            # alt.xyz's own id for this sale record: the one exact key. A URL is not one
+            # (multi-quantity eBay listings sell the same card many times under one item id),
+            # and date / price / status get edited later. history/ingest.py matches on it.
+            "alt_tx_id": s.get("id"),
         }
 
 

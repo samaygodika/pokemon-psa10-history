@@ -22,14 +22,18 @@ Store layout (all plain CSV, all append/merge-friendly so git diffs stay small):
     history/sales/<YYYY-MM>.csv   every PSA 10 sale ever seen (plus PSA 9 sales for
                                   cards scraped with --also-grade 9; the grade
                                   column tells them apart), bucketed by sale
-                                  month, keyed by sale URL (or by
-                                  asset+date+price+source when there is no URL).
-                                  A sale the run lists again takes the run's
-                                  values: alt.xyz later re-dates or re-prices
-                                  ~1% of sales and flags or settles 0.4%
-                                  (RELISTED / NOT_PAID / PENDING), and the clean
-                                  price columns depend on those fields. A sale
-                                  re-dated into another month moves there. Only
+                                  month, keyed by alt.xyz's transaction id
+                                  (alt_tx_id, recorded from 2026-09-26; older
+                                  rows are matched by URL, or URL+date+price for
+                                  a listing that sold several times, and gain
+                                  their id). A sale the run lists again takes
+                                  the run's values: alt.xyz later re-dates or
+                                  re-prices ~1% of sales and flags or settles
+                                  0.4% (RELISTED / NOT_PAID / PENDING), and the
+                                  clean price columns depend on those fields. A
+                                  sale re-dated into another month moves there;
+                                  one alt.xyz no longer lists under a URL it
+                                  still lists is dropped. Only
                                   month files with a change are rewritten
                                   (merge_sales, 2026-09-26; before that the
                                   store was append-only and never saw a flip).
@@ -79,7 +83,7 @@ DAILY_COLS = ["asset_id", "pop_at_grade", "company_total_pop", "index_total_pop"
               "listing_source", "listing_grade", "listing_grading_company", "listing_price", "listing_url",
               "pop_at_grade_9", "extra_grades", "listings_checked_at", "psa9_listings_checked_at", "sales_fetched"]
 SALE_COLS = ["asset_id", "date", "price", "grading_company", "grade", "source", "sale_type", "url",
-             "label", "subject_to_change", "skipped_reason"]
+             "label", "subject_to_change", "skipped_reason", "alt_tx_id"]
 LIVE_COLS = ["asset_id", "grading_company", "grade", "listing_type", "source", "current_bid", "bid_count", "end_date",
              "buy_it_now_price", "url", "checked_at"]
 BIN_MAX_AGE_DAYS = 7   # a Buy It Now row survives this long without alt.xyz showing it again
@@ -155,7 +159,7 @@ def ingest(run_dir, day, store=HERE):
     write_csv_atomic(daily_path, DAILY_COLS, sorted(daily.values(), key=lambda d: d["asset_id"]))
     print(f"  daily/{day}.csv: {len(daily)} rows ({replaced} replaced by a newer scrape of the same asset)")
 
-    # --- sales/<month>.csv: keyed by URL; new rows appended, known rows refreshed ---------
+    # --- sales/<month>.csv: keyed by alt_tx_id (URL rules for older rows); see merge_sales ---------
     sales_dir = store / "sales"
     incoming = defaultdict(list)
     n_in = 0
@@ -166,15 +170,29 @@ def ingest(run_dir, day, store=HERE):
             if not DATE_RX.match(d):
                 continue
             incoming[d[:7]].append({c: s.get(c, "") for c in SALE_COLS})
-    stats = merge_sales(sales_dir, incoming)
+    # Dropping a stored sale ("alt.xyz no longer lists it") is only sound when the run
+    # listed EVERY sale of the card (--max-sales 0, as the nightly does). A run cut short by
+    # --max-sales N shows fewer rows than num_sales for some card: then nothing is dropped.
+    n_rows = defaultdict(int)
+    for rows in incoming.values():
+        for s in rows:
+            n_rows[(s["asset_id"], s.get("grade"))] += 1
+    truncated = [r["asset_id"] for r in cards
+                 if r.get("sales_fetched", "1") != "0" and to_int(r.get("num_sales")) is not None
+                 and n_rows[(r["asset_id"], r.get("grade"))] < to_int(r["num_sales"])]
+    if truncated:
+        print(f"  sales: {len(truncated)} card(s) have fewer sale rows than num_sales (a --max-sales run?): "
+              "no stored sale is dropped this time")
+    stats = merge_sales(sales_dir, incoming, allow_drop=not truncated)
     print(f"  sales: {n_in} rows in run, {stats['sales_added']} new, {stats['sales_updated']} changed in place, "
-          f"{stats['sales_moved']} moved to another month, {stats['sales_month_files_rewritten']} month files rewritten")
+          f"{stats['sales_moved']} moved to another month, {stats['sales_dropped']} dropped (no longer listed by alt.xyz), "
+          f"{stats['sales_month_files_rewritten']} month files rewritten")
 
     live = ingest_live(run_dir, cards, store)
     return {"assets": len(assets), "new_assets": new_assets, "daily_rows": len(daily), **stats, **live}
 
 
-def merge_sales(sales_dir, incoming):
+def merge_sales(sales_dir, incoming, allow_drop=True):
     """Fold {month: [sale rows]} into sales/<month>.csv (see the module doc).
 
     Two facts drive this. (1) alt.xyz keeps editing sales after it first lists them: about
@@ -184,25 +202,40 @@ def merge_sales(sales_dir, incoming):
     multi-quantity Buy It Now listing keeps its item id while it sells the same card again
     and again, sometimes for a year (54k of the 3.9M URLs in the 2026-09-26 run carry more
     than one sale, one of them 150). Until 2026-09-26 the store kept one row per URL per
-    month, so those repeat sales were dropped; they come back as their cards are refetched.
+    month and never changed it, so repeat sales were dropped and edits never arrived.
 
-    So a stored row is matched to the run like this (grade and company must agree; a URL
-    under another grade is a mislabeled twin and is left alone, as before):
-      - the URL carries ONE sale in the run and ONE in the whole store -> the same sale:
-        any column different -> replaced with the run's row; dated into another month ->
-        the old row goes and the new month gets it (an append-only store kept both);
-      - otherwise (a repeat-sale listing) -> rows match on URL + date + price: a matching
-        row takes the run's status columns, unmatched run rows are added, and stored rows
-        the run no longer lists at that date and price stay (they may be old repeats).
-    Every month file is read twice (URL counts, then the merge) but only changed ones are
-    rewritten. Cards a run did not fetch are untouched."""
+    The key is alt.xyz's own id for the sale record (alt_tx_id, recorded by the scraper
+    from 2026-09-26). Rows stored before that have none, so for a stored row r whose URL
+    the run lists (grade and company agreeing; a URL under another grade is a mislabeled
+    twin and is left alone, as before):
+      - r has an id -> the run row with that id is the same sale: replaced if anything
+        changed, dropped here if the run now dates it into another month (it is added
+        there), dropped if the run no longer has that id at all;
+      - r has no id and the URL carries ONE sale in the run and ONE in the store -> the
+        same sale, handled the same way (and it gains its id);
+      - r has no id otherwise (a repeat-sale listing) -> matched to the run row with the
+        same date and price in this month, which gives it its id; none -> dropped: alt.xyz
+        no longer lists a sale like it under that URL (a re-dated twin, or a sale it
+        removed).
+    Run rows nothing matched are added. With allow_drop=False (ingest passes it when a run
+    shows fewer sale rows than num_sales for some card, i.e. --max-sales cut it short) the
+    two "dropped" cases keep the row instead. Stored rows for URLs the run does not list at all
+    are never touched (the card was not fetched, or the sale is gone from alt.xyz along
+    with its URL). Every month file is read twice (URL counts, then the merge) but only
+    changed ones are rewritten."""
     def fine_key(s):
-        return (sale_key(s), s.get("date") or "", s.get("price") or "")
+        return (s.get("date") or "", s.get("price") or "")
+
+    def same_grade(a, b):
+        return (a.get("grade"), a.get("grading_company")) == (b.get("grade"), b.get("grading_company"))
 
     inc_rows = defaultdict(list)                      # URL -> the run's rows for it, any month
+    by_id = {}                                        # alt_tx_id -> run row
     for rows in incoming.values():
         for s in rows:
             inc_rows[sale_key(s)].append(s)
+            if s.get("alt_tx_id"):
+                by_id.setdefault(s["alt_tx_id"], s)
     months = sorted(set(incoming) | {p.stem for p in sales_dir.glob("*.csv")})
     store_count = defaultdict(int)                    # URL -> rows in the whole store, for URLs the run lists
     for month in months:
@@ -210,57 +243,93 @@ def merge_sales(sales_dir, incoming):
             if sale_key(r) in inc_rows:
                 store_count[sale_key(r)] += 1
 
-    def same_grade(a, b):
-        return (a.get("grade"), a.get("grading_company")) == (b.get("grade"), b.get("grading_company"))
-
-    added = updated = moved = rewritten = 0
+    added = updated = moved = dropped = rewritten = 0
     for month in months:
         path = sales_dir / f"{month}.csv"
         existing = read_csv(path)
-        pending = {}                                  # this month's run rows not yet matched to a stored row
-        for s in incoming.get(month, []):
-            pending.setdefault(fine_key(s), s)        # the same URL, date and price twice in one run: one sale
+        this_month = incoming.get(month, [])
+        consumed = set()                              # id() of run rows matched to a stored row in this month
         kept, changed = [], False
-        for r in existing:
-            k = sale_key(r)
-            runs = inc_rows.get(k)
-            if not runs:
-                kept.append(r)                        # not in this run (card not fetched, or sale gone from alt.xyz)
-                continue
-            if not any(same_grade(s, r) for s in runs):
-                kept.append(r)                        # the same URL under another grade: the stored row stands
-                for s in runs:
-                    pending.pop(fine_key(s), None)
-                continue
-            if len(runs) == 1 and store_count[k] == 1:
-                s = runs[0]                           # one sale, here and there: the run's version of it
-                if (s.get("date") or "")[:7] != month:
-                    moved += 1                        # re-dated into another month; written there as a fresh row
-                    changed = True
-                    continue
-                pending.pop(fine_key(s), None)
-                if any((r.get(c) or "") != (s.get(c) or "") for c in SALE_COLS):
-                    kept.append(s)
-                    updated += 1
-                    changed = True
-                else:
-                    kept.append(r)
-                continue
-            s = pending.pop(fine_key(r), None)        # a repeat-sale listing: match on URL + date + price
-            if s is not None and same_grade(s, r) and any((r.get(c) or "") != (s.get(c) or "") for c in SALE_COLS):
+
+        def take(r, s):
+            """r is the stored row for run row s (same month): keep the run's version if anything differs."""
+            nonlocal updated, changed
+            consumed.add(id(s))
+            if any((r.get(c) or "") != (s.get(c) or "") for c in SALE_COLS):
                 kept.append(s)
                 updated += 1
                 changed = True
             else:
                 kept.append(r)
-        fresh = list(pending.values())
+
+        for r in existing:
+            k = sale_key(r)
+            runs = [s for s in inc_rows.get(k, []) if same_grade(s, r)]
+            if k not in inc_rows:
+                kept.append(r)                        # URL not in this run: card not fetched, or sale and URL gone
+                continue
+            if not runs:
+                kept.append(r)                        # the same URL only under another grade: the stored row stands
+                continue
+            if r.get("alt_tx_id"):
+                s = by_id.get(r["alt_tx_id"])
+                if s is None or not same_grade(s, r):
+                    if allow_drop:
+                        dropped += 1                  # alt.xyz no longer has this sale record
+                        changed = True
+                    else:
+                        kept.append(r)
+                elif (s.get("date") or "")[:7] != month:
+                    moved += 1                        # re-dated into another month; added there
+                    changed = True
+                else:
+                    take(r, s)
+                continue
+            if len(runs) == 1 and store_count[k] == 1:
+                s = runs[0]                           # one sale here and there: the same sale, now with its id
+                if (s.get("date") or "")[:7] != month:
+                    moved += 1
+                    changed = True
+                else:
+                    take(r, s)
+                continue
+            s = next((s for s in runs if id(s) not in consumed and (s.get("date") or "")[:7] == month
+                      and fine_key(s) == fine_key(r)), None)
+            if s is None:
+                if allow_drop:
+                    dropped += 1                      # no sale like it under that URL any more: a twin or removed
+                    changed = True
+                else:
+                    kept.append(r)
+            else:
+                take(r, s)
+        twin_urls = {sale_key(r) for r in existing if sale_key(r) in inc_rows
+                     and not any(same_grade(s, r) for s in inc_rows[sale_key(r)])}
+        # The same sale twice in one run (same id, or same URL + date + price): one row.
+        def run_key(s):
+            return ("id", s["alt_tx_id"]) if s.get("alt_tx_id") else ("fk", sale_key(s), fine_key(s))
+        seen = {run_key(s) for s in this_month if id(s) in consumed}
+        fresh = []
+        for s in this_month:
+            if id(s) in consumed or sale_key(s) in twin_urls or run_key(s) in seen:
+                continue
+            seen.add(run_key(s))
+            fresh.append(s)
         if fresh or changed:
             merged = kept + fresh
-            merged.sort(key=lambda s: (s["date"], s["asset_id"], s["url"], s["price"]))
+            merged.sort(key=lambda s: (s["date"], s["asset_id"], s["url"], s["price"], s.get("alt_tx_id") or ""))
             write_csv_atomic(path, SALE_COLS, merged)
             added += len(fresh)
             rewritten += 1
-    return {"sales_added": added, "sales_updated": updated, "sales_moved": moved, "sales_month_files_rewritten": rewritten}
+    return {"sales_added": added, "sales_updated": updated, "sales_moved": moved, "sales_dropped": dropped,
+            "sales_month_files_rewritten": rewritten}
+
+
+def to_int(s):
+    try:
+        return int(float(s))
+    except (TypeError, ValueError):
+        return None
 
 
 def to_float(s):
