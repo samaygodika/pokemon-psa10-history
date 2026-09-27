@@ -331,6 +331,116 @@ PSA 9s have not followed it.
   the next bucket-month after a ≥ 30% month (mostly bucket-noise reversal).
   Full tables in `out/psa9_lag.md`.
 
+## PSA 9 catch-up in hype windows (2026-09-27)
+
+Sid's follow-up: the catch-up happens in hyped categories, when buyers get
+priced out of the 10s, and the market-wide average buries it. `psa9_hype.py`
+re-cuts the lag study four ways: by card type (Gold Star, LV.X, Neo Shining,
+e-card Crystal, HGSS Prime/LEGEND, EX-era ex, WOTC 1st Edition, modern V /
+ex / alt art, promos), era, language and character (top 50 by alt market
+cap); only in **hype windows**, where the group as a whole moved (the median
+of all its cards' PSA 10 month-on-month bucket returns ≥ +30%, ≥ 5 cards,
+measured on every card with PSA 10 sales); by PSA 10 price tier (< $1K,
+$1K–$10K, ≥ $10K); out to 6 and 12 months. Rows are every PSA 9 universe card
+(the lag study's 7,532) at every month start; a hype in month M flags the
+anchor T = first day of M+1, and everything after T is outcome. Horizon
+windows that end after the data end are blank, so 12m covers signals up to
+2025-09.
+
+```bash
+analysis/.venv/bin/python analysis/test_psa9_hype.py
+analysis/.venv/bin/python analysis/psa9_hype.py --cache-dir <dir>   # ~2 min; out/psa9_hype{,_hype20,_hype15}.md
+```
+
+**Sid's +30% bar is almost never met, and mostly this year.** Hype months at
++30%: 13 card-type months (10 in 2026), 3 era months (all 2026), 15
+character months across 11 of the top 50 (9 in 2026). Six- and twelve-month
+outcomes do not exist yet for most of them. The same tables are therefore
+run at +20% (29 / 9 / 69 group-months) and **+15% (55 / 20 / 180
+group-months, 34 distinct months, 2021–2026)**, the only threshold with
+enough history to answer the 6–12 month question.
+
+**How it is measured, and why the first cut misled.** Counting cards,
+pooled hype rows show large, "significant" effects at every threshold, and
+the priced-out state (card's PSA 10 up ≥ 30% in the hype month, its PSA 9 <
++10%) shows the PSA 9 / PSA 10 gap closing by 20–30%. Neither survives the
+two controls that matter. (1) The gap closes by the same ~25% in that state
+*without* hype: it is the bucket-noise reversal from the lag study, a
+noise-high PSA 10 bucket falling back (−17% at every horizon). (2) One month
+can hold hundreds of cards, and the hype months cluster in the 2025–26
+vintage run. The table to trust (section 5 of each report) takes **one
+observation per hype month** and measures each card against **unhyped cards
+of the same era and PSA 10 price tier anchored the same month**:
+
+| +15% hype, matched excess (mean, t across months [months]) | 1m | 3m | 6m | 12m |
+|---|---:|---:|---:|---:|
+| PSA 9, any hype | +3.7 (2.4) [33] | +2.0 (1.4) [31] | **+6.8 (3.6) [28]** | **+11.0 (4.8) [24]** |
+| PSA 10, same rows | −5.1 (−1.9) | −0.3 (−0.1) | −0.3 (−0.1) | +2.4 (0.9) |
+| PSA 9, character hype | +3.3 (1.9) [30] | +2.4 (1.4) [28] | +7.7 (3.8) [25] | +8.5 (4.1) [21] |
+| PSA 9, card-type hype | +3.0 (1.9) [20] | +3.7 (1.9) [18] | +1.6 (0.6) [15] | +5.8 (0.8) [14] |
+| PSA 9, hype, PSA 10 < $1K | +4.2 (2.0) | +1.9 (1.2) | +6.4 (3.7) [27] | +9.4 (4.1) [23] |
+| PSA 9, hype, PSA 10 $1K–$10K | +2.5 (1.3) | +4.3 (1.8) | +4.4 (1.1) [23] | +13.1 (1.9) [20] |
+| PSA 9, hype, PSA 10 ≥ $10K | +1.7 (0.5) | +4.8 (1.5) | +13.3 (3.4) [9] | +6.9 (0.8) [7] |
+| PSA 10, hype, PSA 10 ≥ $10K | −3.8 | −9.3 | −13.1 (−1.3) | −11.4 (−0.5) |
+
+By year of the hype month, PSA 9 at 6m / 12m: 2021 +13.9 / +12.4, 2022
++7.4 / +10.1, 2023 +4.6 / +12.8, 2024 +10.6 / +9.6, 2025 +3.5 / +9.1 (2026:
+too recent). Signals from 2021–2024 only: +8.7% at 6m (t 3.5), +11.5% at
+12m (t 4.4), 19 months, 79% of them up. The same direction at +20% (+6.2% /
++8.0%, t 1.6, 22 / 18 months) and +30% (+23% / +12%, t 1.9 / 1.1, 11 / 8
+months), with too few months to be sure at either.
+
+**The priced-out state, measured properly.** Matched to unhyped cards in the
+*same* state (own PSA 10 up ≥ 30% that month, own PSA 9 < +10%), era and
+tier, so the state's own bucket noise cancels: hyped priced-out PSA 9s
++7.1% at 3m (t 2.1, 27 months), **+18.8% at 6m (t 2.8, 25) and +16.1% at 12m
+(t 3.0, 22)**, medians +10.2% / +11.4%; their PSA 10s +4.2% / +1.2% (t < 1).
+Hyped cards *not* in that state: PSA 9 +2.9% at 6m (t 1.2), +9.5% at 12m
+(t 3.8). The state is 4% of hype rows (1,365 of 34,425).
+
+**Trade** (buy the PSA 9 at the first sale in (T, T+21], sell at the first
+sale ≥ 180 / 365 days later, 13% fee), +15% hype: median net +0.7% at 180d
+(hit 51%) and +3.5% at 365d vs −7.6% and −3.4% for PSA 9s bought outside
+hype windows; against same-month unhyped cards of the same era and tier,
++4.8 points at 180d (t 2.1, ahead in 69% of months) and +6.1 at 365d (t
+1.9, 59%).
+
+**Verdict.**
+
+- **Sid is right that a PSA 9 catch-up exists and that the market-wide
+  average and the 90-day window buried it, but it is slow and modest.** After
+  a month in which a character (or card type) rose ≥ 15% as a whole, its
+  PSA 9s beat unhyped PSA 9s of the same era and price tier by ~7% over 6
+  months and ~11% over 12, while the PSA 10s beside them do not (−0.3%,
+  +2.4%). Nothing at 3 months (+2.0%, t 1.4), which is why the lag study did
+  not see it. Positive for signals from every year 2021–2025.
+- **It is a character effect.** Character hype carries it (t ≈ 4); card-type
+  hype does not (t < 1 at 6–12m). No single card type or character has
+  enough hype months (all ≤ 8) to be judged on its own; Pikachu (8 months),
+  Mew and Giratina lean positive at 6–12m, Gold Star and LV.X are flat, HGSS
+  Prime/LEGEND jumps at once rather than catching up (4 months).
+- **"Priced out" holds at the card level, not as a price tier.** The
+  catch-up concentrates where the card's own PSA 10 jumped in the hype month
+  and its PSA 9 had not: +19% at 6m and +16% at 12m over unhyped cards in
+  that same state (t ≈ 3; mean well above median, so a few big winners
+  carry part of it), against +3% / +10% for the rest of the hype rows. At
+  1–3 months the gap closing in that state is bucket noise (it closes as
+  much without hype). By tier, the effect is clearest under $1K, where most
+  of the data is; at ≥ $10K the PSA 9 rises (+13% at 6m, 9 months) but the
+  gap there closes as much by the PSA 10 giving back (−13%), and there are
+  too few top-tier months to separate the two.
+- **At Sid's +30% there is not enough history yet.** Almost every +30% group
+  month is in 2026; re-run in 2027 (`--hype 0.30`).
+- **What it could ship as.** Not a buy signal with an expected return: the
+  median trade roughly breaks even after the 13% fee in absolute terms, and
+  +5 points against the alternative is a relative edge, t ≈ 2. At most a
+  description on the PSA 9: "this character ran ≥ 15% last month; PSA 9s of
+  hyped characters have outperformed by ~7% over the next 6 months (2021–25,
+  79% of such months); the PSA 10s have not", with the stronger variant when
+  the card's own PSA 10 jumped and its PSA 9 did not (~+19% / 6 months,
+  skewed). Worth a forward test: log these flags nightly and check them in
+  six months before anything claims a return.
+
 ## Findings (2026-09-15, seed history: newest 200 sales per card)
 
 - **Price/volume momentum predicts nothing at 2–3 months.** mom30/mom90 IC ≈ 0,
