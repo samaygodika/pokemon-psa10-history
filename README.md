@@ -91,8 +91,8 @@ python3 history/flags.py                                  # append tonight's PSA
 
 `history/psa9_flags.csv` and `history/psa9_category_moves.csv` (from 2026-09-27, step 7 of the
 nightly, append-only) log Sid's PSA 9 buy conditions forward so they can be checked 3, 6 and
-12 months later: for every card of a top-50 Pokemon (by alt-side market cap in
-`latest/characters.csv`) whose PSA 10 is up 50%+ over 30 days, or whose card type is running
+12 months later: for every card of a top-50 Pokemon (the app's roster rank: alt-side market cap of cards up to
+2013, `alt_market_cap_le2013_usd` in `latest/characters.csv`) whose PSA 10 is up 50%+ over 30 days, or whose card type is running
 (group median 30-day change 30%+), or that is listed in `nightly/track_assets.txt`, one row a
 night with that night's PSA 10 / PSA 9 prices, pops, tier and the flags that held
 (`buy_rule_50` / `buy_rule_100` = top-50 card, PSA 10 up 50%+ / 100%+, PSA 9 up less than

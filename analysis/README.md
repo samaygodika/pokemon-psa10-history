@@ -441,6 +441,233 @@ hype windows; against same-month unhyped cards of the same era and tier,
   skewed). Worth a forward test: log these flags nightly and check them in
   six months before anything claims a return.
 
+## Sid's buy rule (2026-09-27)
+
+Sid's reply to the hype study, in his words: he buys PSA 9s of blue chip or
+top-50 Pokémon "usually when the card's PSA 10 has gained 100%+ over the past
+month and the PSA 9 hasn't moved yet"; the catch-up "mainly applies to the
+top-moving categories" (LV.X, Gold Star, Prime/LEGEND moving 70–100%+ as a
+category in a month); and the theory "is really about the intersection: hot
+category plus top-50 Pokémon (or blue chip), not every card in the set".
+`psa9_buyrule.py` runs that rule on psa9_hype.py's rows (same cleaning,
+buckets, universe of 7,532 cards, matched control, one-observation-per-month
+t-stats, 13%-fee trade). Nothing re-derived.
+
+```bash
+analysis/.venv/bin/python analysis/test_psa9_buyrule.py
+analysis/.venv/bin/python analysis/psa9_buyrule.py --cache-dir <dir with clean_sales.pkl>   # ~40 s first run (rows cached), ~12 s after -> out/psa9_buyrule.md
+analysis/.venv/bin/python analysis/psa9_buyrule.py --top-cap-col alt_market_cap_usd          # psa9_hype's all-years top-50 as the primary list
+```
+
+**Definitions used (looked up, not guessed).** *Top-50*: PokeSniper's
+Characters tab in its default "≤ 2013" view takes its 50 members from the
+alt-side market cap of cards dated ≤ 2013 (`PokeSniper.jsx` rosterRanking /
+SEED_TOP50, snapshot 2026-09-22), so the primary list is the top 50 of
+`latest/characters.csv` by **`alt_market_cap_le2013_usd`**; today that
+reproduces SEED_TOP50 except Eevee in / Arceus out. psa9_hype.py's
+TOP_CHARACTERS uses the all-years column `alt_market_cap_usd`; the two lists
+share 39 names (≤ 2013 only: Machamp, Kabutops, Typhlosion, Houndoom,
+Arcanine, Deoxys, Ampharos, Nidoking, Ninetales, Ditto, Slowking; all-years
+only: Latios, Giratina, Mimikyu, Zekrom, Sylveon, Reshiram, Gardevoir,
+Arceus, Greninja, Dialga, **Palkia**), and the all-years list is run as a
+robustness row. *Blue chip*: `BLUE_CHIP_TOP = 10`, the first 10 of that top
+50 by the app's own combined cap = Σ PSA 10 price × PSA 10 pop over its
+matched cards (year ≤ 2013, English; `mapToCardShape.js` totalMarketValue).
+Replicated as Σ `clean_last_sale_price × pop_at_grade` over English ≤ 2013
+cards in `latest/cards.csv`: **Charizard, Mewtwo, Gengar, Pikachu, Umbreon,
+Mew, Gyarados, Lugia, Dragonite, Rayquaza** (the alt-side ≤ 2013 cap alone
+swaps Dragonite for Torchic). Blue chip ⊂ top-50, so "blue chip OR top-50" is
+the top-50. Both lists are today's, applied to the whole history (there is no
+roster history): a mild look-ahead in the rule's favour. Membership = the
+card's alt.xyz subject names the character (whole word). *The rule*: the
+card's own PSA 10 monthly-bucket return in signal month M ≥ +100% (also
++50%), its PSA 9 bucket return in M **< +10%, observed** (a sale in both M
+and M−1; "flat or no PSA 9 sale" is counted separately), anchor T = first
+day of M+1, entry and outcomes strictly after T. *Controls*: `_mx` =
+psa9_hype's matched unhyped card (no +15% card-type / era / character
+window) of the same era, PSA 10 tier and month; `_sx` = unhyped
+**non-top-50** card in the **same own-card state**, era, tier and month,
+which nets out the bucket-noise reversal that follows any "PSA 10 bucket up,
+PSA 9 bucket flat" month and isolates what the top-50 filter adds.
+
+**Ask 1: the rule as stated.** Signals ((card, month) pairs; 66 signal
+months 2021-02..2026-09, ~7 a month at 100%):
+
+| rule | signals | cards | < $1K | $1K–$10K | ≥ $10K | 2021 / 22 / 23 / 24 / 25 / 26 |
+|---|---:|---:|---:|---:|---:|---|
+| PSA 10 up ≥ 100%, PSA 9 flat, top-50 | 494 | 409 | 367 | 98 | 14 | 45 / 73 / 95 / 58 / 87 / 136 |
+| … blue chip only | 223 | 180 | 152 | 54 | 12 | 21 / 24 / 45 / 27 / 34 / 72 |
+| … same state, NOT top-50 (either list) | 349 | 309 | 307 | 31 | 4 | 23 / 53 / 58 / 53 / 68 / 94 |
+| … top-50, PSA 9 flat OR no PSA 9 return | 1,663 | 1,182 | 1,356 | 245 | 21 | 130 / 248 / 287 / 285 / 320 / 393 |
+| PSA 10 up ≥ 50%, PSA 9 flat, top-50 | 2,050 | 1,332 | 1,603 | 370 | 38 | 137 / 283 / 348 / 280 / 476 / 526 |
+| … same state, NOT top-50 | 1,505 | 927 | 1,337 | 127 | 11 | 97 / 229 / 281 / 225 / 294 / 379 |
+
+PSA 9 after the signal, one observation per signal month (mean / median
+across months, % of months up, (t), [months]):
+
+| sample | control | 3m | 6m | 12m |
+|---|---|---|---|---|
+| top-50, up ≥ 100% (494) | `_mx` unhyped, same era/tier | +10.2 / +7.6, 71% (4.8) [63] | +12.5 / +9.9, 70% (4.8) [60] | +14.8 / +10.9, 74% (4.6) [54] |
+| same state, NOT top-50 (349) | `_mx` | +7.3 / +6.5, 62% (2.1) [58] | +7.5 / +8.0, 71% (2.5) [56] | +11.3 / +10.2, 67% (3.1) [49] |
+| **top-50, up ≥ 100%** | **`_sx` same state, non-top-50** | **+2.3 / +7.3, 58% (0.4) [45]** | **+8.7 / +7.0, 52% (1.8) [42]** | **+2.7 / +11.0, 61% (0.5) [36]** |
+| blue chip, up ≥ 100% (223) | `_sx` | −0.4 / +0.3 (−0.1) [29] | +19.0 / +9.8, 64% (1.9) [22] | +0.3 / −5.8 (0.0) [19] |
+| top-50, up ≥ 50% (2,050) | `_mx` | +8.7 / +6.5, 83% (7.9) [63] | +10.1 / +11.3, 87% (8.1) [60] | +10.3 / +8.8, 87% (7.3) [54] |
+| top-50, up ≥ 50% | `_sx` | +4.1 / −0.3, 50% (1.6) [62] | +4.7 / +4.4, 63% (2.4) [59] | +1.3 / +0.6, 53% (0.5) [53] |
+| PSA 10 of the top-50 ≥ 100% rows | `_mx` | −36.6 / −42.0, 5% (−5.6) | −43.3 / −45.7, 7% (−11.8) | −40.8 / −43.7, 6% (−10.9) |
+| gap (PSA 9 − own PSA 10), top-50 ≥ 100% | `_sx` | −2.7 / 0.0 (−0.4) | +1.1 / 0.0 (0.3) | −5.4 / 0.0 (−2.0) |
+
+By PSA 10 tier, top-50 up ≥ 100%, `_mx` then `_sx`: **< $1K** (367)
++11.2 / +12.0 / +16.2 (t 4.5 / 4.2 / 4.1) then +1.2 / +8.1 / +1.9 (t 0.2 /
+1.5 / 0.3); **$1K–$10K** (98, months 2021: 6, 22: 7, 23: 7, 24: 1, 25: 9,
+26: 7) +9.8 / +19.7 / +7.8 (t 2.7 / 3.9 / 1.7) then +19.7 / +14.1 / +10.5
+over 8 / 9 / 5 months (t 2.0 / 0.8 / 0.4); **≥ $10K: 14 signals in 10
+months (2021: 4, 2023: 2, 2025: 4, 2026: 2)**, `_mx` +3.0 / +7.0 / +7.7
+(medians 0.0 / −0.4 / +3.1, t ≤ 1.1), and no same-state control exists
+(4 non-top-50 rows in five years). At 50% the ≥ $10K tier has 38 signals,
+`_mx` +3.6 / +9.5 / +7.2 (t 0.8 / 1.8 / 1.0).
+
+Trade (buy the first PSA 9 sale in (T, T+21], sell the first sale ≥ 90 /
+180 / 365 days after entry, 13% fee, closed windows only):
+
+| sample | hold | trades (/yr) | entry vs pre-T PSA 9 median | hit | mean | median net | vs matched unhyped, pts (t) | months ahead |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| top-50, up ≥ 100% | 90d | 302 (50) | +10.5% | 41% | +5.5% | **−11.6%** | +3.2 (0.9) | 46% |
+| top-50, up ≥ 100% | 180d | 255 (43) | +9.8% | 34% | −1.4% | **−16.5%** | +0.7 (0.2) | 45% |
+| top-50, up ≥ 100% | 365d | 211 (42) | +9.1% | 34% | +4.9% | −15.9% | +0.7 (0.1) | 40% |
+| blue chip, up ≥ 100% | 180d | 116 (19) | +13.2% | 38% | +4.8% | −13.5% | +11.8 (1.7) | 55% |
+| top-50, ≥ 100%, PSA 10 ≥ $10K | 90 / 180 / 365d | 10 / 9 / 6 | +4.5% | 50 / 56 / 33% | +20 / +24 / +2% | +3.5 / +1.5 / −16.5% | +25 / +16 / +25 (≤ 1.1) | 75 / 38 / 60% |
+| same state, NOT top-50 | 180d | 169 (28) | +6.2% | 48% | +13.8% | −1.1% | +11.2 (1.7) | 56% |
+| top-50, up ≥ 50% | 90d | 1,259 (210) | +8.7% | 45% | +7.0% | −5.6% | +2.5 (2.3) | 54% |
+| top-50, up ≥ 50% | 180d | 1,110 (185) | +6.7% | 45% | +11.8% | −6.0% | +3.7 (2.2) | 62% |
+| top-50, up ≥ 50% | 365d | 897 (179) | +5.4% | 47% | +28.9% | −4.6% | +0.9 (0.4) | 44% |
+| universe (every card, every month) | 180d | 170,374 | +0.0% | 44% | +7.8% | −7.3% | — | — |
+
+By year of T, top-50 up ≥ 100%, 180-day hold, median net: 2021 −27.4%
+(40 trades, hit 13%), 2022 −28.7% (50), 2023 −23.1% (63), 2024 −18.8%
+(37), 2025 **+14.3%** (58, hit 59%), 2026 +29.3% (7). At 365 days: −39.2,
+−19.2, −21.3, −4.9, +50.1 (2025, 29 trades). At 50%, 180d: −28.0, −22.9,
+−13.1, +8.1, +17.5, +52.7 (25); the median trade minus the same-month
+matched unhyped trade by year: +3.5, −0.5, +3.4, +1.4, −0.2, +4.5 pts.
+
+**Ask 2: inside hot card-type months, top-50 vs the rest.** Card-type hype
+≥ 15%: 60 group-months over 22 distinct months (2021: 2, 2022: 2, 2023: 4,
+2024: 1, 2025: 6, 2026: 6). Matched `_mx`, one observation per month:
+
+| hot card-type rows | rows | 3m | 6m | 12m |
+|---|---:|---|---|---|
+| top-50 (app) | 7,688 | +6.9 / +4.3, 78% (2.8) [18] | +6.1 / +1.2, 60% (1.4) [15] | +7.8 / +1.6, 62% (1.0) [13] |
+| blue chip | 3,426 | +5.3 / +3.2, 75% (2.2) [16] | +7.4 / +1.5, 58% (1.1) [12] | +19.7 / +11.6, 70% (2.0) [10] |
+| NOT top-50 (either list) | 5,956 | −1.5 / −1.3, 36% (−0.4) [11] | −8.7 / −11.3, 12% (−1.4) [8] | +1.2 / +1.7, 50% (0.1) [8] |
+| top-50 minus NOT top-50, paired by month | | +7.6 / +6.1, 73% (1.5) [11] | +20.5 / +13.2, 88% (1.8) [8] | +6.4 / +13.6, 57% (0.5) [7] |
+| **Sid's intersection**: top-50 + own PSA 10 up ≥ 50% + PSA 9 flat | 172 | +30.6 / +18.2, 100% (3.1) [10] | +21.3 / +27.0, 86% (4.5) [7] | +9.4 / +26.2, 80% (0.5) [5] |
+| NOT top-50 + same own state | 137 | +2.0 / −9.1, 43% (0.2) [7] | +5.3 / −5.4, 40% (0.3) [5] | −23.0 / −25.2, 25% (−1.4) [4] |
+| intersection minus non-top-50 same state, paired | | +27.1 / +29.8, 71% (2.0) [7] | +12.6 / +19.7, 80% (0.8) [5] | +11.9 / +9.7 (0.3) [3] |
+| PSA 10 of the intersection rows | 172 | −14.8 / −11.1 (−2.2) [9] | −30.8 / −39.6 (−2.6) [8] | −15.6 / −32.2 (−0.9) [6] |
+
+The intersection's months are 2023: 3, 2025: 5, 2026: 6. Trade in hot
+card-type months, 180d: top-50 median net −0.6% (1,346 trades, hit 49%,
++2.5 pts vs matched, t 0.6); non-top-50 −3.6% (301, −8.0 pts, t −1.4);
+top-50 with PSA 10 ≥ $10K +39.4% on 16 trades in 5 months. At ≥ 30%: 14
+group-months in 8 distinct months, 3 of them with 6-month data (top-50
++20.2%, t 2.2, 3 months): not enough.
+
+**Ask 3: how often does a category move +50 / +70 / +100% in a month?**
+Over 700 (card type, month) pairs measured (12 card types, 2021-01 to
+2026-09, ≥ 5 cards with a PSA 10 bucket return): **+50% three times, +70%
+never, +100% never.** The three: LV.X 2026-03 (+61%, 53 cards), EX-era ex
+2026-03 (+50%, 131 cards), e-card Crystal 2026-09 (+57%, 10 cards, partial
+month, data through 09-26). The next largest ever: Neo Shining 2026-03 +45%,
+e-card Crystal 2026-03 +45%, HGSS Prime/LEGEND 2023-01 +44%, Gold Star
+2026-09 +42%, HGSS Prime/LEGEND 2026-01 +41%, LV.X 2026-04 +37%. Outcomes
+for the two full-month +50% hits (T = 2026-04-01): LV.X PSA 9 +52% raw at
+3 months (46 universe rows), PSA 10 +57%, the whole LV.X group's PSA 10
++70% three months on (43 cards); EX-era ex PSA 9 +41%, PSA 10 +40%, group
++42%. No 6- or 12-month window has closed, and no matched control exists
+for either (their whole era was in a hype window), so there is no excess to
+report. Sid's "70–100%+ category month" has not happened in this data; his
+examples are card-level doublings inside a category that moved 30–60%.
+
+**Sid's three cards today** (data through 2026-09-26; the rule's own input
+is the September-vs-August bucket):
+
+| | Legends Awakened Mewtwo LV.X #144 | Great Encounters Darkrai LV.X #104 | Platinum Palkia G LV.X #125 |
+|---|---|---|---|
+| asset_id | f08c4b31-540f-45af-8d58-142812685d1b | 44f089b2-c866-4362-95e6-f549b4b76322 | 0026cc01-6ac2-4e2e-b7b4-e025f3f5d079 |
+| top-50 (app ≤ 2013 list) / all-years / blue chip | yes / yes / **yes** (Mewtwo #2) | yes (#45) / yes / no | **no (#51, the app's buffer)** / yes (#49) / no |
+| in the PSA 9 universe (was in the backtest) | no (too few PSA 10 months) | yes | yes |
+| PSA 10 sales | $264,000 on 09-20; before it $36,000 (05-09), $15,000 (01-25), $10,101 (2025-07) | $23,000 on 07-30; before it $11,600 (06-28), $10,500, $7,501; none since | $48,000, $72,000, $39,995 on 09-13; $24,000 on 08-30; $10,100 on 04-18 |
+| PSA 10 bucket Sep vs Aug (rule input) | undefined (no August sale); last sale +1,660% vs the median of the 3 before it, +633% vs May | undefined (no Aug or Sep sale); last sale +119% vs the 3 before it | **+100%** ($24,000 → $48,000 median) |
+| PSA 9 last 30d vs prior 30d (bucket) | $2,300 (4 sales) vs $2,300: **0% (+5%)** | $1,350 (7) vs $1,025: **+32% (+29%)** | $904 (4) vs $625: **+45% (+45%)** |
+| recent PSA 9 sales | $2,300 09-16, $9,999 09-12, $2,300 09-01, $1,890 08-30, $2,070 08-23 | $2,000 09-21, $1,636 09-18, $1,200 09-17, $1,200 09-07, $1,350 09-05 | $1,000 09-22, $900 09-18, $875 09-04, $909 09-03, $625 08-15 |
+| tier | ≥ $10K (PSA 9 / PSA 10 ≈ 0.9%) | no PSA 10 sale in 30 days (last known ≥ $10K; ratio ≈ 6%) | ≥ $10K (ratio ≈ 2%) |
+| meets the rule today (100% / 50%) | no: no PSA 10 bucket move (one sale since May) | no: no PSA 10 bucket move, and the PSA 9 has already moved | no: Palkia is not on the app's top-50, and the PSA 9 has already moved |
+
+**Verdict.**
+
+- **Ask 1: the rule finds PSA 9s that do go up, but most of the rise is not
+  the rule's.** After a month in which a top-50 card's PSA 10 doubled and its
+  PSA 9 sat still, the PSA 9 beats unhyped cards of the same era and price
+  tier by +10 / +13 / +15% at 3 / 6 / 12 months (t ≈ 4.8, 70–74% of 63
+  months up, every year 2021–2026). But non-top-50 cards in the same state
+  gain +7 / +8 / +11% too, and the PSA 10 gives back ~40% of its jump in
+  every cut (t −6 to −12): what the rule mostly detects is a noisy-high PSA
+  10 bucket about to revert, with the PSA 9 catching the residual. Measured
+  against same-state non-top-50 cards, the top-50 filter itself is worth
+  **+2 / +9 / +3 points (t 0.4 / 1.8 / 0.5)** at 100% and +4 / +5 / +1 (t
+  1.6 / 2.4 / 0.5) at 50%: a 6-month bump that is not there at 3 or 12. The
+  catch-up gap net of the state is zero. **As a trade it has lost money at
+  the median after the 13% fee in every year 2021–2024 (−19 to −29% at 180
+  days) and made money in 2025–26 like every PSA 9;** hit rate 34–41%, +0.7
+  to +3 points over the same-month unhyped alternative (t < 1). One reason
+  the trade is so much worse than the window excess: the first PSA 9 you can
+  buy after the signal is already ~10% above the signal month's PSA 9 median
+  (vs 0% for a random card), so a third of the "not yet moved" is gone at
+  entry. **At ≥ $10K, where Sid cares most, there are 14 signals in five
+  years, 10 trades and no control group: not enough history to say
+  anything**, and the 50% version (38 signals) reads +4 / +10 / +7% with
+  t ≤ 1.8.
+- **Ask 2: yes, the top-50 filter is what separates the hot-category rows,
+  but on 8–11 paired months, mostly 2025–26.** In months when a card type
+  moved ≥ 15%, its top-50 cards' PSA 9s beat matched unhyped cards by +7 /
+  +6 / +8% while its non-top-50 cards did −2 / −9 / +1%; paired by month the
+  gap is +8 / +21 / +6 points (t 1.5 / 1.8 / 0.5). Sid's full intersection
+  (hot type + top-50 + the card's own PSA 10 up ≥ 50% with its PSA 9 flat)
+  is the best cell in the study, +31 / +21% at 3 / 6 months (t 3.1 / 4.5),
+  against +2 / +5% for non-top-50 cards in the same state, and its PSA 10s
+  fall −15 / −31%: the intersection is where the 9 does the closing rather
+  than the 10. It rests on 172 rows in 10 months (2023: 3, 2025: 5, 2026: 6),
+  so it is consistent with his theory but is not yet evidence for a return.
+  As a trade in hot months the top-50 rows are flat at 180 days (median
+  −0.6%, +2.5 points vs matched) and the non-top-50 rows lose (−3.6%, −8
+  points): the filter's practical value is avoiding the rest of the set, not
+  a positive edge.
+- **Ask 3: a +70% or +100% category month has never happened in this
+  data, and +50% happened for the first time in March 2026** (LV.X +61%,
+  EX-era ex +50%; e-card Crystal is on +57% for a partial September). Both
+  March hits are up another +40–50% in both grades three months later with
+  the whole group's PSA 10 up +42–70%, but two episodes, no closed 6-month
+  window and no control (the era itself was hyped) is a list, not a result.
+  Re-run in 2027 (`--hype`-style thresholds are the `CAT_COUNT` constant).
+- **The three cards.** None meets the rule as he stated it today. Mewtwo
+  LV.X is the only one whose PSA 9 is flat (0% on 4 sales), but its PSA 10
+  has traded once since May, so the "100% in a month" is one $264K sale
+  against a $36K sale four months earlier; the rule cannot compute a monthly
+  move and the card was not even in the backtest universe. Darkrai's PSA 10
+  has not sold since July and its PSA 9 is already +32% month on month;
+  Palkia's PSA 10 did double September-on-August ($24K → $48K median of
+  three sales) but its PSA 9 is already +45%, and Palkia is #51 on the app's
+  own list (it qualifies only under the all-years cap). What he bought is
+  "PSA 10 up a lot recently, PSA 9 up 30–45% but the ratio still 1–6%",
+  which is the ≥ $10K tier this study cannot judge.
+- **What the app should do with it.** Same as the hype study: nothing that
+  claims a return. A description on the PSA 9 row is defensible ("PSA 10 up
+  ≥ 100% last month, PSA 9 < +10%; top-50 PSA 9s in this state have beaten
+  unhyped peers by ~10% over 3–12 months since 2021, but the median trade
+  lost money after fees every year until 2025 and the PSA 10 usually gives
+  back ~40%"). Log the flag nightly with the tier and the hot-category
+  intersection, and re-read this in six months when the 2026 signals have
+  outcomes. Full tables in `out/psa9_buyrule.md`.
+
 ## Findings (2026-09-15, seed history: newest 200 sales per card)
 
 - **Price/volume momentum predicts nothing at 2–3 months.** mom30/mom90 IC ≈ 0,

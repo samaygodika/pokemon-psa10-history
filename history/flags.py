@@ -13,8 +13,8 @@ logs the conditions as the feed sees them each night so the PSA 9s can be checke
 Two append-only, committed files, one row per (data_date, key), never rewritten:
 
     history/psa9_flags.csv            one row per card-night that matters: the card's
-                                      subject is in the top 50 by alt-side market cap
-                                      (latest/characters.csv) and its PSA 10 is up 50%+
+                                      subject is in the top 50 by alt-side market cap of
+                                      cards up to 2013 (latest/characters.csv, the app's roster rank) and its PSA 10 is up 50%+
                                       over 30 days, OR its card type is "hot" (group median
                                       30-day change >= 30%) and the subject is top-50, OR
                                       the card is in nightly/track_assets.txt (Sid's own
@@ -126,8 +126,14 @@ def read_csv(path):
         return list(csv.DictReader(fh))
 
 
-def top_characters(chars_path=LATEST / "characters.csv"):
-    rows = sorted(read_csv(chars_path), key=lambda r: -(f(r.get("alt_market_cap_usd")) or 0))
+CAP_COL = "alt_market_cap_le2013_usd"   # the app's roster ranks Pokemon by the cap of their cards up to 2013
+
+
+def top_characters(chars_path=LATEST / "characters.csv", cap_col=CAP_COL):
+    """The app's top-50 list (PokeSniper rosterRanking: alt-side cap of cards <= 2013, so
+    Palkia sits at #51) and its Blue Chip list, the first BLUE_CHIP_N of them. The app ranks
+    blue chips by its own matched cap; by the alt-side cap the top 10 differ in one name."""
+    rows = sorted(read_csv(chars_path), key=lambda r: -(f(r.get(cap_col)) or 0))
     names = [r["character"] for r in rows if r.get("character")]
     return names[:TOP_N], names[:BLUE_CHIP_N]
 
