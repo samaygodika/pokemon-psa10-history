@@ -12,6 +12,7 @@
 #   4. ingest         -> history/assets.csv, history/daily/<date>.csv, history/sales/<month>.csv, history/live_listings.csv
 #   5. metrics        -> latest/cards.csv, latest/series/*.csv, latest/recent_sales{,_psa9}/*.csv, latest/summary.json
 #   6. coverage       -> latest/characters.csv (per-character alt-side market cap and coverage)
+#   7. flags          -> history/psa9_flags.csv, history/psa9_category_moves.csv (Sid's PSA 9 buy conditions, logged forward)
 #
 # Only history/ and latest/ are committed; snapshots/ is raw and gitignored.
 # Every dated snapshot is kept locally on purpose (cheap, and lets a bad ingest
@@ -44,10 +45,10 @@ LOG="$OUT/run.log"
 exec > >(tee -a "$LOG") 2>&1
 echo "=== $SCOPE scrape $DAY started $(date '+%F %T') ==="
 
-echo "--- 1/6 index listing ---"
+echo "--- 1/7 index listing ---"
 $PY alt_scraper.py --list '*' --out "$OUT"
 
-echo "--- 2/6 scope ($SCOPE) ---"
+echo "--- 2/7 scope ($SCOPE) ---"
 if [ "$SCOPE" = "full" ]; then
   # The index listing already wrote all_pokemon_cards.txt/.json in the format the scraper takes.
   SCOPE_LIST="$OUT/all_pokemon_cards.txt"
@@ -62,7 +63,7 @@ else
   SCOPE_LIST="$OUT/scope.txt"
 fi
 
-echo "--- 3/6 scrape ---"
+echo "--- 3/7 scrape ---"
 # caffeinate (macOS only) keeps the machine from idle-sleeping mid-run; a
 # closed lid still sleeps, launchd resumes the job on wake. No-op elsewhere.
 CAFF=""; command -v caffeinate >/dev/null && CAFF="caffeinate -i"
@@ -118,12 +119,15 @@ echo "=== scrape done $(date '+%F %T'): $ROWS rows in $OUT/cards.csv ==="
 
 if [ -n "${NIGHTLY_SKIP_HISTORY:-}" ]; then exit 0; fi
 
-echo "--- 4/6 ingest into history/ ---"
+echo "--- 4/7 ingest into history/ ---"
 $PY history/ingest.py "$OUT" --date "$DAY"
 
-echo "--- 5/6 rebuild latest/ ---"
+echo "--- 5/7 rebuild latest/ ---"
 $PY history/metrics.py
 
-echo "--- 6/6 per-character coverage ---"
+echo "--- 6/7 per-character coverage ---"
 $PY history/coverage.py
+
+echo "--- 7/7 PSA 9 buy-condition flags ---"
+$PY history/flags.py
 echo "=== all done $(date '+%F %T') ==="
