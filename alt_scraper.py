@@ -543,6 +543,32 @@ def search_assets(text, limit=10, category="POKEMON_CARDS"):
     return [h["document"] for h in hits]
 
 
+# Waits between attempts at one index page. Every run starts with the index listing, so
+# one failed page used to end the whole run: the 2026-09-27 nightly died in its first
+# minute on an HTTP 300 from alt.xyz that was gone by 14:32 (the weekly run got through).
+# Per-card failures don't need this; the scrape step retries failed cards on its own.
+INDEX_RETRY_WAITS = (30, 60, 120, 240, 300)   # ~12.5 min in all
+
+
+def _index_page(params):
+    """One page of the search index, with a fresh key whenever the cached one is refused."""
+    global _search_cfg
+    while True:
+        cfg = get_search_config()            # re-checked every page: the key only lives ~7 minutes
+        node = cfg["clientConfig"]["nodes"][0]
+        base = f"{node['protocol']}://{node['host']}:{node['port']}/collections/{cfg['collectionName']}/documents/search"
+        req = urllib.request.Request(base + "?" + urllib.parse.urlencode(params), headers={
+            "X-TYPESENSE-API-KEY": cfg["clientConfig"]["apiKey"],
+            "user-agent": HEADERS["user-agent"], "origin": "https://alt.xyz"})
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                return json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            if e.code != 401:
+                raise
+            _search_cfg = None               # key expired under us: force a fresh one and retry the page
+
+
 def list_assets(text, category="POKEMON_CARDS", page_size=250, loose=False, min_pop=0):
     """Every card whose subject (the Pokemon on the card) contains `text`.
     loose=True also accepts cards where only the set/name mentions it (deck-kit filler etc.)."""
@@ -550,9 +576,6 @@ def list_assets(text, category="POKEMON_CARDS", page_size=250, loose=False, min_
     want = text.lower()
     out, seen, page = [], set(), 1
     while True:
-        cfg = get_search_config()            # re-checked every page: the key only lives ~7 minutes
-        node = cfg["clientConfig"]["nodes"][0]
-        base = f"{node['protocol']}://{node['host']}:{node['port']}/collections/{cfg['collectionName']}/documents/search"
         params = {"q": "*" if everything else text, "query_by": "name,subject", "per_page": page_size,
                   "page": page, "num_typos": 0, "prefix": "false", "drop_tokens_threshold": 0,
                   "exhaustive_search": "true", "sort_by": "pop:desc"}
@@ -563,18 +586,15 @@ def list_assets(text, category="POKEMON_CARDS", page_size=250, loose=False, min_
             filters.append(f"pop:>={int(min_pop)}")
         if filters:
             params["filter_by"] = " && ".join(filters)
-        req = urllib.request.Request(base + "?" + urllib.parse.urlencode(params), headers={
-            "X-TYPESENSE-API-KEY": cfg["clientConfig"]["apiKey"],
-            "user-agent": HEADERS["user-agent"], "origin": "https://alt.xyz"})
-        try:
-            with urllib.request.urlopen(req, timeout=60) as r:
-                data = json.loads(r.read())
-        except urllib.error.HTTPError as e:
-            if e.code == 401:                # key expired under us: force a fresh one and retry the page
-                global _search_cfg
-                _search_cfg = None
-                continue
-            raise
+        for wait in INDEX_RETRY_WAITS + (None,):
+            try:
+                data = _index_page(params)
+                break
+            except (RuntimeError, urllib.error.URLError, TimeoutError, ValueError) as e:
+                if wait is None:
+                    raise
+                print(f"  page {page}: {e}; retrying in {wait}s", flush=True)
+                time.sleep(wait)
         hits = data.get("hits", [])
         for h in hits:
             d = h["document"]
