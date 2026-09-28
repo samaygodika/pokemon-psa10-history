@@ -109,9 +109,10 @@ times with its own clock.
                          count of 0 = checked, nothing running.
 
 Market cap inputs (2026-09-28), the last columns of cards.csv:
-  price_chg_60d_pct, price_chg_180d_pct
-                       = the price_chg rule above for 60 and 180 days, so the
-                         app's 2m and 6m windows are measured, not interpolated.
+  price_chg_60d_pct, price_chg_180d_pct, volume_60d, volume_180d
+                       = the price_chg / volume rules above for 60 and 180
+                         days, so the app's 2m and 6m windows are measured,
+                         not interpolated.
   cap_price            = what the card counts at in a market cap today:
                          median_last_3, else the newest clean sale of any age.
                          Never an unconfirmed sale. Blank = no clean sale ever.
@@ -176,7 +177,7 @@ PSA9_COLS = ["pop_at_grade_9", "psa9_scraped_date", "psa9_last_sale_price", "psa
 LIVE_COLS = ["listings_checked_at", "live_auction_count", "next_auction_end", "next_auction_bid", "next_auction_bid_count",
              "next_auction_source", "next_auction_url", "last_auction_end", "lowest_bin_price", "lowest_bin_source", "lowest_bin_url"]
 PSA9_LIVE_COLS = ["psa9_" + c for c in LIVE_COLS]   # the same eleven for PSA 9 listings
-CAP_COLS = ([f"price_chg_{w}_pct" for w in EXTRA_WINDOWS] + ["cap_price"]
+CAP_COLS = ([f"price_chg_{w}_pct" for w in EXTRA_WINDOWS] + [f"volume_{w}" for w in EXTRA_WINDOWS] + ["cap_price"]
             + [f"cap_price_{w}_ago" for w in CAP_WINDOWS])   # 2026-09-28; the very end of cards.csv
 LIVE_CHECK_COLS = {"10.0": "listings_checked_at", "9.0": "psa9_listings_checked_at"}   # grade -> daily column with its check time
 
@@ -600,8 +601,9 @@ def build(store=HERE, out=LATEST):
                 filled[f"price_chg_{label}_pct"] += 1
         for label, n in EXTRA_WINDOWS.items():
             start = today - timedelta(days=n)
-            chg = pct(ref_now, ref_price(s, start)) if count_in(s, start, today) > 0 else None
-            row[f"price_chg_{label}_pct"] = fmt(chg)
+            vol = count_in(s, start, today)
+            row[f"volume_{label}"] = vol
+            row[f"price_chg_{label}_pct"] = fmt(pct(ref_now, ref_price(s, start)) if vol > 0 else None)
         row["cap_price"] = fmt(cap_price(s, today))
         for label, n in CAP_WINDOWS.items():
             row[f"cap_price_{label}_ago"] = fmt(cap_price(s, today - timedelta(days=n)))

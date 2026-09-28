@@ -24,7 +24,8 @@ Definitions audited (README, "The data PokeSniper gets"):
   price_chg_Nd_pct ref(today) vs ref(today-N), only when both exist and at
                    least one clean sale fell in (today-N, today].
   volume_Nd        clean sales in (today-N, today].
-  price_chg_60d_pct, price_chg_180d_pct   the price_chg rule for 60 / 180 days.
+  price_chg_60d_pct, price_chg_180d_pct, volume_60d, volume_180d
+                   the price_chg / volume rules for 60 / 180 days.
   cap_price(t)     ref(t), else the newest clean sale on or before t (any age);
                    cap_price = cap_price(today), cap_price_Nd_ago = cap_price(today-N)
                    for N in 30d/60d/90d/180d/1y (2026-09-28).
@@ -173,7 +174,7 @@ def main():
 
     cols = ["clean_last_sale_price", "clean_last_sale_date", "outliers_excluded", "last_sale_unconfirmed", "median_last_3"]
     cols += [f"volume_{w}" for w in WINDOWS] + [f"price_chg_{w}_pct" for w in WINDOWS]
-    cols += [f"price_chg_{w}_pct" for w in CHG_ONLY] + ["cap_price"] + [f"cap_price_{w}_ago" for w in CAP_AGO]
+    cols += [f"price_chg_{w}_pct" for w in CHG_ONLY] + [f"volume_{w}" for w in CHG_ONLY] + ["cap_price"] + [f"cap_price_{w}_ago" for w in CAP_AGO]
     mism = defaultdict(list)
     checked = defaultdict(int)
     future_dated = []
@@ -198,8 +199,8 @@ def main():
             mine[f"price_chg_{w}_pct"] = pct(ref_now, ref_price(clean, start)) if vol > 0 else None
         for w, n in CHG_ONLY.items():
             start = today - timedelta(days=n)
-            sold = any(start < sd <= today for sd, _, _ in clean)
-            mine[f"price_chg_{w}_pct"] = pct(ref_now, ref_price(clean, start)) if sold else None
+            mine[f"volume_{w}"] = sum(1 for sd, _, _ in clean if start < sd <= today)
+            mine[f"price_chg_{w}_pct"] = pct(ref_now, ref_price(clean, start)) if mine[f"volume_{w}"] else None
 
         def worth(at):
             r = ref_price(clean, at)
