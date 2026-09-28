@@ -13,7 +13,8 @@ Definitions audited (README, "The data PokeSniper gets"):
                    pwccmarketplace.com counted once, after the sequential outlier filter: reference =
                    median of the last 12 accepted sales within one year, needs 4;
                    a sale below 1/4x or above 6x is held back unless confirmed
-                   (2 consecutive highs, 5 consecutive lows); with fewer than 4
+                   (2 consecutive highs, 5 consecutive lows, where repeat sales
+                   of one listing URL count once); with fewer than 4
                    same-year sales but at least 3 ever, the reference is the last
                    12 of any age and the band 1/10x .. 10x. After a confirmed
                    run only sales from that run onward form the reference, and
@@ -23,6 +24,10 @@ Definitions audited (README, "The data PokeSniper gets"):
   price_chg_Nd_pct ref(today) vs ref(today-N), only when both exist and at
                    least one clean sale fell in (today-N, today].
   volume_Nd        clean sales in (today-N, today].
+  price_chg_60d_pct, price_chg_180d_pct   the price_chg rule for 60 / 180 days.
+  cap_price(t)     ref(t), else the newest clean sale on or before t (any age);
+                   cap_price = cap_price(today), cap_price_Nd_ago = cap_price(today-N)
+                   for N in 30d/60d/90d/180d/1y (2026-09-28).
   today            the date of the newest history/daily file.
 
 Usage: analysis/.venv/bin/python analysis/audit_pct_change.py [--show 20]
@@ -40,6 +45,8 @@ STORE = ROOT / "history"
 FEED = ROOT / "latest" / "cards.csv"
 
 WINDOWS = {"30d": 30, "90d": 90, "1y": 365}
+CHG_ONLY = {"60d": 60, "180d": 180}
+CAP_AGO = {"30d": 30, "60d": 60, "90d": 90, "180d": 180, "1y": 365}
 REF_LOOKBACK = 180
 OUT_LOW, OUT_HIGH = 0.25, 6.0
 OUT_REF_N, OUT_MIN_ACCEPTED = 12, 4
@@ -76,9 +83,9 @@ def load_sales():
                 if price <= 0:
                     continue
                 rows.append((s["asset_id"], date.fromisoformat(s["date"][:10]), price, s["source"] or "",
-                             bool(s["skipped_reason"]), mirror_of(s["url"] or "")))
+                             bool(s["skipped_reason"]), mirror_of(s["url"] or ""), s["url"] or ""))
     per_host = defaultdict(lambda: {m: 0 for m in MIRRORS})
-    for aid, sd, price, _, _, m in rows:
+    for aid, sd, price, _, _, m, _ in rows:
         if m:
             per_host[(aid, sd, price)][m] += 1
     loser = {}
@@ -87,12 +94,12 @@ def load_sales():
         if fan and pwcc:
             loser[k] = "pwccmarketplace.com" if fan >= pwcc else "fanaticscollect.com"
     by = defaultdict(list)
-    for aid, sd, price, source, flagged, m in rows:
+    for aid, sd, price, source, flagged, m, url in rows:
         if m and loser.get((aid, sd, price)) == m:
             continue
-        by[aid].append((sd, price, source, flagged))
+        by[aid].append((sd, price, source, flagged, url))
     for v in by.values():
-        v.sort(key=lambda t: (t[0], t[1], t[2]))
+        v.sort(key=lambda t: (t[0], t[1], t[2], t[4]))
     return by
 
 
@@ -102,9 +109,10 @@ def clean_sales(sales):
     run_side, run = None, []
     dropped = 0
     regime = 0
-    for sd, price, src, flagged in sales:
+    for n, (sd, price, src, flagged, url) in enumerate(sales):
         if flagged:
             continue
+        listing = url or ("no-url", n)
         sale = (sd, price, src)
         pool = accepted[regime:]
         window = [a for a in pool[-OUT_REF_N:] if (sd - a[0]).days <= OUT_REF_MAX_AGE]
@@ -118,12 +126,12 @@ def clean_sales(sales):
             if side:
                 if run_side != side:
                     run_side, run = side, []
-                run.append(sale)
+                run.append((sale, listing))
                 need = OUT_RUN_LOW if side == "low" else OUT_RUN_HIGH
-                if len(run) >= need:
+                if len({lst for _, lst in run}) >= need:
                     regime = len(accepted)
-                    kept.extend(run)
-                    accepted.extend(run)
+                    kept.extend(r for r, _ in run)
+                    accepted.extend(r for r, _ in run)
                     dropped -= len(run) - 1
                     run_side, run = None, []
                 else:
@@ -165,6 +173,7 @@ def main():
 
     cols = ["clean_last_sale_price", "clean_last_sale_date", "outliers_excluded", "last_sale_unconfirmed", "median_last_3"]
     cols += [f"volume_{w}" for w in WINDOWS] + [f"price_chg_{w}_pct" for w in WINDOWS]
+    cols += [f"price_chg_{w}_pct" for w in CHG_ONLY] + ["cap_price"] + [f"cap_price_{w}_ago" for w in CAP_AGO]
     mism = defaultdict(list)
     checked = defaultdict(int)
     future_dated = []
@@ -177,7 +186,7 @@ def main():
         mine["clean_last_sale_price"] = last[1] if last else None
         mine["clean_last_sale_date"] = last[0].isoformat() if last else ""
         mine["outliers_excluded"] = dropped
-        ok = [(sd, p) for sd, p, _, fl in raw if not fl]
+        ok = [(sd, p) for sd, p, _, fl, _ in raw if not fl]
         newest = max(ok) if ok else None
         mine["last_sale_unconfirmed"] = 1 if (newest and last and newest != (last[0], last[1]) and newest[0] >= last[0]) else 0
         ref_now = ref_price(clean, today)
@@ -187,6 +196,20 @@ def main():
             vol = sum(1 for sd, _, _ in clean if start < sd <= today)
             mine[f"volume_{w}"] = vol
             mine[f"price_chg_{w}_pct"] = pct(ref_now, ref_price(clean, start)) if vol > 0 else None
+        for w, n in CHG_ONLY.items():
+            start = today - timedelta(days=n)
+            sold = any(start < sd <= today for sd, _, _ in clean)
+            mine[f"price_chg_{w}_pct"] = pct(ref_now, ref_price(clean, start)) if sold else None
+
+        def worth(at):
+            r = ref_price(clean, at)
+            if r is not None:
+                return r
+            upto = [p for sd, p, _ in clean if sd <= at]
+            return upto[-1] if upto else None
+        mine["cap_price"] = worth(today)
+        for w, n in CAP_AGO.items():
+            mine[f"cap_price_{w}_ago"] = worth(today - timedelta(days=n))
         if last and last[0] > today:
             future_dated.append((aid, last[0].isoformat()))
 

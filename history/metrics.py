@@ -18,7 +18,8 @@ never as 0.
                          below 1/4x or above 6x the running median of the
                          card's last 12 accepted sales (past year) is held
                          back unless confirmed — two consecutive high sales
-                         confirm a jump, five consecutive low sales a drop —
+                         confirm a jump, five consecutive low sales a drop,
+                         counting repeat sales of one listing URL once —
                          so a "$2,100 PSA 10 1st Edition Charizard" between
                          $300k+ sales is dropped but a card that really
                          tripled is not (see drop_outliers).
@@ -107,6 +108,25 @@ times with its own clock.
                          once on, blank still = never checked at PSA 9, and a
                          count of 0 = checked, nothing running.
 
+Market cap inputs (2026-09-28), the last columns of cards.csv:
+  price_chg_60d_pct, price_chg_180d_pct
+                       = the price_chg rule above for 60 and 180 days, so the
+                         app's 2m and 6m windows are measured, not interpolated.
+  cap_price            = what the card counts at in a market cap today:
+                         median_last_3, else the newest clean sale of any age.
+                         Never an unconfirmed sale. Blank = no clean sale ever.
+  cap_price_30d_ago, _60d_ago, _90d_ago, _180d_ago, _1y_ago
+                       = the same price as of that many days before today
+                         (blank = no clean sale yet by then). A group's market
+                         cap change over a window is
+                         sum(cap_price x pop) / sum(cap_price_N_ago x pop) - 1
+                         over its cards that have both: a card that didn't
+                         sell counts as unchanged, and one card's % can't be
+                         weighted by its own jump. Pop is today's for every
+                         window until the daily files are that old (pop_30d_ago
+                         from 2026-10-11); history/coverage.py does this per
+                         character.
+
 "today" is the data date (the newest daily file), not the wall clock, so
 rebuilding latest/ from the same history always gives the same file.
 """
@@ -146,6 +166,8 @@ OUTLIER_STALE_MIN = 3                          # with fewer than OUTLIER_MIN_ACC
 OUTLIER_STALE_LOW, OUTLIER_STALE_HIGH = 0.1, 10.0   # OUTLIER_REF accepted sales of any age, with this wider band (2026-09-21)
 OUTLIER_CONTINUATION = 2.0                     # a sale within this factor of the LAST accepted sale is never an outlier
 WINDOWS = {"30d": 30, "90d": 90, "1y": 365}
+EXTRA_WINDOWS = {"60d": 60, "180d": 180}        # measured 2m / 6m changes (2026-09-28), appended at the end of cards.csv
+CAP_WINDOWS = {"30d": 30, "60d": 60, "90d": 90, "180d": 180, "1y": 365}
 MIRROR_HOSTS = {"fanaticscollect.com", "pwccmarketplace.com"}   # one PWCC lot, two URLs (2026-09-22)
 GRADES = ("10.0", "9.0")   # PSA 9 sales exist only for cards scraped with --also-grade 9
 PSA9_COLS = ["pop_at_grade_9", "psa9_scraped_date", "psa9_last_sale_price", "psa9_last_sale_date", "psa9_last_sale_source",
@@ -153,7 +175,9 @@ PSA9_COLS = ["pop_at_grade_9", "psa9_scraped_date", "psa9_last_sale_price", "psa
              "psa9_price_chg_30d_pct", "psa9_sales_total", "psa9_to_psa10_ratio"]
 LIVE_COLS = ["listings_checked_at", "live_auction_count", "next_auction_end", "next_auction_bid", "next_auction_bid_count",
              "next_auction_source", "next_auction_url", "last_auction_end", "lowest_bin_price", "lowest_bin_source", "lowest_bin_url"]
-PSA9_LIVE_COLS = ["psa9_" + c for c in LIVE_COLS]   # the same eleven for PSA 9 listings; the very end of cards.csv
+PSA9_LIVE_COLS = ["psa9_" + c for c in LIVE_COLS]   # the same eleven for PSA 9 listings
+CAP_COLS = ([f"price_chg_{w}_pct" for w in EXTRA_WINDOWS] + ["cap_price"]
+            + [f"cap_price_{w}_ago" for w in CAP_WINDOWS])   # 2026-09-28; the very end of cards.csv
 LIVE_CHECK_COLS = {"10.0": "listings_checked_at", "9.0": "psa9_listings_checked_at"}   # grade -> daily column with its check time
 
 
@@ -234,9 +258,9 @@ def clean_grade(grade, raw):
     for aid in list(raw):
         raw[aid], dropped = drop_mirror_copies(raw[aid])
         mirrors += dropped
-        for dt_, price, source, _, status, _ in raw[aid]:
+        for dt_, price, source, _, status, url in raw[aid]:
             if status == "ok":
-                by_asset[aid].append((dt_, price, source))
+                by_asset[aid].append((dt_, price, source, url))
                 n += 1
     print(f"  PSA {grade}: {mirrors} PWCC mirror copies dropped", file=sys.stderr)
     outliers = {}
@@ -304,12 +328,26 @@ def drop_outliers(sales):
     OUTLIER_CONTINUATION of the last accepted sale is accepted whatever the
     median says: a slow-moving 12-sale median can sit just under the band's
     edge after one accepted 9x sale, and the next sale at the same level
-    must not be called an outlier."""
+    must not be called an outlier.
+
+    A run is confirmed by DISTINCT listings, not by sales (2026-09-28). An
+    optional fourth element per sale is its listing URL; repeat sales on one
+    URL count once towards OUTLIER_RESET_RUN_LOW/HIGH (a blank or missing
+    URL counts as its own listing). Since the store keeps every sale of a
+    multi-quantity eBay listing (ingest merge_sales, 2026-09-26), one $15
+    Buy It Now that sold ten times — something that is not the card — made
+    five "consecutive low sales" on its own and reset EX Dragon Frontiers
+    Gold Star Charizard's reference from $58k to $15, so its 90-day change
+    read +2,619,900%. Measured over the whole store: 28 of 114 confirmed low
+    runs and 11 of 951 confirmed high runs rested on fewer distinct listings
+    than the run length. Returns (date, price, source) tuples."""
     keep, dropped = [], 0
     accepted = []  # accepted sales (date, price, source), in date order
-    run = []       # consecutive rejected sales, same side
+    run = []       # consecutive rejected sales, same side: (side, sale, listing)
     regime = 0     # index into accepted: the first sale of the last confirmed run (0 = no confirmed move yet)
-    for sale in sales:
+    for i, sale in enumerate(sales):
+        listing = sale[3] if len(sale) > 3 and sale[3] else i
+        sale = sale[:3]
         price = sale[1]
         pool = accepted[regime:]
         recent = [a[1] for a in pool[-OUTLIER_REF:] if sale[0] - a[0] <= OUTLIER_REF_MAX_AGE]
@@ -326,11 +364,11 @@ def drop_outliers(sales):
                 side = "low" if low else "high"
                 if run and run[0][0] != side:
                     run = []
-                run.append((side, sale))
-                if len(run) >= (OUTLIER_RESET_RUN_LOW if side == "low" else OUTLIER_RESET_RUN_HIGH):
+                run.append((side, sale, listing))
+                if len({r[2] for r in run}) >= (OUTLIER_RESET_RUN_LOW if side == "low" else OUTLIER_RESET_RUN_HIGH):
                     # confirmed move (high) or regime change (low): the run is real, and the reference jumps to it
                     regime = len(accepted)
-                    for _, r in run:
+                    for _, r, _ in run:
                         keep.append(r)
                         accepted.append(r)
                     dropped -= len(run) - 1
@@ -352,6 +390,17 @@ def ref_price(sales, at):
     if not recent:
         return None
     return statistics.median(recent[-3:])
+
+
+def cap_price(sales, at):
+    """The price a card counts at in a market cap on `at`: ref_price, else the
+    newest clean sale on or before `at` of any age (a card that hasn't sold for
+    six months is still worth its last sale). None before its first clean sale."""
+    ref = ref_price(sales, at)
+    if ref is not None:
+        return ref
+    before = [p for (sd, p, _) in sales if sd <= at]
+    return before[-1] if before else None
 
 
 def count_in(sales, start, end):
@@ -549,6 +598,13 @@ def build(store=HERE, out=LATEST):
             row[f"price_chg_{label}_pct"] = fmt(chg)
             if chg is not None:
                 filled[f"price_chg_{label}_pct"] += 1
+        for label, n in EXTRA_WINDOWS.items():
+            start = today - timedelta(days=n)
+            chg = pct(ref_now, ref_price(s, start)) if count_in(s, start, today) > 0 else None
+            row[f"price_chg_{label}_pct"] = fmt(chg)
+        row["cap_price"] = fmt(cap_price(s, today))
+        for label, n in CAP_WINDOWS.items():
+            row[f"cap_price_{label}_ago"] = fmt(cap_price(s, today - timedelta(days=n)))
 
         pop_now = to_int(num.get("pop_at_grade"))
         p30 = pop_30.get(aid)
@@ -573,7 +629,7 @@ def build(store=HERE, out=LATEST):
 
     out.mkdir(parents=True, exist_ok=True)
     with open(out / "cards.csv", "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=CARD_COLS + DERIVED_COLS + PSA9_COLS + LIVE_COLS + PSA9_LIVE_COLS, extrasaction="ignore")
+        w = csv.DictWriter(f, fieldnames=CARD_COLS + DERIVED_COLS + PSA9_COLS + LIVE_COLS + PSA9_LIVE_COLS + CAP_COLS, extrasaction="ignore")
         w.writeheader()
         w.writerows(rows)
 
