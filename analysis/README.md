@@ -668,6 +668,223 @@ is the September-vs-August bucket):
   intersection, and re-read this in six months when the 2026 signals have
   outcomes. Full tables in `out/psa9_buyrule.md`.
 
+## PSA 9 after a PSA 10 spike, sale level (2026-09-28)
+
+Sid, after trading the rule: "the catch-up happens fast, within 1 to 2 weeks
+of the PSA 10 spike, so monthly buckets would miss it [...] find each PSA 10
+spike sale (50%+ above the prior 2 sales) for top-50 cards in a hot category,
+then track the PSA 9 sales at 7, 14, 30, and 60 days [...] does buying within
+the first few days beat buying later, and how fast the window closes."
+`psa9_spike.py` does exactly that with no monthly bucket in any outcome.
+Reused: the lag study's cleaning and PSA 9 universe (7,533 cards, 4,074 with a
+top-50 subject), the hype study's card-type classifier and hot months (a
+type's median PSA 10 bucket return ≥ 15% / 30%, ≥ 5 cards: 60 / 14 type-
+months), the buy-rule study's top-50 (the app's `alt_market_cap_le2013_usd`
+list), the 13% sell-side fee, and one observation per month for every t.
+Data: the 09-27 weekly full, 4.69M clean sales through 2026-09-27.
+
+```bash
+analysis/.venv/bin/python analysis/test_psa9_spike.py                                        # 7 direct-call checks
+analysis/.venv/bin/python analysis/psa9_spike.py --cache-dir <dir with clean_sales.pkl>      # ~95 s -> out/psa9_spike.md
+analysis/.venv/bin/python analysis/psa9_spike.py --cache-dir <dir> --max-prior-age 180 --tag _age180   # prior sales < 6 months old
+```
+
+**Definitions.** *Spike* = a clean PSA 10 sale on date D at ≥ 1.5× (also 2×)
+the median of the card's previous two clean PSA 10 sales, the older of the two
+within 365 days (180 as robustness); spikes within 14 days of the last kept
+spike on a card are folded into it (first wins); 2021 on. The spike is known
+on D and actionable from D+1 (the 0–1 day eBay lag from REVIEW 1d), so every
+PSA 9 outcome and entry is dated strictly after D. *Hot* = the card's type is
+hot in D's calendar month (the earlier studies' definition; `known at D` =
+hot in M−1 is the strictly point-in-time variant). *PSA 9 path* = median log
+PSA 9 price in (D, D+3], (D+3, D+7], (D+7, D+14], (D+14, D+30], (D+30, D+60]
+minus the pre level (median in (D−60, D]). *Controls*: spikes on non-top-50
+cards and in non-hot months; random non-spike PSA 10 sale dates on the same
+cards (same year, ≥ 60 days from any spike candidate), also restricted to hot
+months; and the one that matters inside a hot month, **matched**: for each
+event, up to 5 other top-50 cards of the same card type with no 50% spike
+candidate in (D−60, D], anchored on the same D (per-event excess = event
+minus the median of its matches). *Trade*: buy the first PSA 9 sale in
+(D, D+3] / (D+3, D+7] / (D+7, D+14] / (D+14, D+30], sell the first PSA 9 sale
+≥ 60 / 90 / 180 days after purchase (within +60), 13% fee, closed windows
+only; against top-50 cards bought the same day with no recent spike, either
+of a type not hot that month (`unhyped`) or of the same type (`same type`).
+
+**Events** (≥ 50%; the 100% versions are a third the size):
+
+| sample | events | cards | weeks | months | 2021 / 23 / 24 / 25 / 26 |
+|---|---:|---:|---:|---:|---|
+| **top-50, hot 15%** | 2,089 | 1,303 | 69 | 19 | 4 / 147 (4 mo) / 2 / 467 (6 mo) / **1,469 (7 mo)** |
+| top-50, hot 30% | 383 | 354 | 21 | 7 | – / 4 / – / 5 / 374; 109 of the 116 with a day-1–3 sale are March 2026 |
+| top-50, any category | 45,991 | 4,055 | 292 | 68 | 2,455 / 8,636 / 9,156 / 10,253 / 9,227 (+ 6,264 in 2022) |
+| non-top-50, hot 15% | 1,767 | 1,213 | 64 | 16 | – / 30 / – / 254 / 1,483 |
+| non-top-50, any category | 26,570 | 3,441 | 291 | 67 | |
+
+Primary sample: median spike +77% (quartiles +59 / +115%), prior-2 median 29
+days old, pre-spike PSA 10 reference $390 (median), PSA 9 pre level $98; by
+tier 1,479 under $1K, 521 at $1K–$10K, **89 at ≥ $10K (8 months)**; by card
+type Promo 787, WOTC other 598 (3 months), EX-era ex 189 (5), WOTC 1st Ed 150
+(2), Modern V 123 (2), Modern alt art 86 (3), Gold Star 49 (8), Neo Shining
+43 (9), LV.X 34 (8), HGSS Prime/LEGEND 17 (7), e-card Crystal 13 (3). With
+the 180-day prior-age cap: 1,913 events, same numbers throughout.
+
+**The PSA 9 path** (median / mean %, t across months, [events with a PSA 9
+sale in the window, months]):
+
+| sample | d1–3 | d4–7 | d8–14 | d15–30 | d31–60 |
+|---|---|---|---|---|---|
+| top-50, hot 15%, spike ≥ 50% | +14.0 / +7.6 (1.8) [688, 17] | +15.8 / +13.3 (3.5) | +17.0 / +13.3 (2.3) | +22.3 / +16.2 (3.3) | +30.6 / +17.3 (3.6) [1,509, 17] |
+| … hot known at D (M−1) | +11.5 / +7.4 | +12.3 / +16.8 | +14.3 / +11.5 | +20.3 / +12.5 | +24.2 / +17.7 |
+| top-50, hot 30% | +17.8 / +15.7 | +18.6 / +19.0 [131, 2] | +23.2 / +18.6 | +29.5 / +19.4 | +38.0 / +20.5 [272, 6] |
+| top-50, any category | +1.2 / +0.4 | +0.7 / +0.2 | +0.9 / −0.1 | +1.6 / −0.3 | +2.3 / −0.3 [32,608, 66] |
+| top-50, NOT hot | +0.4 / +0.3 | +0.0 / −0.0 | +0.0 / −0.3 | +0.5 / −0.6 | +1.2 / −0.6 |
+| non-top-50, hot 15% | +14.2 / +8.0 | +15.7 / +13.5 | +16.2 / +11.3 | +20.3 / +12.4 | +28.1 / +16.3 |
+| random non-spike dates, same cards, same years | +2.3 / +0.6 | +1.7 / +0.1 | +2.1 / −0.5 | +3.4 / +0.7 | +4.7 / +0.6 |
+| **random non-spike dates, same cards, in hot months** | **+12.1 / +11.9 (7.8)** | +13.5 / +11.7 | +14.5 / +10.8 | +18.2 / +10.1 | +18.4 / +16.8 [826, 16] |
+| **primary minus matched same-type unspiked cards (per event)** | **−0.8 / −4.2 (−2.3) [494, 14]** | **+1.8 / −3.7 (−1.0)** | **+0.2 / −0.7 (−0.5)** | +2.6 / +6.1 (2.6) | +4.1 / +1.2 (0.7) [1,491, 17] |
+| same, spike ≥ 100% (732 events) | +2.5 / −2.9 (−1.2) | +3.0 / +1.7 (0.4) | +1.1 / +0.0 (0.0) | +1.6 / +0.6 (0.2) | +6.8 / −1.5 (−0.4) |
+| same, hot known at D | +0.4 / +1.7 (0.9) | +0.5 / +10.0 (1.5) | +0.4 / −3.5 (−0.8) | +4.3 / +9.2 (2.5) | +4.4 / −0.4 (−0.1) |
+| same, non-top-50 hot 15% | +3.3 / +3.7 (0.8) | +4.3 / +5.8 (2.4) | +2.6 / +5.5 (1.5) | +1.8 / +1.8 (0.5) | +4.0 / −3.0 (−0.6) |
+| same, top-50 any category | −0.8 / −0.0 | +0.4 / −0.1 | −0.2 / −0.4 | +0.1 / −0.1 | −0.3 / +0.3 |
+
+*Window closing* (each window's median level as a share of the d31–60
+level): primary 46% by day 3, 52% by day 7, 56% by day 14, 73% by day 30
+(complete cases, 356 events: 50 / 57 / 65 / 77%); non-top-50 in hot months
+51 / 56 / 57 / 72%; random non-spike dates on the same cards in hot months
+**66 / 73 / 79 / 99%**. By year for the primary sample, median PSA 9 at
+d1–3 → d31–60 and its excess over the matched cards: 2023 −0.1 → +6.4
+(−10.5 → −0.1), 2025 +12.8 → +18.9 (−3.2 → +2.8), 2026 +15.8 → +37.1
+(+0.6 → +4.5).
+
+*The PSA 9 / PSA 10 ratio* falls by the spike (57% in logs at the median) and
+is "87% closed" within 3 days, but by the PSA 10, not the PSA 9: at d1–3 the
+PSA 9 is +13.2% and the PSA 10 is **−34.5% vs the spike price**; at d31–60
++29.7% and −8.0% (65% closed). Outside hot months the PSA 9 does 0.0% at
+every window and the PSA 10 gives back 39–43% of the spike price.
+
+*The PSA 10 itself* (median vs the spike price / share of the spike
+retained): in hot months −31% / 39% at d1–3, −26% / 51% d4–7, −21% / 63%
+d8–14, −14% / 76% d15–30, −6% / 90% d31–60 (the category keeps rising);
+outside hot months −41% / 24% at d1–3 and still −38% / 32% at d31–60; at
+≥ 100% spikes 26% → 84% retained in hot months, 13% → 23% outside. At the
+sale level two-thirds of a spike is given back at once; the ~40% monthly
+give-back of the earlier studies was the bucket averaging it.
+
+**Liquidity.** A PSA 9 sale exists within 3 days after 34% of primary
+events, within 7 days after 50%, 14 days 65%, 30 days 79%, the same as
+random dates on the same cards (33 / 50 / 65 / 78%): the spike does not bring
+PSA 9 supply. At ≥ $10K: 30 / 52 / 72 / 79% (89 events). The first buyable
+PSA 9 is **+15.5% above the pre level in d1–3, +17.3% d4–7, +18.8% d8–14,
++25.6% d15–30**; on random non-spike dates in hot months it is +12.0% (any
+date: +2.4%). "The first buyable PSA 9 is already ~10% up" is the hot month,
+not the spike.
+
+**Buying early vs late** (primary sample; `vs same type` = minus the median
+trade in same-type unspiked top-50 cards bought the same day, mean of monthly
+means (t) and the per-event median):
+
+| entry | hold | trades | hit | median net | mean net | entry vs pre | vs same type: mean (t) / median | vs unhyped: mean (t) / median | months |
+|---|---:|---:|---:|---:|---:|---:|---|---|---:|
+| d1–3 | 60 | 663 | 55% | +5.6% | +14.4% | +15.7% | +6.9 (3.8) / +0.6 | +18.8 (1.4) / +4.8 | 15 |
+| **d1–3** | **90** | **613** | **61%** | **+12.1%** | +22.2% | +16.0% | **+7.3 (1.9) / +2.5** | +16.5 (2.3) / +3.7 | 14 |
+| d1–3 | 180 | 262 | 48% | −2.9% | +12.8% | +12.2% | +0.5 (0.1) / −4.2 | −1.2 (−0.1) / −12.9 | 9 |
+| d4–7 | 90 | 654 | 63% | +11.7% | +21.5% | +17.1% | +17.2 (2.6) / +0.4 | +14.1 (2.0) / +0.9 | 14 |
+| d8–14 | 90 | 881 | 55% | +6.1% | +19.0% | +18.9% | −2.5 (−0.5) / −0.0 | +6.7 (1.0) / −1.1 | 13 |
+| d15–30 | 90 | 1,098 | 55% | +4.9% | +18.9% | +25.3% | +5.4 (0.7) / −0.9 | +6.2 (0.9) / −1.9 | 15 |
+| d4–7 / d8–14 / d15–30 | 180 | 260 / 363 / 391 | 47 / 44 / 42% | −4.3 / −5.4 / −8.5% | | | +7.7 / +3.2 / −2.9 (t ≤ 1.0), medians −3 to −9 | medians −11 to −18 | 9–11 |
+| ≥ 100%, d1–3 | 60 / 90 | 209 / 199 | 58 / 64% | +10.7 / +16.9% | +21 / +32% | +14.8% | **+10.1 (3.3) / +6.1; +16.0 (2.6) / +6.8** | +11.6 / +17.7; medians +8.4 / +7.7 | 11 / 10 |
+| ≥ 100%, d4–7 · d8–14 · d15–30 | 90 | 203 · 287 · 375 | 61 · 58 · 58% | +13.4 · +6.8 · +5.2% | | | +3.8 (1.2) · +2.1 (0.5) · +0.3 (0.0); medians 0 to +3 | | 9–10 |
+| top-50 any category, every entry | 60–180 | 12.6k–26.8k | 38–43% | −8 to −11% | −1 to +6% | 0–3% | +5 to +8.5 (t 6–14) / **−0.7 to −3.5** | +4 to +8 / −1.5 to −5 | 59–64 |
+
+By year of D, primary, 90-day hold, d1–3 entry: 2023 hit 32%, median
+−12.9% (50 trades); 2025 40%, −10.7% (162); **2026 73%, +25.3% (400)**;
+median excess over same-type unspiked cards +6.5 / −3.6 / +2.9 points. The
+d4–7 and d8–14 entries by year: +3.8 / +3.0 / 0.0 and +1.7 / −5.2 / +1.3.
+Paired on the same event (a PSA 9 sale in both entry windows, same exit
+rule): buying in d1–3 rather than d4–7 costs nothing (late entry +0.8%
+dearer, net difference 0.0 median, 50% of 368 events early better); rather
+than d8–14, the late entry is +4.3% dearer and early nets +6.1 median /
++7.4 mean at 90 days (55% of 450 events, t 0.7 across 12 months); rather
+than d15–30, +8.2% dearer, +5.0 / +7.8 at 90 days (56%, t −0.2) and −6.0 /
+−8.2 at 180 days (t −2.3, 7 months). Across all top-50 spikes the paired
+differences are 0.0 at every horizon (9.5k–12.7k events).
+
+**Sid's three cards.** Mewtwo LV.X (top-50, LV.X): spikes 2026-01-25
+($15,000, +108%, hot month), 05-09 ($36,000, +187%), 09-20 ($264,000,
++935%, prior-2 238 days old); the PSA 9 sold in none of the first 14 days
+after any of them; after the May spike −17% at d15–30 and +19% at d31–60
+($2,422 vs a $2,000 pre level); after 09-20 no PSA 9 sale yet (8 days).
+Darkrai LV.X (top-50): 2026-07-30 ($23,000, +108%, not a hot month): PSA 9
+$1,000 (+4%) at d4–7, $972 (+1%) d8–14, $1,396 (+37%) d15–30, then $1,350 /
+$1,350 / $1,200 in September with the 31–60 window still open; its PSA 10
+has not sold since. Palkia G LV.X (**not** on the app's top-50, #51):
+2026-04-18 ($10,100, +62%, hot 30% month): PSA 9 +15% at d8–14, +5% d15–30,
+**−8% d31–60** (faded); 2026-08-30 ($24,000, +181%): PSA 9 $892 (+36%) at
+d4–7 while the PSA 10 printed $48,000 (3 sales) in d8–14 with no PSA 9 sale,
+later windows open. One of the three (Palkia, August) shows a PSA 9 move
+inside a week; the other in-sample spike on that card gave the move back
+within two months.
+
+**Verdict.**
+
+- **The catch-up "within 1–2 weeks" is the hot month, not the spike.** After
+  a ≥ 50% PSA 10 spike on a top-50 card in a hot category month, its PSA 9
+  trades +14% above its 60-day level within 3 days and +31% by days 31–60
+  (medians). But a random non-spike date on the same cards inside a hot
+  month shows +12% within 3 days and +18% by days 31–60, and other cards of
+  the same type that did not spike, anchored on the same day, do the same:
+  the spiked card's PSA 9 is **−0.8 / +1.8 / +0.2 points** (medians; means
+  −4.2 / −3.7 / −0.7, t −2.3 / −1.0 / −0.5) against them at days 1–3 / 4–7 /
+  8–14, then +2.6 / +4.1 at days 15–30 / 31–60 (t 2.6 on the mean at 15–30,
+  0.7 at 31–60). Non-top-50 cards in the same hot months do the same
+  (+14% → +28%). What a sale-level lens adds to the monthly one is that the
+  PSA 9 of a hot category is already up ~12% against its trailing level on
+  any day of the month, so a buyer who sees a spike and then "the PSA 9
+  already 10% up" is seeing the category, and nothing spike-specific arrives
+  in the first two weeks.
+- **Buying in the first days does not beat buying later by more than the
+  waiting cost.** Same event, same exit: d1–3 vs d4–7 is a wash (entry
+  +0.8% dearer, 0.0 net difference); vs d8–14 or d15–30 the later entry is
+  4–8% dearer and the early trade nets +5 to +6 points at 60–90 days (t
+  ≤ 0.7, 53–56% of events) and −6 at 180 days. Against same-type unspiked
+  cards bought the same day, the d1–7 entries' mean excess is +7 to +17
+  points at 60–90 days (t 1.9–3.9, 82–86% of 14–15 months) but the
+  **per-event median is +0.4 to +2.5 points**, so the mean is a few
+  multi-baggers; d8–30 entries are −2.5 to +5 (t < 1); at 180 days every
+  entry is ≤ +8 with medians −3 to −9. The one cell with a positive median
+  excess is ≥ 100% spikes bought in d1–3: +6 to +7 points at 60–90 days
+  (t 2.6–3.3) on 199–209 trades in 10–11 months, gone at 180 days.
+- **The window does not "close" in days; there is no spike-specific window
+  in the first two weeks to close.** The raw curve (46% of the 60-day move
+  by day 3, 56% by day 14) is the category's curve (66% and 79% on
+  non-spike dates). The spike-specific part, +2.6 to +4 points, arrives in
+  weeks 3–8, and the same-type excess of the trade is gone by 180 days.
+- **The PSA 10 spike is two-thirds noise at the sale level.** Within 3 days
+  the next PSA 10 sale is 31% below the spike price in hot months (39% of
+  the spike retained) and 41% below outside them (24%); in hot months the
+  category then carries the PSA 10 back to 90% of the spike by day 31–60,
+  outside them it stays at a third. The "ratio closing 87% in 3 days" is the
+  PSA 10 falling.
+- **In absolute terms the trade made money only in 2026.** Primary sample,
+  d1–3 entry, 90 days: median net −12.9% in 2023, −10.7% in 2025, +25.3% in
+  2026 (hit 73%); 2026 holds 1,469 of the 2,089 events and 7 of the 19
+  months, and every 180-day cell is 9–11 months of which 2026 is one or two.
+- **Thin.** Hot 30% is one month (March 2026) plus a handful; every ≥ $10K
+  cell is ≤ 89 events in 8 months (30% of them with a PSA 9 sale in 3 days);
+  per card type only Promo (787), WOTC other (598, 3 months) and EX-era ex
+  (189, 5 months) exceed 150 events, and LV.X, Gold Star and Prime/LEGEND
+  (Sid's categories) have 17–49 events each in 7–9 months; 2021–2024 hold 153
+  primary events in 6 months. The 180-day prior-age cap changes nothing
+  (1,913 events, matched excess +0.1 / +3.0 / −0.1 / +2.7 / +4.7).
+- **What to ship.** Nothing that says "buy the PSA 9 within days of a PSA 10
+  spike": the data says the PSA 9 of a hot category is already repriced by
+  the time the spike prints, the spike itself adds nothing for two weeks and
+  a few points after, and the PSA 10 print you are reacting to is two-thirds
+  noise. The defensible description on a PSA 9 row is the hype study's ("this
+  card type is hot this month; PSA 9s of hot types are ~12% above their
+  60-day level on any day of such a month") next to the spike's give-back
+  base rate. Full tables in `out/psa9_spike.md` (and `_age180`).
+
 ## Findings (2026-09-15, seed history: newest 200 sales per card)
 
 - **Price/volume momentum predicts nothing at 2–3 months.** mom30/mom90 IC ≈ 0,
