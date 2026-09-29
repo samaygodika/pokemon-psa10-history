@@ -70,10 +70,30 @@ def test_blank_or_missing_url_counts_as_its_own_listing():
     assert sum(1 for _, p, _ in keep if p == 15.0) == 5 and dropped == 0
 
 
+def test_thin_card_holds_a_10x_jump_until_a_second_listing():
+    # the BW87 Leafeon promo: two sales around $600, then one $78,000 lot
+    two = [(day(0), 750.65, "eBay", "a"), (day(100), 490.0, "eBay", "b")]
+    keep, dropped = metrics.drop_outliers(two + [(day(900), 78000.0, "PWCC", "c")])
+    assert [p for _, p, _ in keep] == [750.65, 490.0] and dropped == 1, keep
+    keep, dropped = metrics.drop_outliers(two + [(day(900), 78000.0, "PWCC", "c"), (day(910), 80000.0, "Goldin", "d")])
+    assert [p for _, p, _ in keep][-2:] == [78000.0, 80000.0] and dropped == 0, keep
+    # within 10x of a thin reference: accepted as before
+    keep, _ = metrics.drop_outliers(two + [(day(900), 5000.0, "eBay", "c")])
+    assert keep[-1][1] == 5000.0
+
+
+def test_thin_card_whose_first_sale_was_junk_recovers_on_two_listings():
+    junk_first = [(day(0), 78000.0, "PWCC", "a"), (day(30), 500.0, "eBay", "b"), (day(40), 480.0, "eBay", "c")]
+    keep, dropped = metrics.drop_outliers(junk_first)
+    assert [p for _, p, _ in keep] == [78000.0, 500.0, 480.0] and dropped == 0, keep   # confirmed on 2 listings, not 5
+
+
 if __name__ == "__main__":
     test_repeat_listing_cannot_confirm_a_drop()
     test_distinct_listings_still_confirm_a_drop()
     test_repeat_listing_counts_once_inside_a_longer_run()
     test_high_side_needs_two_listings()
     test_blank_or_missing_url_counts_as_its_own_listing()
+    test_thin_card_holds_a_10x_jump_until_a_second_listing()
+    test_thin_card_whose_first_sale_was_junk_recovers_on_two_listings()
     print("all outlier checks passed")

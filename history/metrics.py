@@ -166,6 +166,7 @@ OUTLIER_REF_MAX_AGE = timedelta(days=365)      # a reference older than this say
 OUTLIER_STALE_MIN = 3                          # with fewer than OUTLIER_MIN_ACCEPTED same-year sales, fall back to the last
 OUTLIER_STALE_LOW, OUTLIER_STALE_HIGH = 0.1, 10.0   # OUTLIER_REF accepted sales of any age, with this wider band (2026-09-21)
 OUTLIER_CONTINUATION = 2.0                     # a sale within this factor of the LAST accepted sale is never an outlier
+OUTLIER_THIN_RUN = 2                           # 1-2 accepted sales ever: the stale band, and 2 listings confirm either side (2026-09-28)
 WINDOWS = {"30d": 30, "90d": 90, "1y": 365}
 EXTRA_WINDOWS = {"60d": 60, "180d": 180}        # measured 2m / 6m changes (2026-09-28), appended at the end of cards.csv
 CAP_WINDOWS = {"30d": 30, "60d": 60, "90d": 90, "180d": 180, "1y": 365}
@@ -341,7 +342,19 @@ def drop_outliers(sales):
     Gold Star Charizard's reference from $58k to $15, so its 90-day change
     read +2,619,900%. Measured over the whole store: 28 of 114 confirmed low
     runs and 11 of 951 confirmed high runs rested on fewer distinct listings
-    than the run length. Returns (date, price, source) tuples."""
+    than the run length.
+
+    Thin cards (2026-09-28): a card with only one or two accepted sales used
+    to have no filter at all, so a single misattributed lot became its clean
+    price (a BW87 Leafeon promo at $490 -> one $78,000 PWCC lot; an XY Mudkip
+    at $3.72M). 437 accepted 10x+ moves sat in that gap, 213 of them a card's
+    newest clean sale. Now the first one or two sales are the reference with
+    the stale band (1/10x .. 10x), and OUTLIER_THIN_RUN distinct listings
+    confirm a move on EITHER side: with a one-sale reference the low side
+    can't ask for five, or a card whose first sale was junk would sit on it.
+    Where later sales exist, 131 of 224 such jumps held and 59 went back:
+    the same hold-until-confirmed trade as the stale fallback.
+    Returns (date, price, source) tuples."""
     keep, dropped = [], 0
     accepted = []  # accepted sales (date, price, source), in date order
     run = []       # consecutive rejected sales, same side: (side, sale, listing)
@@ -357,8 +370,12 @@ def drop_outliers(sales):
         elif len(pool) >= (OUTLIER_STALE_MIN if regime == 0 else 1):
             # stale reference: not enough sales this year, so the last 12 of any age with the wider band
             ref, lo_b, hi_b = statistics.median([a[1] for a in pool[-OUTLIER_REF:]]), OUTLIER_STALE_LOW, OUTLIER_STALE_HIGH
+        elif pool:
+            # thin card: one or two accepted sales ever, so the same wide band around them
+            ref, lo_b, hi_b = statistics.median([a[1] for a in pool]), OUTLIER_STALE_LOW, OUTLIER_STALE_HIGH
         else:
             ref = None
+        thin = regime == 0 and 0 < len(pool) < OUTLIER_STALE_MIN
         if ref is not None and not (accepted and 1 / OUTLIER_CONTINUATION <= price / accepted[-1][1] <= OUTLIER_CONTINUATION):
             low, high = price < lo_b * ref, price > hi_b * ref
             if low or high:
@@ -366,7 +383,8 @@ def drop_outliers(sales):
                 if run and run[0][0] != side:
                     run = []
                 run.append((side, sale, listing))
-                if len({r[2] for r in run}) >= (OUTLIER_RESET_RUN_LOW if side == "low" else OUTLIER_RESET_RUN_HIGH):
+                need = OUTLIER_THIN_RUN if thin else OUTLIER_RESET_RUN_LOW if side == "low" else OUTLIER_RESET_RUN_HIGH
+                if len({r[2] for r in run}) >= need:
                     # confirmed move (high) or regime change (low): the run is real, and the reference jumps to it
                     regime = len(accepted)
                     for _, r, _ in run:

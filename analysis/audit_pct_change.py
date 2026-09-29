@@ -16,7 +16,9 @@ Definitions audited (README, "The data PokeSniper gets"):
                    (2 consecutive highs, 5 consecutive lows, where repeat sales
                    of one listing URL count once); with fewer than 4
                    same-year sales but at least 3 ever, the reference is the last
-                   12 of any age and the band 1/10x .. 10x. After a confirmed
+                   12 of any age and the band 1/10x .. 10x; with only 1-2 sales
+                   ever, those with the same band, and 2 distinct listings
+                   confirm either side. After a confirmed
                    run only sales from that run onward form the reference, and
                    one of them is enough. A sale within 2x of the last accepted
                    sale is never held.
@@ -55,6 +57,7 @@ OUT_RUN_LOW, OUT_RUN_HIGH = 5, 2
 OUT_REF_MAX_AGE = 365
 OUT_STALE_MIN, OUT_STALE_LOW, OUT_STALE_HIGH = 3, 0.1, 10.0
 OUT_CONTINUATION = 2.0
+OUT_THIN_RUN = 2
 
 
 MIRRORS = ("fanaticscollect.com", "pwccmarketplace.com")
@@ -122,13 +125,16 @@ def clean_sales(sales):
             ref, lo_b, hi_b = statistics.median(a[1] for a in window), OUT_LOW, OUT_HIGH
         elif len(pool) >= (OUT_STALE_MIN if regime == 0 else 1):
             ref, lo_b, hi_b = statistics.median(a[1] for a in pool[-OUT_REF_N:]), OUT_STALE_LOW, OUT_STALE_HIGH
+        elif len(pool) > 0:
+            ref, lo_b, hi_b = statistics.median(a[1] for a in pool), OUT_STALE_LOW, OUT_STALE_HIGH
+        few = regime == 0 and 0 < len(pool) < OUT_STALE_MIN
         if ref is not None and not (accepted and 1 / OUT_CONTINUATION <= price / accepted[-1][1] <= OUT_CONTINUATION):
             side = "low" if price < lo_b * ref else "high" if price > hi_b * ref else None
             if side:
                 if run_side != side:
                     run_side, run = side, []
                 run.append((sale, listing))
-                need = OUT_RUN_LOW if side == "low" else OUT_RUN_HIGH
+                need = OUT_THIN_RUN if few else OUT_RUN_LOW if side == "low" else OUT_RUN_HIGH
                 if len({lst for _, lst in run}) >= need:
                     regime = len(accepted)
                     kept.extend(r for r, _ in run)
