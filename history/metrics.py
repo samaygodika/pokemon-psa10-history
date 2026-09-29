@@ -67,6 +67,29 @@ PSA 9 (2026-09-22; the idea to test: PSA 9s lag a PSA 10 pump by weeks):
   psa9_to_psa10_ratio  = psa9_median_last_3 / median_last_3.
   latest/recent_sales_psa9/<xx>.csv = recent_sales/ for PSA 9, same columns.
 
+Full clean sale history (2026-09-29), for PokeSniper's lib/salesHistory.js
+(the Arbitrage pill's period-matched PSA 9 baseline), which until now read the
+store's history/sales/ (~950 MB) and re-downloaded most of it every night:
+  latest/clean_sales/<YYYY-MM>.csv = every clean PSA 10 and PSA 9 sale of that
+                         month (after the mirror rule and the outlier filter,
+                         exactly the sales the columns above are built from),
+                         one line per card and grade:
+                           asset_id,grade,sales    e.g.  ab12...,9,3:410 3:415 28:399.5
+                         sales = space-separated day-of-month:price, ascending.
+                         ~70 MB for all months (~32 MB gzipped) against ~950 MB
+                         of store: only the columns the app reads, clean sales
+                         only. Most months still change on most nights (2026-09-29:
+                         68 of 92): ~90 cards a night enter or leave the feed with
+                         their whole history, so a reader re-fetches most of it
+                         each time -- ~32 MB instead of ~300 MB gzipped.
+  latest/clean_sales/manifest.json = {"months": {"YYYY-MM": {"sha256", "bytes",
+                         "sales"}}} over those files; sha256 of the file's bytes.
+                         Deterministic (no timestamp), so it changes only when a
+                         month does: a reader keeps its copies and fetches just
+                         the months whose sha256 moved, and can check a download
+                         against it (raw GitHub caches ~5 minutes, so a file can
+                         briefly lag the manifest).
+
 Live listings (2026-09-24), from history/live_listings.csv — what is for sale
 right now at PSA 10, as alt.xyz mirrors it: eBay mostly, then Fanatics Collect
 (including its weekly lots), CardHobby, Pristine Auction and some Goldin. A
@@ -132,6 +155,7 @@ Market cap inputs (2026-09-28), the last columns of cards.csv:
 rebuilding latest/ from the same history always gives the same file.
 """
 import csv
+import hashlib
 import json
 import statistics
 import sys
@@ -157,6 +181,7 @@ DERIVED_COLS = ["clean_last_sale_price", "clean_last_sale_date", "clean_last_sal
 SERIES_COLS = ["asset_id", "week_start", "n_sales", "median_price", "low", "high"]
 RECENT_COLS = ["asset_id", "date", "price", "source", "sale_type", "status", "outlier", "url"]
 RECENT_N = 10
+CLEAN_SALES_COLS = ["asset_id", "grade", "sales"]
 
 LOOKBACK_DAYS = 180
 OUTLIER_LOW, OUTLIER_HIGH = 0.25, 6.0          # band around the running reference (asymmetric: junk is mostly low)
@@ -548,6 +573,37 @@ def write_recent(recent_dir, raw_sales, sales):
     return n_recent
 
 
+def write_clean_sales(clean_dir, by_grade):
+    """latest/clean_sales/<YYYY-MM>.csv + manifest.json (see the module doc).
+    by_grade = {"10": clean sales by asset, "9": ...}, each list of (date, price, source)
+    ascending. Returns (months, sales)."""
+    clean_dir.mkdir(parents=True, exist_ok=True)
+    months = defaultdict(lambda: defaultdict(list))     # "YYYY-MM" -> (asset_id, grade) -> ["DD:price"]
+    for grade, sales in by_grade.items():
+        for aid, lst in sales.items():
+            for sd, price, _ in lst:
+                months[sd.isoformat()[:7]][(aid, grade)].append(f"{sd.day}:{fmt(price)}")
+    manifest, n_sales = {}, 0
+    for month in sorted(months):
+        lines = [",".join(CLEAN_SALES_COLS)]
+        n = 0
+        for (aid, grade), v in sorted(months[month].items()):
+            lines.append(f"{aid},{grade},{' '.join(v)}")
+            n += len(v)
+        data = ("\n".join(lines) + "\n").encode("utf-8")
+        (clean_dir / f"{month}.csv").write_bytes(data)
+        manifest[month] = {"sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data), "sales": n}
+        n_sales += n
+    for old in clean_dir.glob("*.csv"):
+        if old.stem not in manifest:
+            old.unlink()
+    with open(clean_dir / "manifest.json", "w") as f:
+        json.dump({"columns": CLEAN_SALES_COLS, "sales": "space-separated day-of-month:price, ascending",
+                   "months": manifest}, f, indent=1)
+        f.write("\n")
+    return len(manifest), n_sales
+
+
 def build(store=HERE, out=LATEST):
     assets = {a["asset_id"]: a for a in read_csv(store / "assets.csv")}
     daily, days = load_daily(store)
@@ -684,6 +740,8 @@ def build(store=HERE, out=LATEST):
     # recent_sales_psa9/.
     n_recent = write_recent(out / "recent_sales", raw_sales, sales)
     n_recent9 = write_recent(out / "recent_sales_psa9", raw_sales9, sales9)
+    # Every clean sale, by month, with a manifest (see the module doc).
+    n_clean_months, n_clean = write_clean_sales(out / "clean_sales", {"10": sales, "9": sales9})
 
     summary = {
         "data_date": today.isoformat(),
@@ -697,6 +755,8 @@ def build(store=HERE, out=LATEST):
         "recent_sales_rows": n_recent,
         "psa9_sales": n_sales9,
         "psa9_recent_sales_rows": n_recent9,
+        "clean_sales_months": n_clean_months,
+        "clean_sales": n_clean,
         "rows_with_psa9_last_sale": filled["psa9_last_sale_price"],
         "rows_unconfirmed_last_sale": sum(1 for r in rows if r["last_sale_unconfirmed"] == 1),
         "rows_listings_checked": sum(1 for r in rows if r["listings_checked_at"]),

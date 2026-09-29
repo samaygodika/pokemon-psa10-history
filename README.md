@@ -11,7 +11,7 @@ as its only PSA 10 price/population source. Python 3.8+ standard library only.
 alt_scraper.py        the scraper (one run = cards.csv + sales.csv + listings.csv)
 nightly/              scheduled run: index listing -> scope -> scrape -> ingest -> latest/
 history/              the store: assets.csv, daily/<date>.csv, sales/<month>.csv, live_listings.csv  (committed)
-latest/               what the server reads: cards.csv, series/<xx>.csv, recent_sales/<xx>.csv, characters.csv, summary.json  (committed)
+latest/               what the server reads: cards.csv, series/<xx>.csv, recent_sales/<xx>.csv, clean_sales/<month>.csv, characters.csv, summary.json  (committed)
 snapshots/            raw per-run output (gitignored, hundreds of MB)
 .github/workflows/    GitHub Actions cron: nightly roster candidates + vintage checklist, weekly full index
 ```
@@ -53,6 +53,25 @@ first, including sales alt.xyz flags (`status` = ok / RELISTED / NOT_PAID /
 PENDING …) and sales the filter is holding back (`outlier` = 1), with the sale
 URL — `GET /api/samay-data/recent-sales?ids=…` for the app's price dropdown.
 `latest/recent_sales_psa9/<xx>.csv` is the same for PSA 9 sales (same columns).
+
+`latest/clean_sales/<YYYY-MM>.csv` (2026-09-29) holds every clean PSA 10 and PSA 9
+sale of that month — the sales every column above is built from, after the mirror
+rule and the outlier filter — one line per card and grade: `asset_id,grade,sales`,
+where `sales` is space-separated `day-of-month:price`, ascending (e.g.
+`ab12…,9,3:410 3:415 28:399.5`). About 70 MB for all months, against ~950 MB for
+the store's `history/sales/`. `latest/clean_sales/manifest.json` lists each month
+with the `sha256`, `bytes` and number of `sales` of its file. It has no timestamp,
+so it only changes when a month does: a reader keeps its copies, fetches only
+the months whose `sha256` changed, and checks each download against it (raw GitHub
+caches for ~5 minutes, so a file can briefly lag the manifest). PokeSniper's
+`lib/salesHistory.js` (the Arbitrage pill's period-matched PSA 9 baseline) reads
+these instead of `history/sales/`. Most months still change on most nights
+(2026-09-29: 68 of 92; ~90 cards a night enter or leave the feed with their whole
+history), so a reader re-fetches most of the files each time: ~32 MB gzipped
+instead of ~300 MB. PSA 9 sales
+exist only for the nightly scope (from 2026-09-23). alt.xyz's not-yet-final sales
+(`subject_to_change`, a few thousand, all in the current month) are included, as
+everywhere else in the feed.
 
 `latest/characters.csv` (from `history/coverage.py`) has one row per name in
 `nightly/subjects.txt` and `nightly/vintage_species.txt` (469 species): English
