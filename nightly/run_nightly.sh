@@ -14,7 +14,8 @@
 #   6. coverage       -> latest/characters.csv (per-character alt-side market cap and coverage)
 #   7. flags          -> history/psa9_flags.csv, history/psa9_category_moves.csv (Sid's PSA 9 buy conditions, logged forward)
 #   8. tcgplayer ids  -> latest/tcgplayer_ids.csv (each English card's TCGplayer product id + image URL, from
-#                        tcgcsv.com's free copy of TCGplayer's catalog; PokeSniper's images without PPT)
+#                        tcgcsv.com's free copy of TCGplayer's catalog; PokeSniper's images without PPT),
+#                        latest/card_catalog.csv (PokeSniper's card list) and latest/tcgplayer_sets.csv
 #
 # Only history/ and latest/ are committed; snapshots/ is raw and gitignored.
 # Every dated snapshot is kept locally on purpose (cheap, and lets a bad ingest
@@ -135,8 +136,8 @@ $PY history/flags.py
 
 echo "--- 8/8 TCGplayer ids + card images ---"
 # tcgcsv.com (TCGplayer's catalog, free, ~220 requests) into the snapshot, matched to latest/cards.csv.
-# If it's unreachable, yesterday's latest/tcgplayer_ids.csv stays: the run doesn't fail over images.
+# If it's unreachable, yesterday's three files stay: the run doesn't fail over images.
 if ! $PY history/tcgplayer_ids.py --fetch --tcgcsv "$OUT/tcgcsv"; then
-  echo "tcgplayer ids: catalog download or match failed, kept the previous latest/tcgplayer_ids.csv"
+  echo "tcgplayer ids: catalog download or match failed, kept the previous tcgplayer_ids / card_catalog / tcgplayer_sets"
 fi
 echo "=== all done $(date '+%F %T') ==="

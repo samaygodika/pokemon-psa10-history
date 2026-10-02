@@ -11,7 +11,7 @@ as its only PSA 10 price/population source. Python 3.8+ standard library only.
 alt_scraper.py        the scraper (one run = cards.csv + sales.csv + listings.csv)
 nightly/              scheduled run: index listing -> scope -> scrape -> ingest -> latest/
 history/              the store: assets.csv, daily/<date>.csv, sales/<month>.csv, live_listings.csv  (committed)
-latest/               what the server reads: cards.csv, series/<xx>.csv, recent_sales/<xx>.csv, clean_sales/<month>.csv, characters.csv, tcgplayer_ids.csv, summary.json  (committed)
+latest/               what the server reads: cards.csv, series/<xx>.csv, recent_sales/<xx>.csv, clean_sales/<month>.csv, characters.csv, tcgplayer_ids.csv, card_catalog.csv, tcgplayer_sets.csv, summary.json  (committed)
 snapshots/            raw per-run output (gitignored, hundreds of MB)
 .github/workflows/    GitHub Actions cron: nightly roster candidates + vintage checklist, weekly full index
 ```
@@ -110,6 +110,37 @@ product and nothing tells them apart (1,264). Checked against 28 PPT-id pairs fr
 PokeSniper's own matcher run over the same records (the same id on 99.1% of the 12,736
 cards both match; the docstring has the rules and the differences).
 
+`latest/card_catalog.csv` (same script, from 2026-10-02) is the card list PokeSniper builds
+from instead of PokemonPriceTracker: one row per card, every English TCG row of `cards.csv`
+plus every TCGplayer English single no row is matched to, each with a `status` that says what
+it is. The image of a row with a `tcgplayer_id` is
+`https://tcgplayer-cdn.tcgplayer.com/product/<tcgplayer_id>_in_800x800.jpg`; no id, no image.
+
+| column | meaning |
+|---|---|
+| `asset_id` | alt.xyz asset id (`cards.csv`); blank for a TCGplayer-only card |
+| `tcgplayer_id` | TCGplayer product id; blank for an alt.xyz-only card |
+| `status` | `linked` (the same pair as `tcgplayer_ids.csv`), `alt_only` (a real English card TCGplayer has no product for, or one the matcher won't guess between), `not_english` (alt.xyz files it as English but it isn't an English TCG card: Japanese and Chinese sets and promos, Topps movie cards, playing cards...), `tcgplayer_only` (a TCGplayer single alt.xyz has no row for) |
+| `how` | `linked`: the `match` kind; `alt_only`: `no_candidate`, `variant_not_found` (a stamped / Cosmos / staff print TCGplayer doesn't list), `set_not_aligned`, `ambiguous_set`, `ambiguous_variant`; `not_english`: `not_on_tcgplayer` or `not_english_tcg`; `tcgplayer_only`: blank, or `candidate_of_alt_row` when an unmatched alt.xyz row might be this card |
+| `name`, `number` | TCGplayer's for `linked` / `tcgplayer_only`; alt.xyz's subject and number otherwise |
+| `set`, `set_source` | TCGplayer's set (`tcgplayer`); for an alt.xyz-only card the TCGplayer set its candidates are all in (`candidates`) or its alt.xyz set voted for (`voted`), else blank |
+| `rarity` | TCGplayer's; blank for an alt.xyz-only card (unknown, not common) |
+| `year` | alt.xyz's year for a card it has; else the set's year from `tcgplayer_sets.csv`, blank for a set spanning many years |
+| `print_run` | `1st Edition`, `Shadowless`, `Reverse Holo` or blank, from alt.xyz's name |
+
+On the 2026-10-01 feed: 40,749 rows: 26,566 linked, 1,784 alt.xyz-only (775 with PSA 10
+copies; 928 have no PSA rows on alt.xyz), 2,667 not English (40 of 40 checked by hand were
+right), 9,732 TCGplayer-only (978 of them a possible match for an unmatched alt.xyz row). In
+a hand check of 60 random alt.xyz-only rows, 3 were still not English TCG cards.
+
+`latest/tcgplayer_sets.csv` dates each TCGplayer set: `group_id`, `name`, `published` (blank:
+TCGplayer gives no date), `year`, `year_source` (`published`; `learned`: 80%+ of its 5+ matched
+alt.xyz cards carry that year, e.g. POP Series 1-9, EX Trainer Kit 1 2004 and 2 2005;
+`manual`: First Partner Pack 2021, Pikachu World Collection 2000; `multi_year`: no single year
+fits, e.g. Nintendo Promos 2002-2011, Miscellaneous Cards & Products, Blister Exclusives,
+Burger King 2008-2009, Professor Program), `span_from`/`span_to` (years of its matched alt.xyz
+cards), `linked_cards`, `note`.
+
 PokeSniper's server downloads `latest/` from this repo on its own (raw GitHub
 URLs, checked at boot and every few hours; see its `SAMAY_DATA_URL`), so nothing
 has to be configured there. For a local checkout instead, set `SAMAY_DATA_URL=`
@@ -139,7 +170,7 @@ python3 history/ingest.py snapshots/2026-09-12            # (re)ingest one run
 python3 history/metrics.py                                # rebuild latest/ only
 python3 history/coverage.py                               # rebuild latest/characters.csv only
 python3 history/flags.py                                  # append tonight's PSA 9 buy-condition flags to history/
-python3 history/tcgplayer_ids.py --fetch                  # TCGplayer catalog -> latest/tcgplayer_ids.csv (~2 min)
+python3 history/tcgplayer_ids.py --fetch                  # TCGplayer catalog -> latest/tcgplayer_ids.csv, card_catalog.csv, tcgplayer_sets.csv (~2 min)
 ```
 
 `history/psa9_flags.csv` and `history/psa9_category_moves.csv` (from 2026-09-27, step 7 of the

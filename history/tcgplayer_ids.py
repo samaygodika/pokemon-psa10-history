@@ -56,7 +56,40 @@ Championship deck product it links to a regular card).
                     (PPT's name, setName, cardNumber, rarity are the same strings)
   match             unique | best_set | named_variant | variant | plain_variant
 
+The same run writes two files PokeSniper builds its card list from (2026-10-02, Sid: the feed
+as the master card list, no PPT):
+
+latest/card_catalog.csv, one row per card: every English TCG row of latest/cards.csv, plus
+every TCGplayer English single no row is matched to.
+  asset_id          alt.xyz asset id; blank for a TCGplayer-only card
+  tcgplayer_id      blank for an alt.xyz-only card
+  status            linked          matched (tcgplayer_ids.csv has the same pair)
+                    alt_only        a real English card TCGplayer has no product for, or one this
+                                    script won't guess between (`how` says which)
+                    not_english     alt.xyz labels it English but it isn't an English TCG card
+                                    (Japanese / Chinese sets and promos, Topps movie cards, ...)
+                    tcgplayer_only  a TCGplayer single with no alt.xyz row
+  how               linked: the match kind; alt_only: no_candidate | variant_not_found |
+                    set_not_aligned | ambiguous_set | ambiguous_variant; not_english:
+                    not_on_tcgplayer | not_english_tcg; tcgplayer_only: blank, or
+                    candidate_of_alt_row when an unmatched alt.xyz row might be this card
+  name, number      TCGplayer's (linked, tcgplayer_only); alt.xyz's subject and number otherwise
+  set, set_source   TCGplayer's set name (tcgplayer); for an alt.xyz-only card the set its
+                    candidates are all in (candidates) or its alt.xyz set voted for (voted), else blank
+  rarity            TCGplayer's; blank for an alt.xyz-only card (unknown, not common)
+  year              alt.xyz's year for a card it has; else the set's year (tcgplayer_sets.csv),
+                    blank for a set spanning many years
+  print_run         1st Edition | Shadowless | Reverse Holo | blank, from alt.xyz's name
+  The image is IMAGE_URL with the tcgplayer_id (no column: it is the same pattern on every row,
+  and leaving it out keeps the file ~2.5 MB smaller); no tcgplayer_id, no image.
+
+latest/tcgplayer_sets.csv, one row per TCGplayer English set: group_id, name, published (blank:
+TCGplayer has no date), year, year_source (published | learned: >= 80% of its 5+ matched alt.xyz
+cards carry it | manual: see MANUAL_SET_YEARS | multi_year: no one year fits), span_from/span_to
+(years of its matched alt.xyz cards), linked_cards, note.
+
 Usage: python3 history/tcgplayer_ids.py [--fetch] [--tcgcsv DIR] [--out FILE] [--report FILE]
+                                        [--catalog FILE] [--sets FILE]
   --fetch downloads the catalog (~220 requests, 0.3 s apart) into --tcgcsv first.
 """
 import argparse
@@ -116,6 +149,35 @@ NUM = re.compile(r"^([A-Z]*?)0*(\d+)([A-Z]*)$")
 # alt.xyz often drops a promo number's series prefix ("Special Delivery Charizard #075" is
 # TCGplayer's SWSH075), so promo-set cards are also found by the bare number
 PROMO_PREFIX = re.compile(r"^(SWSH|SM|XY|BW|DP|HGSS|SVP|SV|MEP|ME)0*(\d+)$")
+
+CATALOG = HERE / "latest" / "card_catalog.csv"
+SETS = HERE / "latest" / "tcgplayer_sets.csv"
+CATALOG_COLS = ["asset_id", "tcgplayer_id", "status", "how", "name", "set", "set_source", "number", "rarity",
+                "year", "print_run"]
+SETS_COLS = ["group_id", "name", "published", "year", "year_source", "span_from", "span_to", "linked_cards", "note"]
+# Rows alt.xyz files as English that aren't English TCG cards, read off the unmatched rows of the
+# 2026-10-01 feed (checked only on rows that matched nothing): Japanese sets alt.xyz doesn't label
+# Japanese (GX Ultra Shiny, Best of XY, Super-Burst Impact), a Chinese one (Storming Emergence,
+# "SSR"), Japanese magazine / gym / store / event promos, and Topps' movie trading cards.
+NOT_ENGLISH = re.compile(r" (gx shiny|best pokemon the of xy|best of xy|super burst|storming emergence|ssr|"
+                         r"weekly advanced generation|japan championships|pokemon card gym|university festival|"
+                         r"card station|daiichi pan|bear walker|happy adventure rally|festa|panini|smart cards|"
+                         r"combini|movie animation edition|movie foilboard|cardd?ass|danone|corocoro|mirage pokemon|"
+                         r"daisuki club|stamp rally|visual placards|collection file) ")
+TOPPS_MOVIE = re.compile(r"^ \d{4} pokemon movie ")      # "2000 Pokemon Movie Three Treasures #52"
+# Japanese promo numbering puts the series after the number ("107/XY-P": alt.xyz "#107XYP",
+# "#036DPtP", "#052LP"); English promos put it first (SM78, XY41, SWSH050)
+JP_PROMO_NUMBER = re.compile(r"^\d*[A-Z]?(SM-?P|XY-?P|BW-?P|DPT?-?P|LP|S-?P|SV-?P)$")
+LEARNED_SHARE = 0.8     # an undated set takes the year >= 80% of its matched alt.xyz cards carry
+# TCGplayer sets with no release date and too few matched cards to learn one (2026-10-02).
+# group_id: (year or None, span_from, span_to, note)
+MANUAL_SET_YEARS = {
+    2776: (2021, 2021, 2021, "First Partner Pack: the 25th-anniversary jumbo packs, May-Oct 2021"),
+    2205: (2000, 2000, 2000, "Pikachu World Collection: Pokemon Park 2000, Sydney, Sept 2000"),
+    2175: (None, 2008, 2009, "Burger King: Diamond & Pearl and Platinum promos, per its product names"),
+    2332: (None, None, None, "Professor Program: one season per card, in its product name"),
+    2289: (None, None, None, "Blister Exclusives: Cosmos Holo prints from many sets"),
+}
 
 
 def _get(url, as_json=True):
@@ -402,7 +464,7 @@ def result(row, p, how):
             "tcgplayer_rarity": ext(p, "Rarity") or "", "match": how}
 
 
-def build(feed=FEED, src=TCGCSV_DIR, out=OUT, report=None, characters=CHARACTERS):
+def build(feed=FEED, src=TCGCSV_DIR, out=OUT, report=None, characters=CHARACTERS, catalog=None, sets=None):
     groups, (by_number, by_bare, by_name), japanese = load_catalog(src)
     rows = [r for r in csv.DictReader(open(feed, newline="", encoding="utf-8")) if english_tcg(r)]
     species = base_species(r["character"] for r in csv.DictReader(open(characters, newline="", encoding="utf-8")))
@@ -526,9 +588,10 @@ def build(feed=FEED, src=TCGCSV_DIR, out=OUT, report=None, characters=CHARACTERS
             years[p["group"]["groupId"]].append(int(r["year"]))
     spans = {gid: (min(ys), max(ys)) for gid, ys in years.items() if len(ys) >= SPAN_MIN}
 
-    out_rows, reasons = [], Counter()
+    out_rows, reasons, decided = [], Counter(), {}
     for r in rows:
         p, how, _ = decide(r, spans)
+        decided[r["asset_id"]] = (p, how)
         if p is None:
             reasons[how] += 1
             continue
@@ -554,7 +617,107 @@ def build(feed=FEED, src=TCGCSV_DIR, out=OUT, report=None, characters=CHARACTERS
                     w.writerow([r["asset_id"], r["card_name"], r["variety"], r["card_number"],
                                 ("not_on_tcgplayer" if skip(r) else "no_candidate") if not cs else "refused",
                                 " | ".join(f"{p['productId']}:{p['group']['name']}:{p['name']}" for p in cs[:6])])
+    if catalog or sets:
+        set_rows = set_years(groups, rows, decided)
+        if sets:
+            write_csv(sets, SETS_COLS, set_rows)
+            print(f"tcgplayer_sets: {len(set_rows)} sets -> {sets}  "
+                  f"({dict(Counter(s['year_source'] for s in set_rows))})")
+        if catalog:
+            def voted_set(r):
+                best = max(((votes[k][gid] / voters[k], gid) for k in keys(r) if voters[k] >= MIN_VOTERS
+                            for gid in votes[k]), default=(0, None))
+                return groups[best[1]]["name"] if best[0] >= MIN_SHARE else ""
+            year_of = {s["group_id"]: s["year"] for s in set_rows}
+            cat_rows = catalog_rows(rows, decided, cands, by_number, skip, voted_set, year_of)
+            write_csv(catalog, CATALOG_COLS, cat_rows)
+            print(f"card_catalog: {len(cat_rows)} cards -> {catalog}  "
+                  f"({dict(Counter(c['status'] for c in cat_rows))})")
     return out_rows
+
+
+def write_csv(path, cols, rows):
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=cols)
+        w.writeheader()
+        w.writerows(rows)
+
+
+def print_run(row):
+    t = alt_text(row) + words_text(row.get("set") or "")
+    return next((label for word, label in ((" 1st edition ", "1st Edition"), (" shadowless ", "Shadowless"),
+                                           (" reverse ", "Reverse Holo")) if word in t), "")
+
+
+def not_english(row):
+    """an unmatched row that alt.xyz files as English but isn't an English TCG card"""
+    number = re.sub(r"[\s#/]", "", (row.get("card_number") or "").upper())
+    return bool(NOT_ENGLISH.search(alt_text(row)) or TOPPS_MOVIE.search(words_text(row.get("card_name") or ""))
+                or JP_PROMO_NUMBER.match(number))
+
+
+def set_years(groups, rows, decided):
+    """one row per TCGplayer set: TCGplayer's release year, else one learned from the alt.xyz
+    cards matched to it, else MANUAL_SET_YEARS, else multi_year (no single year)."""
+    linked = defaultdict(list)
+    for r in rows:
+        p, _ = decided[r["asset_id"]]
+        if p is not None and str(r.get("year") or "").isdigit():
+            linked[p["group"]["groupId"]].append(int(r["year"]))
+    out = []
+    for gid, g in sorted(groups.items()):
+        ys = linked.get(gid, [])
+        span = (min(ys), max(ys)) if ys else (None, None)
+        year, source, note = g["year"], "published", ""
+        if year is None:
+            top, n = Counter(ys).most_common(1)[0] if ys else (None, 0)
+            if len(ys) >= SPAN_MIN and n >= LEARNED_SHARE * len(ys):
+                year, source = top, "learned"
+            elif gid in MANUAL_SET_YEARS:
+                year, span_from, span_to, note = MANUAL_SET_YEARS[gid]
+                source = "manual" if year else "multi_year"
+                span = (span[0] or span_from, span[1] or span_to)
+            else:
+                source = "multi_year"
+        out.append({"group_id": gid, "name": g["name"], "published": "" if g["year"] is None else g["publishedOn"][:10],
+                    "year": year or "", "year_source": source, "span_from": span[0] or "", "span_to": span[1] or "",
+                    "linked_cards": len(ys), "note": note})
+    return out
+
+
+def catalog_rows(rows, decided, cands, by_number, skip, voted_set, year_of):
+    out, matched, maybe = [], set(), set()
+    for r in rows:
+        p, how = decided[r["asset_id"]]
+        base = {"asset_id": r["asset_id"], "year": r.get("year") or "", "print_run": print_run(r)}
+        if p is not None:
+            matched.add(p["productId"])
+            out.append({**base, "tcgplayer_id": p["productId"], "status": "linked", "how": how, "name": p["name"],
+                        "set": p["group"]["name"], "set_source": "tcgplayer", "number": p["number"],
+                        "rarity": ext(p, "Rarity") or ""})
+            continue
+        cs = cands[r["asset_id"]]
+        if skip(r) or not_english(r):
+            status, how = "not_english", "not_on_tcgplayer" if skip(r) else "not_english_tcg"
+        else:
+            status = "alt_only"
+            maybe.update(c["productId"] for c in cs)
+        in_sets = {c["group"]["name"] for c in cs}
+        guess, source = (in_sets.pop(), "candidates") if len(in_sets) == 1 else (voted_set(r), "voted")
+        out.append({**base, "tcgplayer_id": "", "status": status, "how": how, "name": r.get("subject") or "",
+                    "set": guess, "set_source": source if guess else "", "number": r.get("card_number") or "",
+                    "rarity": ""})
+    for ps in by_number.values():
+        for p in ps:
+            if p["productId"] in matched:
+                continue
+            out.append({"asset_id": "", "tcgplayer_id": p["productId"], "status": "tcgplayer_only",
+                        "how": "candidate_of_alt_row" if p["productId"] in maybe else "", "name": p["name"],
+                        "set": p["group"]["name"], "set_source": "tcgplayer", "number": p["number"],
+                        "rarity": ext(p, "Rarity") or "", "year": year_of.get(p["group"]["groupId"], ""),
+                        "print_run": ""})
+    out.sort(key=lambda c: (c["asset_id"] == "", c["asset_id"], int(c["tcgplayer_id"] or 0)))
+    return out
 
 
 if __name__ == "__main__":
@@ -564,7 +727,9 @@ if __name__ == "__main__":
     ap.add_argument("--feed", type=Path, default=FEED)
     ap.add_argument("--out", type=Path, default=OUT)
     ap.add_argument("--report", type=Path)
+    ap.add_argument("--catalog", type=Path, default=CATALOG)
+    ap.add_argument("--sets", type=Path, default=SETS)
     a = ap.parse_args()
     if a.fetch:
         fetch(a.tcgcsv)
-    build(a.feed, a.tcgcsv, a.out, a.report)
+    build(a.feed, a.tcgcsv, a.out, a.report, catalog=a.catalog, sets=a.sets)

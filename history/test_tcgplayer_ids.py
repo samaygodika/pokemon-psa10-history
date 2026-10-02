@@ -94,28 +94,14 @@ ALT = [  # asset_id, year, set, variety, subject, number, expected tcgplayer_id 
     ("mw1", "2007", "Organized Play Series 5", "", "Mew", "3", None),         # only candidate is Mewtwo
     ("am1", "2000", "Pokemon Promo Movie 2000", "", "Ancient Mew", "", 42),   # no number: exact, rare name
     ("sd1", "2022", "Pokemon Black Star Promo", "Holo", "Special Delivery Charizard", "075", 71),   # alt drops "SWSH"
+    ("jpp", "2015", "Pokemon XY Promo", "", "Pikachu", "107XYP", None),     # Japanese promo numbering
+    ("tm1", "2000", "Pokemon Movie", "", "Three Treasures", "52", None),    # Topps movie card, not the TCG
 ]
 
 
 def test_build():
     with tempfile.TemporaryDirectory() as d:
-        d = Path(d)
-        (d / "last-updated.txt").write_text(UPDATED)
-        (d / "groups_jp.json").write_text(json.dumps({"results": [{"name": "SV2D: Clay Burst"}, {"name": "Pokemon Jungle"}]}))
-        (d / "groups.json").write_text(json.dumps({"results": [{"groupId": g, "name": n, "publishedOn": pub} for g, n, pub, _ in GROUPS]}))
-        for g, _, _, prods in GROUPS:
-            (d / f"{g}.json").write_text(json.dumps({"results": [
-                {"productId": pid, "name": name, "extendedData": [{"name": "Number", "value": num}, {"name": "Rarity", "value": rar}]}
-                for pid, name, num, rar in prods]}))
-        feed, chars, out = d / "cards.csv", d / "characters.csv", d / "out.csv"
-        with open(feed, "w", newline="") as f:
-            w = csv.writer(f)
-            w.writerow(["asset_id", "year", "set", "variety", "subject", "card_number", "card_name"])
-            for a, year, s, v, subj, num, _ in ALT:
-                w.writerow([a, year, s, v, subj, num, " ".join(x for x in (year, s, v, subj, f"#{num}" if num else "") if x)])
-        chars.write_text("character\n" + "\n".join(["Charizard", "Blastoise", "Venusaur", "Scyther", "Mew", "Mewtwo", "Nidorina",
-                                                    "Wartortle", "Ampharos", "Unown", "Unown X"]) + "\n")
-        t.build(feed=feed, src=d, out=out, characters=chars)
+        out, cat, sets = build_fixture(Path(d))
         got = {r["asset_id"]: int(r["tcgplayer_id"]) for r in csv.DictReader(open(out))}
         rarity = {r["asset_id"]: r["tcgplayer_rarity"] for r in csv.DictReader(open(out))}
         for a, *_, want in ALT:
@@ -126,8 +112,104 @@ def test_build():
     print("build ok")
 
 
+def test_catalog():
+    """card_catalog.csv / tcgplayer_sets.csv (2026-10-02): every English row once, every unmatched
+    TCGplayer single once, each with the status the app decides on."""
+    with tempfile.TemporaryDirectory() as d:
+        out, cat, sets = build_fixture(Path(d))
+        rows = list(csv.DictReader(open(cat)))
+        by_asset = {r["asset_id"]: r for r in rows if r["asset_id"]}
+        assert set(by_asset) == {a for a, *_ in ALT}, "every English row exactly once"
+        assert len(by_asset) == sum(1 for r in rows if r["asset_id"])
+        for a, *_, want in ALT:
+            r = by_asset[a]
+            if want:
+                assert (r["status"], r["tcgplayer_id"]) == ("linked", str(want)), (a, r)
+        assert (by_asset["ch1"]["status"], by_asset["ch1"]["how"]) == ("not_english", "not_on_tcgplayer")
+        assert (by_asset["jp1"]["status"], by_asset["jp1"]["how"]) == ("not_english", "not_on_tcgplayer")
+        assert (by_asset["jpp"]["status"], by_asset["jpp"]["how"]) == ("not_english", "not_english_tcg")
+        assert (by_asset["tm1"]["status"], by_asset["tm1"]["how"]) == ("not_english", "not_english_tcg")
+        assert (by_asset["cs1"]["status"], by_asset["cs1"]["how"]) == ("alt_only", "variant_not_found")
+        assert (by_asset["mw1"]["status"], by_asset["mw1"]["how"]) == ("alt_only", "no_candidate")
+        assert by_asset["mw1"]["rarity"] == "", "an alt.xyz-only card's rarity is unknown, not guessed"
+        assert by_asset["fe1"]["print_run"] == "1st Edition" and by_asset["bs1"]["print_run"] == ""
+        assert by_asset["bs1"]["year"] == "1999" and by_asset["bs1"]["set"] == "Base Set"
+        only = {r["tcgplayer_id"]: r for r in rows if r["status"] == "tcgplayer_only"}
+        matched = {str(w) for *_, w in ALT if w}
+        assert not set(only) & matched, "a matched product is never also TCGplayer-only"
+        assert only["31"]["year"] == "1999", "WoTC Promo: TCGplayer's own release year"
+        assert only["43"]["year"] == "", "Miscellaneous: undated, too few cards to learn a year"
+        s = {r["name"]: r for r in csv.DictReader(open(sets))}
+        assert (s["WoTC Promo"]["year"], s["WoTC Promo"]["year_source"]) == ("1999", "published")
+        assert s["Miscellaneous Cards & Products"]["year_source"] == "multi_year"
+        assert s["Miscellaneous Cards & Products"]["linked_cards"] == "2"
+    print("catalog ok")
+
+
+def test_set_years():
+    undated = "2026-10-01T20:00:06Z"
+    groups = {1: {"name": "POP Series 5", "year": None, "publishedOn": undated},
+              2: {"name": "Nintendo Promos", "year": None, "publishedOn": undated},
+              2776: {"name": "First Partner Pack", "year": None, "publishedOn": undated},
+              3: {"name": "Jungle", "year": 1999, "publishedOn": "1999-06-16"}}
+    rows, decided = [], {}
+    for i, (gid, year) in enumerate([(1, 2007)] * 5 + [(2, 2002), (2, 2003), (2, 2003), (2, 2005), (2, 2006)]):
+        rows.append({"asset_id": f"a{i}", "year": str(year)})
+        decided[f"a{i}"] = ({"group": {"groupId": gid}}, "unique")
+    s = {r["name"]: r for r in t.set_years(groups, rows, decided)}
+    assert (s["POP Series 5"]["year"], s["POP Series 5"]["year_source"]) == (2007, "learned")
+    assert (s["Nintendo Promos"]["year"], s["Nintendo Promos"]["year_source"]) == ("", "multi_year")
+    assert (s["Nintendo Promos"]["span_from"], s["Nintendo Promos"]["span_to"]) == (2002, 2006)
+    assert (s["First Partner Pack"]["year"], s["First Partner Pack"]["year_source"]) == (2021, "manual")
+    assert (s["Jungle"]["year"], s["Jungle"]["year_source"]) == (1999, "published")
+    print("set years ok")
+
+
+def test_not_english():
+    def row(name, number=""):
+        return {"card_name": name, "variety": "", "card_number": number}
+    assert t.not_english(row("2000 Pokemon Movie Three Treasures #52", "52")), "Topps movie card"
+    assert not t.not_english(row("2000 Pokemon Promo Movie 2000 Ancient Mew")), "the English movie promo"
+    assert t.not_english(row("2015 Pokemon XY Pokemon Center Promotion July Regigigas #160XYP", "160XYP"))
+    assert t.not_english(row("2012 Pokemon Eevee Collection Collection File Umbreon #188/BW-P", "188/BW-P"))
+    assert not t.not_english(row("2016 Pokemon Sun and Moon Black Star Promos Registeel #SM75", "SM75"))
+    assert t.not_english(row("2022 Pokemon Sun and Moon Storming Emergence Radiant Mewtwo Gx Ssr #194", "194"))
+    assert t.not_english(row("2018 Ultra Pokemon Gx Shiny Parallel Foil Darkrai #68", "68"))
+    assert not t.not_english(row("2018 Ultra Pokemon Sun and Moon Prism Dewpider #16", "16")), "English Ultra Prism"
+    assert not t.not_english(row("1999 Pokemon Base 1st Edition Thick 3-D Stamp Charizard Holo R #4", "4"))
+    assert t.print_run({"card_name": "2005 Pokemon Ex Emerald Reverse Foil Torchic", "variety": "", "set": ""}) == "Reverse Holo"
+    assert t.print_run({"card_name": "1999 Pokemon Base Set Shadowless Charizard", "variety": "", "set": ""}) == "Shadowless"
+    print("not english ok")
+
+
+def build_fixture(d):
+    """the made-up TCGplayer catalog + feed above, built into d; -> (ids, catalog, sets) paths"""
+    d = Path(d)
+    (d / "last-updated.txt").write_text(UPDATED)
+    (d / "groups_jp.json").write_text(json.dumps({"results": [{"name": "SV2D: Clay Burst"}, {"name": "Pokemon Jungle"}]}))
+    (d / "groups.json").write_text(json.dumps({"results": [{"groupId": g, "name": n, "publishedOn": pub} for g, n, pub, _ in GROUPS]}))
+    for g, _, _, prods in GROUPS:
+        (d / f"{g}.json").write_text(json.dumps({"results": [
+            {"productId": pid, "name": name, "extendedData": [{"name": "Number", "value": num}, {"name": "Rarity", "value": rar}]}
+            for pid, name, num, rar in prods]}))
+    feed, chars, out = d / "cards.csv", d / "characters.csv", d / "out.csv"
+    with open(feed, "w", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["asset_id", "year", "set", "variety", "subject", "card_number", "card_name"])
+        for a, year, s, v, subj, num, _ in ALT:
+            w.writerow([a, year, s, v, subj, num, " ".join(x for x in (year, s, v, subj, f"#{num}" if num else "") if x)])
+    chars.write_text("character\n" + "\n".join(["Charizard", "Blastoise", "Venusaur", "Scyther", "Mew", "Mewtwo", "Nidorina",
+                                                "Wartortle", "Ampharos", "Unown", "Unown X"]) + "\n")
+    cat, sets = d / "card_catalog.csv", d / "tcgplayer_sets.csv"
+    t.build(feed=feed, src=d, out=out, characters=chars, catalog=cat, sets=sets)
+    return out, cat, sets
+
+
 if __name__ == "__main__":
     test_numbers()
     test_names()
     test_qualifiers()
     test_build()
+    test_catalog()
+    test_set_years()
+    test_not_english()
