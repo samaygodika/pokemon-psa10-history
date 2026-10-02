@@ -227,8 +227,9 @@ search: 1999 Pokemon Base Set Holo Blastoise #2                       # top sear
 ## How it works
 
 alt.xyz is a React app; every number comes from a GraphQL API at
-`https://alt-platform-server.production.internal.onlyalt.com/graphql/<OperationName>`,
-called with no login for public data. Operations used: `ExternalListing` /
+`https://alt-platform-server.production.internal.onlyalt.com/graphql/<OperationName>`.
+Until 2026-10-01 it answered with no login; since 2026-10-02 every market-data operation
+needs a logged-in session (see **Login** below). Operations used: `ExternalListing` /
 `PubliclyVisibleItem` (page id -> asset id), `AssetCardPops` (population table),
 `AssetMarketTransactions` (sales, filtered to PSA `"10.0"`; grades must have one
 decimal), `SearchServiceConfig` (short-lived Typesense key for `--find`/`--list`,
@@ -240,3 +241,48 @@ company + grade — company alone returns nothing — with `buyItNowPrice` or
 
 The script waits between requests and retries failed calls three times.
 `robots.txt` allows crawling; keep the worker count modest.
+
+### Why a 403
+
+On 2026-10-02 alt.xyz changed two things at once. Its card pages now ask for a free account
+before showing market data ("Sign up for free. Access all of the market data for this asset
+with a free account"; a logged-out page makes no API calls). And its load balancer started
+answering `403 Forbidden` (`server: awselb/2.0`, body `Forbidden`) to script requests that
+claim to be a browser: this scraper had sent a copied Chrome user-agent since day one, and
+that was what got refused, not the missing login. Checked the same day: the identical
+request with the user-agent `pokemon-psa10-history/1.0 (school project; ...)` and no login
+returned 200 for every operation above, and so did Python's default user-agent. The scraper
+now identifies itself honestly, and that is the whole fix.
+
+The scraping is done with alt.xyz's permission for Samay's school project (ask them for it
+in writing; their terms want written authorization for scripts). The scraper keeps the
+same pace as before and sends nothing the site itself does not send.
+
+### Login (optional)
+
+Not needed for the scrape as of 2026-10-02, but supported so requests can go out the way
+a signed-in visitor sends them, with Samay's own account, in case alt.xyz later checks the
+login on the API as well as on the page. How the site does it (read off its own requests):
+
+- Login provider is Stytch. The browser keeps a long-lived session token in the
+  `stytch_session` cookie and sends `authorization: Bearer <session JWT>` on every API
+  call; the JWT lives 5 minutes.
+- A fresh JWT comes from `POST https://api.stytch.com/sdk/v1/sessions/authenticate`
+  with `Authorization: Basic base64(<site public token>:<session token>)`, an empty body
+  and the site's `Origin`. The reply also says when the session itself expires (one year
+  from login); the scraper prints that once per run (`alt.xyz login OK, session valid
+  until ...`).
+
+Setup: sign in to alt.xyz, copy the value of the `stytch_session` cookie (DevTools ->
+Application -> Cookies -> alt.xyz), and either
+
+```bash
+export ALT_SESSION_TOKEN='<value>'
+```
+
+or put it on the first line of `~/.alt_session` (`chmod 600`). `ALT_SESSION_FILE` points
+elsewhere. In GitHub Actions it is the repository secret `ALT_SESSION_TOKEN`
+(`.github/workflows/*.yml` pass it through). With no token configured, requests go out
+logged out, as before. A stale JWT is refreshed once and the request retried; an expired
+or wrong session token fails the refresh with Stytch's status. Never commit the token:
+this repository is public.

@@ -35,14 +35,19 @@ Outputs (written next to this script unless --out is given):
                    bid count and current bid. With --also-listings, also at each --also-grade
                    (the grade column tells them apart)
 
+Login (optional): alt.xyz's pages ask for a free account since 2026-10-02. To scrape as that
+account, put its stytch_session cookie value in ALT_SESSION_TOKEN or ~/.alt_session (README, 'Login').
+
 Only the Python standard library is used.
 """
 
 import argparse
+import base64
 import csv
 import threading
 from concurrent.futures import ThreadPoolExecutor
 import json
+import os
 import re
 import sys
 import time
@@ -61,13 +66,124 @@ HEADERS = {
     "authorization": "",
     "origin": "https://alt.xyz",
     "referer": "https://alt.xyz/",
-    "user-agent": (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/128.0 Safari/537.36"
-    ),
+    # Say who we are. Until 2026-10-01 this was a copied Chrome user-agent; on 2026-10-02
+    # alt.xyz started refusing (HTTP 403 from its load balancer) script requests that claim
+    # to be a browser, while the same request identifying itself honestly goes through.
+    "user-agent": "pokemon-psa10-history/1.0 (school project; github.com/samaygodika/pokemon-psa10-history)",
 }
 DELAY_SECONDS = 0.5   # polite pause between requests
 RETRIES = 3
+
+# --------------------------------------------------------------------------
+# Login (optional). On 2026-10-02 alt.xyz's pages started asking for a free account before
+# showing market data ("Sign up for free. Access all of the market data for this asset with
+# a free account"). The API itself still answered logged-out requests that day, so the
+# token is not needed for the scrape to work; it is here so we can send requests the way a
+# signed-in visitor does, with Samay's own account and alt.xyz's permission for the school
+# project, and so a later server-side login check does not stop the feed again.
+#
+# How the site does it (read off its own requests on 2026-10-02): the login provider is
+# Stytch. A long-lived session token sits in the `stytch_session` cookie; every API call
+# sends `authorization: Bearer <session JWT>`, a JWT that lives 5 minutes. The site mints
+# a fresh JWT by POSTing to Stytch's `sessions/authenticate` with
+# `Authorization: Basic base64(<site public token>:<session token>)` and an empty body.
+# We do exactly the same, nothing more.
+#
+# Where the session token comes from: the ALT_SESSION_TOKEN environment variable, else
+# the first line of ~/.alt_session (chmod 600; in GitHub Actions it is the repo secret
+# ALT_SESSION_TOKEN). Never commit it. Each refresh reports the session's expiry so a
+# token that is about to lapse is noticed in the log, not as a silent 403.
+# --------------------------------------------------------------------------
+STYTCH_PUBLIC_TOKEN = os.environ.get("ALT_STYTCH_PUBLIC_TOKEN",
+                                     "public-token-live-b46d695e-c943-4d41-809f-fe40b713fdc8")
+STYTCH_AUTH_URL = "https://api.stytch.com/sdk/v1/sessions/authenticate"
+SESSION_FILE = Path(os.environ.get("ALT_SESSION_FILE", str(Path.home() / ".alt_session")))
+JWT_REFRESH_MARGIN = 60       # seconds before the JWT's exp at which we fetch a new one
+LOGIN_HELP = ("alt.xyz refused the request (see README, 'Why a 403'). If the site now needs a login, put "
+              "the account's stytch_session cookie value in the ALT_SESSION_TOKEN environment variable or in "
+              f"{SESSION_FILE} (README, 'Login')")
+
+
+class _Session:
+    """Holds the session token and the short-lived JWT minted from it (thread-safe)."""
+
+    def __init__(self):
+        self.token = None          # resolved lazily so --help etc. never touch the file
+        self.jwt = None
+        self.jwt_exp = 0.0
+        self.expires_at = None     # the session's own expiry, as Stytch reports it
+        self.lock = threading.Lock()
+        self._resolved = False
+
+    def session_token(self):
+        if not self._resolved:
+            self._resolved = True
+            tok = os.environ.get("ALT_SESSION_TOKEN", "").strip()
+            if not tok and SESSION_FILE.is_file():
+                lines = [ln.strip() for ln in SESSION_FILE.read_text().splitlines() if ln.strip()]
+                tok = lines[0] if lines else ""
+            self.token = tok or None
+        return self.token
+
+    def bearer(self, force=False):
+        """The `authorization` header value, refreshing the JWT when it is stale. Empty
+        string when no session token is configured (requests then go out logged out)."""
+        if not self.session_token():
+            return ""
+        with self.lock:
+            if force or not self.jwt or self.jwt_exp - JWT_REFRESH_MARGIN <= time.time():
+                self._refresh()
+            return f"Bearer {self.jwt}"
+
+    def _refresh(self):
+        basic = base64.b64encode(f"{STYTCH_PUBLIC_TOKEN}:{self.token}".encode()).decode()
+        # The site's SDK also tags each call with who is calling (its own name + version);
+        # same shape here, minus the browser-only telemetry ids.
+        sdk_client = base64.b64encode(json.dumps({
+            "event_id": f"event-id-{uuid.uuid4()}",
+            "app_session_id": f"app-session-id-{uuid.uuid4()}",
+            "client_sent_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+            "app": {"identifier": "alt.xyz"},
+            "sdk": {"identifier": "Stytch.js Javascript SDK", "version": "5.40.0"},
+        }).encode()).decode()
+        req = urllib.request.Request(STYTCH_AUTH_URL, data=b"{}", method="POST", headers={
+            "authorization": f"Basic {basic}",
+            "content-type": "application/json",
+            "x-sdk-client": sdk_client,
+            "x-sdk-parent-host": "https://alt.xyz",
+            "origin": HEADERS["origin"],       # Stytch checks the calling site; browsers send these two
+            "referer": HEADERS["referer"],
+            "user-agent": HEADERS["user-agent"],
+        })
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                data = (json.loads(resp.read()) or {}).get("data") or {}
+        except urllib.error.HTTPError as e:
+            body = e.read().decode(errors="replace")[:300]
+            raise RuntimeError(f"alt.xyz login refresh failed: HTTP {e.code} {body}. The session token "
+                               f"is probably expired or wrong. {LOGIN_HELP}") from None
+        jwt = data.get("session_jwt")
+        if not jwt:
+            raise RuntimeError(f"alt.xyz login refresh returned no session_jwt: {str(data)[:200]}")
+        self.jwt = jwt
+        self.jwt_exp = _jwt_exp(jwt) or time.time() + 300
+        new_exp = (data.get("session") or {}).get("expires_at")
+        if new_exp != self.expires_at:
+            self.expires_at = new_exp
+            print(f"alt.xyz login OK, session valid until {new_exp}", file=sys.stderr)
+
+
+def _jwt_exp(jwt):
+    """The exp claim of a JWT, or None. No signature check: we only use it to know when to refresh."""
+    try:
+        payload = jwt.split(".")[1]
+        payload += "=" * (-len(payload) % 4)
+        return float(json.loads(base64.urlsafe_b64decode(payload))["exp"])
+    except (IndexError, ValueError, KeyError, TypeError):
+        return None
+
+
+SESSION = _Session()
 
 # --------------------------------------------------------------------------
 # GraphQL documents (copied from the alt.xyz frontend bundle)
@@ -157,8 +273,9 @@ def gql(operation, query, variables):
     """POST one GraphQL operation. Returns the `data` dict, raises on errors."""
     body = json.dumps({"operationName": operation, "variables": variables, "query": query}).encode()
     last_err = None
+    refreshed = False
     for attempt in range(1, RETRIES + 1):
-        headers = dict(HEADERS, **{"idempotency-key": str(uuid.uuid4())})
+        headers = dict(HEADERS, **{"idempotency-key": str(uuid.uuid4()), "authorization": SESSION.bearer()})
         req = urllib.request.Request(ENDPOINT + operation, data=body, headers=headers, method="POST")
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
@@ -167,7 +284,17 @@ def gql(operation, query, variables):
             if payload.get("errors"):
                 raise RuntimeError(payload["errors"][0].get("message", "unknown GraphQL error"))
             return payload.get("data") or {}
-        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError) as e:
+        except urllib.error.HTTPError as e:
+            last_err = e
+            if e.code in (401, 403):
+                if not SESSION.session_token():
+                    raise RuntimeError(f"{operation}: HTTP {e.code} with no login configured. {LOGIN_HELP}") from None
+                if not refreshed:              # a stale JWT: mint a new one and go again, once
+                    refreshed = True
+                    SESSION.bearer(force=True)
+                    continue
+            time.sleep(2 * attempt)
+        except (urllib.error.URLError, TimeoutError) as e:
             last_err = e
             time.sleep(2 * attempt)
     raise RuntimeError(f"{operation} failed after {RETRIES} attempts: {last_err}")

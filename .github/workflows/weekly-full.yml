@@ -22,6 +22,7 @@ jobs:
           python-version: "3.12"
       - name: full scrape + ingest + rebuild latest/
         env:
+          ALT_SESSION_TOKEN: ${{ secrets.ALT_SESSION_TOKEN }}   # alt.xyz login (README, 'Login')
           NIGHTLY_SCOPE: full
           NIGHTLY_WORKERS: "6"
           NIGHTLY_DELAY: "0"
