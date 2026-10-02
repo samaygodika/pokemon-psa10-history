@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Checks for metrics.drop_outliers (2026-09-28): a confirming run counts distinct
 listings, so repeat sales of one eBay Buy It Now can't reset a card's reference.
+And (2026-10-01) the held-back HIGH sales it reports, which the change columns count.
 
     python3 history/test_outliers.py
 
@@ -88,6 +89,42 @@ def test_thin_card_whose_first_sale_was_junk_recovers_on_two_listings():
     assert [p for _, p, _ in keep] == [78000.0, 500.0, 480.0] and dropped == 0, keep   # confirmed on 2 listings, not 5
 
 
+def test_held_high_lists_only_unconfirmed_high_sales():
+    high = (day(10), 400000.0, "PWCC", "h1")
+    low = (day(20), 5000.0, "eBay", "l1")
+    hh = []
+    keep, dropped = metrics.drop_outliers(sorted(base() + [high, low]), held_high=hh)
+    assert dropped == 2 and hh == [high[:3]], hh            # the low is held too, but never listed
+    # the same call without the list: identical result
+    assert metrics.drop_outliers(sorted(base() + [high, low])) == (keep, dropped)
+    # a second listing confirms the high: accepted, so no longer held
+    hh = []
+    keep, dropped = metrics.drop_outliers(sorted(base() + [high, (day(12), 410000.0, "Goldin", "h2")]), held_high=hh)
+    assert hh == [] and dropped == 0 and keep[-1][1] == 410000.0, (hh, keep)
+    # the same listing selling twice confirms nothing: both stay held
+    hh = []
+    metrics.drop_outliers(sorted(base() + [high, (day(12), 400000.0, "PWCC", "h1")]), held_high=hh)
+    assert len(hh) == 2, hh
+
+
+def test_change_columns_count_a_held_high_sale():
+    clean = [s[:3] for s in base()]                         # ~$50k, days 0-5
+    held = (day(90), 400000.0, "PWCC")
+    counted = sorted(clean + [held])
+    start, today = day(70), day(100)
+    # no clean sale in the window: blank on clean sales, a figure once the held sale counts
+    assert metrics.change_since(clean, clean, start, today) == (None, False)
+    chg, flag = metrics.change_since(clean, counted, start, today)
+    # the price is the median of the last 3 sales, so one $400k sale moves a ~$50k card only a little
+    assert flag and chg == 0.2, (chg, flag)
+    # a held sale older than the last 3 sales at both ends of the window doesn't change the
+    # figure, so it isn't flagged
+    late = sorted(clean + [(day(40), 50700.0, "eBay"), (day(80), 50800.0, "eBay")])
+    chg0, _ = metrics.change_since(late, late, start, today)
+    chg1, flag = metrics.change_since(late, sorted(late + [(day(2), 400000.0, "PWCC")]), start, today)
+    assert chg1 == chg0 and not flag, (chg0, chg1, flag)
+
+
 if __name__ == "__main__":
     test_repeat_listing_cannot_confirm_a_drop()
     test_distinct_listings_still_confirm_a_drop()
@@ -96,4 +133,6 @@ if __name__ == "__main__":
     test_blank_or_missing_url_counts_as_its_own_listing()
     test_thin_card_holds_a_10x_jump_until_a_second_listing()
     test_thin_card_whose_first_sale_was_junk_recovers_on_two_listings()
+    test_held_high_lists_only_unconfirmed_high_sales()
+    test_change_columns_count_a_held_high_sale()
     print("all outlier checks passed")

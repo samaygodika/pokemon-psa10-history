@@ -23,8 +23,13 @@ Definitions audited (README, "The data PokeSniper gets"):
                    one of them is enough. A sale within 2x of the last accepted
                    sale is never held.
   ref(t)           median of the up-to-3 newest clean sales in (t-180d, t].
-  price_chg_Nd_pct ref(today) vs ref(today-N), only when both exist and at
-                   least one clean sale fell in (today-N, today].
+  held highs       sales the filter rejected on the HIGH side and never
+                   accepted later (2026-10-01).
+  price_chg_Nd_pct the same median-of-3 ref over clean sales PLUS held highs:
+                   ref'(today) vs ref'(today-N), only when both exist and at
+                   least one such sale fell in (today-N, today] (2026-10-01).
+  chg_held_windows the windows (30d 60d 90d 180d 1y) whose price_chg differs
+                   from the clean-only figure, space-separated.
   volume_Nd        clean sales in (today-N, today].
   price_chg_60d_pct, price_chg_180d_pct, volume_60d, volume_180d
                    the price_chg / volume rules for 60 / 180 days.
@@ -108,9 +113,11 @@ def load_sales():
 
 
 def clean_sales(sales):
-    """Sequential outlier filter, re-implemented from the README description."""
+    """Sequential outlier filter, re-implemented from the README description.
+    Returns (kept, dropped, held_highs)."""
     accepted, kept = [], []
-    run_side, run = None, []
+    rejected = {}   # position -> (sale, side) for every rejection; confirmed runs are removed
+    run_side, run, run_pos = None, [], []
     dropped = 0
     regime = 0
     for n, (sd, price, src, flagged, url) in enumerate(sales):
@@ -132,23 +139,28 @@ def clean_sales(sales):
             side = "low" if price < lo_b * ref else "high" if price > hi_b * ref else None
             if side:
                 if run_side != side:
-                    run_side, run = side, []
+                    run_side, run, run_pos = side, [], []
                 run.append((sale, listing))
+                rejected[n] = (sale, side)
+                run_pos.append(n)
                 need = OUT_THIN_RUN if few else OUT_RUN_LOW if side == "low" else OUT_RUN_HIGH
                 if len({lst for _, lst in run}) >= need:
                     regime = len(accepted)
                     kept.extend(r for r, _ in run)
                     accepted.extend(r for r, _ in run)
                     dropped -= len(run) - 1
-                    run_side, run = None, []
+                    for q in run_pos:
+                        del rejected[q]
+                    run_side, run, run_pos = None, [], []
                 else:
                     dropped += 1
                 continue
-        run_side, run = None, []
+        run_side, run, run_pos = None, [], []
         kept.append(sale)
         accepted.append(sale)
     kept.sort(key=lambda t: (t[0], t[1], t[2]))
-    return kept, dropped
+    highs = sorted((sale for sale, side in rejected.values() if side == "high"), key=lambda t: (t[0], t[1], t[2]))
+    return kept, dropped, highs
 
 
 def ref_price(clean, at):
@@ -170,24 +182,27 @@ def num(s):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--show", type=int, default=25, help="max mismatches to print per column")
+    ap.add_argument("--feed", type=Path, default=FEED, help="cards.csv to audit (default latest/cards.csv)")
     args = ap.parse_args()
 
     days = sorted(p.stem for p in (STORE / "daily").glob("*.csv"))
     today = date.fromisoformat(days[-1])
-    feed = {r["asset_id"]: r for r in csv.DictReader(open(FEED, newline="", encoding="utf-8"))}
+    feed = {r["asset_id"]: r for r in csv.DictReader(open(args.feed, newline="", encoding="utf-8"))}
     sales = load_sales()
     print(f"today = {today} (newest daily file); feed rows = {len(feed)}; assets with PSA 10 sales = {len(sales)}")
 
     cols = ["clean_last_sale_price", "clean_last_sale_date", "outliers_excluded", "last_sale_unconfirmed", "median_last_3"]
     cols += [f"volume_{w}" for w in WINDOWS] + [f"price_chg_{w}_pct" for w in WINDOWS]
     cols += [f"price_chg_{w}_pct" for w in CHG_ONLY] + [f"volume_{w}" for w in CHG_ONLY] + ["cap_price"] + [f"cap_price_{w}_ago" for w in CAP_AGO]
+    cols += ["chg_held_windows"]
     mism = defaultdict(list)
     checked = defaultdict(int)
     future_dated = []
 
     for aid, row in feed.items():
         raw = sales.get(aid, [])
-        clean, dropped = clean_sales(raw)
+        clean, dropped, highs = clean_sales(raw)
+        counted = sorted(clean + highs, key=lambda t: (t[0], t[1], t[2]))
         mine = {}
         last = clean[-1] if clean else None
         mine["clean_last_sale_price"] = last[1] if last else None
@@ -198,15 +213,17 @@ def main():
         mine["last_sale_unconfirmed"] = 1 if (newest and last and newest != (last[0], last[1]) and newest[0] >= last[0]) else 0
         ref_now = ref_price(clean, today)
         mine["median_last_3"] = ref_now
-        for w, n in WINDOWS.items():
-            start = today - timedelta(days=n)
-            vol = sum(1 for sd, _, _ in clean if start < sd <= today)
-            mine[f"volume_{w}"] = vol
-            mine[f"price_chg_{w}_pct"] = pct(ref_now, ref_price(clean, start)) if vol > 0 else None
-        for w, n in CHG_ONLY.items():
+        held_in = []
+        for w, n in {**WINDOWS, **CHG_ONLY}.items():
             start = today - timedelta(days=n)
             mine[f"volume_{w}"] = sum(1 for sd, _, _ in clean if start < sd <= today)
-            mine[f"price_chg_{w}_pct"] = pct(ref_now, ref_price(clean, start)) if mine[f"volume_{w}"] else None
+            only_clean = pct(ref_now, ref_price(clean, start)) if mine[f"volume_{w}"] else None
+            with_held = (pct(ref_price(counted, today), ref_price(counted, start))
+                         if any(start < sd <= today for sd, _, _ in counted) else None)
+            mine[f"price_chg_{w}_pct"] = with_held
+            if with_held != only_clean:
+                held_in.append(n)
+        mine["chg_held_windows"] = " ".join(w for w, n in sorted(CAP_AGO.items(), key=lambda kv: kv[1]) if n in held_in)
 
         def worth(at):
             r = ref_price(clean, at)
@@ -223,7 +240,7 @@ def main():
         for c in cols:
             theirs, ours = row.get(c, ""), mine[c]
             checked[c] += 1
-            if c == "clean_last_sale_date":
+            if c in ("clean_last_sale_date", "chg_held_windows"):
                 same = theirs == ours
             else:
                 t = num(theirs)

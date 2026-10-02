@@ -23,9 +23,12 @@ never as 0.
                          so a "$2,100 PSA 10 1st Edition Charizard" between
                          $300k+ sales is dropped but a card that really
                          tripled is not (see drop_outliers).
-                         Everything below is computed from the clean sales only.
-  clean_last_sale_*    = the newest clean sale (price/date/source); the change
-                         and volume columns are built from clean sales only.
+                         Everything below is computed from the clean sales only,
+                         except that the change columns also count held-back
+                         HIGH sales (see price_chg_30d_pct).
+  clean_last_sale_*    = the newest clean sale (price/date/source); the volume
+                         columns and every price level are built from clean
+                         sales only.
                          outliers_excluded says how many rows the filter
                          dropped for the card.
   last_sale_unconfirmed = 1 when the literal newest sale (last_sale_*) is one
@@ -43,14 +46,33 @@ never as 0.
                          at least one sale happened in the last 30 days (a
                          window with no sales has no new information, so it is
                          blank rather than a misleading 0%). Same for 90d / 1y.
-  volume_30d/90d/1y    = number of PSA 10 sales in the window.
+                         Since 2026-10-01 these refs are taken over the clean
+                         sales PLUS the sales the filter still holds back on the
+                         HIGH side: measured over the past year, a held-back high
+                         newest sale was later shown real 81% of the time (90%
+                         on cards up to 2013, eBay 80%, major auction houses
+                         86%), a held-back low one 17% (4%). Leaving them out
+                         left the cards that moved out of every category's
+                         median %: 452 cards with a held-back sale in the last
+                         30 days had a blank 30-day change. Held-back LOW sales
+                         stay out. Because the ref is a median of 3, one held
+                         sale moves a card only part of the way; a second sale
+                         at the new level confirms the move and moves it fully.
+  chg_held_windows     = the windows (30d 60d 90d 180d 1y, space-separated)
+                         whose price_chg differs from the clean-only figure, i.e.
+                         rests on a held-back high sale; blank for most cards.
+                         mkt_cap_chg_30d_pct follows the 30d one.
+  volume_30d/90d/1y    = number of clean PSA 10 sales in the window.
   pop_30d_ago          = PSA 10 population from the newest daily file at least
                          30 days old that has this asset; blank until the
                          daily series is that old.
   pop_chg_30d          = pop_at_grade - pop_30d_ago.
-  mkt_cap_chg_30d_pct  = (ref_now x pop_now) vs (ref_30d x pop_30d_ago); needs
+  mkt_cap_chg_30d_pct  = (ref_now x pop_now) vs (ref_30d x pop_30d_ago), refs as
+                         in price_chg_30d_pct (held-back highs counted); needs
                          pop history, so blank for the first 30 days.
-  median_last_3        = ref(today): the number the change columns are built on.
+  median_last_3        = ref(today) over clean sales only: the card's price level
+                         (the change columns differ from it only where
+                         chg_held_windows is set).
   sales_first_date, sales_total, history_days: how much history stands behind
                          the row.
 
@@ -131,7 +153,7 @@ times with its own clock.
                          once on, blank still = never checked at PSA 9, and a
                          count of 0 = checked, nothing running.
 
-Market cap inputs (2026-09-28), the last columns of cards.csv:
+Market cap inputs (2026-09-28), the last columns of cards.csv before chg_held_windows:
   price_chg_60d_pct, price_chg_180d_pct, volume_60d, volume_180d
                        = the price_chg / volume rules above for 60 and 180
                          days, so the app's 2m and 6m windows are measured,
@@ -204,7 +226,8 @@ LIVE_COLS = ["listings_checked_at", "live_auction_count", "next_auction_end", "n
              "next_auction_source", "next_auction_url", "last_auction_end", "lowest_bin_price", "lowest_bin_source", "lowest_bin_url"]
 PSA9_LIVE_COLS = ["psa9_" + c for c in LIVE_COLS]   # the same eleven for PSA 9 listings
 CAP_COLS = ([f"price_chg_{w}_pct" for w in EXTRA_WINDOWS] + [f"volume_{w}" for w in EXTRA_WINDOWS] + ["cap_price"]
-            + [f"cap_price_{w}_ago" for w in CAP_WINDOWS])   # 2026-09-28; the very end of cards.csv
+            + [f"cap_price_{w}_ago" for w in CAP_WINDOWS])   # 2026-09-28
+HELD_COLS = ["chg_held_windows"]   # 2026-10-01; the very end of cards.csv
 LIVE_CHECK_COLS = {"10.0": "listings_checked_at", "9.0": "psa9_listings_checked_at"}   # grade -> daily column with its check time
 
 
@@ -258,11 +281,13 @@ def drop_mirror_copies(rows):
 
 
 def load_sales(store):
-    """{grade: (by_asset, n, outliers, raw)} for each of GRADES, one pass over
+    """{grade: (by_asset, n, outliers, raw, held_high)} for each of GRADES, one pass over
     the history. by_asset = {asset_id: [(date, price, source), ...] ascending}
     with skipped sales (alt.xyz's own outlier/bad-data flag), PWCC mirror
     copies and outliers excluded; raw = every sale incl. flagged ones as
-    (date, price, source, sale_type, status, url), mirror copies excluded."""
+    (date, price, source, sale_type, status, url), mirror copies excluded;
+    held_high = {asset_id: [(date, price, source), ...]} the sales the outlier
+    filter still holds back on the high side (drop_outliers)."""
     raw = {g: defaultdict(list) for g in GRADES}
     for p in sorted((store / "sales").glob("*.csv")):
         with open(p, newline="", encoding="utf-8") as f:
@@ -290,16 +315,19 @@ def clean_grade(grade, raw):
                 by_asset[aid].append((dt_, price, source, url))
                 n += 1
     print(f"  PSA {grade}: {mirrors} PWCC mirror copies dropped", file=sys.stderr)
-    outliers = {}
+    outliers, held_high = {}, {}
     for aid, v in by_asset.items():
         v.sort()
-        clean, dropped = drop_outliers(v)
+        hh = []
+        clean, dropped = drop_outliers(v, held_high=hh)
         by_asset[aid] = clean
         outliers[aid] = dropped
-    return by_asset, n, outliers, raw
+        if hh:
+            held_high[aid] = hh
+    return by_asset, n, outliers, raw, held_high
 
 
-def drop_outliers(sales):
+def drop_outliers(sales, held_high=None):
     """Sequential outlier filter. Walk the sales in date order keeping a
     reference price = median of the last OUTLIER_REF accepted sales from the
     past OUTLIER_REF_MAX_AGE; once at least OUTLIER_MIN_ACCEPTED sales are
@@ -370,20 +398,29 @@ def drop_outliers(sales):
     than the run length.
 
     Thin cards (2026-09-28): a card with only one or two accepted sales used
-    to have no filter at all, so a single misattributed lot became its clean
-    price (a BW87 Leafeon promo at $490 -> one $78,000 PWCC lot; an XY Mudkip
-    at $3.72M). 437 accepted 10x+ moves sat in that gap, 213 of them a card's
+    to have no filter at all, so any single lot became its clean price
+    unchecked (a BW87 Leafeon promo at $490 -> one $78,000 PWCC lot; an XY
+    Mudkip at $3.72M). Correction 2026-10-01: the Leafeon lot (72 bids) is
+    real by its lot page, not misattributed as first said; the point is that
+    one sale can be either. 437 accepted 10x+ moves sat in that gap, 213 of them a card's
     newest clean sale. Now the first one or two sales are the reference with
     the stale band (1/10x .. 10x), and OUTLIER_THIN_RUN distinct listings
     confirm a move on EITHER side: with a one-sale reference the low side
     can't ask for five, or a card whose first sale was junk would sit on it.
     Where later sales exist, 131 of 224 such jumps held and 59 went back:
     the same hold-until-confirmed trade as the stale fallback.
-    Returns (date, price, source) tuples."""
+    Returns (date, price, source) tuples.
+
+    held_high: pass a list to also get the sales still held back on the HIGH
+    side at the end (above the band, never confirmed), as (date, price,
+    source) tuples in date order. The change columns count those (see
+    build: a held-back high sale was later shown real 81% of the time over
+    the past year, a held-back low one 17%)."""
     keep, dropped = [], 0
     accepted = []  # accepted sales (date, price, source), in date order
-    run = []       # consecutive rejected sales, same side: (side, sale, listing)
+    run = []       # consecutive rejected sales, same side: (side, sale, listing, index)
     regime = 0     # index into accepted: the first sale of the last confirmed run (0 = no confirmed move yet)
+    held = {}      # index -> (side, sale) for every rejected sale not (yet) confirmed
     for i, sale in enumerate(sales):
         listing = sale[3] if len(sale) > 3 and sale[3] else i
         sale = sale[:3]
@@ -407,23 +444,27 @@ def drop_outliers(sales):
                 side = "low" if low else "high"
                 if run and run[0][0] != side:
                     run = []
-                run.append((side, sale, listing))
+                run.append((side, sale, listing, i))
                 need = OUTLIER_THIN_RUN if thin else OUTLIER_RESET_RUN_LOW if side == "low" else OUTLIER_RESET_RUN_HIGH
                 if len({r[2] for r in run}) >= need:
                     # confirmed move (high) or regime change (low): the run is real, and the reference jumps to it
                     regime = len(accepted)
-                    for _, r, _ in run:
+                    for _, r, _, j in run:
                         keep.append(r)
                         accepted.append(r)
+                        held.pop(j, None)
                     dropped -= len(run) - 1
                     run = []
                 else:
                     dropped += 1
+                    held[i] = (side, sale)
                 continue
         run = []
         keep.append(sale)
         accepted.append(sale)
     keep.sort()
+    if held_high is not None:
+        held_high.extend(sorted(s for side, s in held.values() if side == "high"))
     return keep, dropped
 
 
@@ -449,6 +490,19 @@ def cap_price(sales, at):
 
 def count_in(sales, start, end):
     return sum(1 for (sd, _, _) in sales if start < sd <= end)
+
+
+def change_since(clean, counted, start, today):
+    """(% change since `start`, whether it rests on a held-back high sale) for
+    one change column. `counted` = the card's clean sales plus the ones the
+    outlier filter still holds back on the high side (the same list object as
+    `clean` when there are none). Blank unless a counted sale landed in the
+    window. The flag is set when the figure differs from the clean-only one."""
+    chg = pct(ref_price(counted, today), ref_price(counted, start)) if count_in(counted, start, today) > 0 else None
+    if counted is clean:
+        return chg, False
+    base = pct(ref_price(clean, today), ref_price(clean, start)) if count_in(clean, start, today) > 0 else None
+    return chg, fmt(chg) != fmt(base)
 
 
 def pct(now, before):
@@ -609,8 +663,8 @@ def build(store=HERE, out=LATEST):
     daily, days = load_daily(store)
     today = d(days[-1])
     by_grade = load_sales(store)
-    sales, n_sales, outliers, raw_sales = by_grade["10.0"]
-    sales9, n_sales9, _, raw_sales9 = by_grade["9.0"]
+    sales, n_sales, outliers, raw_sales, held_high = by_grade["10.0"]
+    sales9, n_sales9, _, raw_sales9, _ = by_grade["9.0"]
     print(f"{len(assets)} assets, {len(days)} daily files ({days[0]}..{days[-1]}), {n_sales} PSA 10 sales, {n_sales9} PSA 9 sales")
 
     live = load_live(store)
@@ -665,19 +719,32 @@ def build(store=HERE, out=LATEST):
         row["last_sale_unconfirmed"] = 1 if (newest and last and (newest[0], newest[1]) != (last[0], last[1]) and newest[0] >= last[0]) else 0
         ref_now = ref_price(s, today)
         row["median_last_3"] = fmt(ref_now)
+        # The change columns also count the sales the filter holds back on the
+        # HIGH side (2026-10-01, Samay: held-back sales were leaving the cards
+        # that moved out of the category %). Volume and every price level
+        # (median_last_3, cap_price, clean_*) stay on clean sales only.
+        hh = held_high.get(aid)
+        counted = sorted(s + hh) if hh else s
+        held_windows = set()
         for label, n in WINDOWS.items():
             start = today - timedelta(days=n)
-            vol = count_in(s, start, today)
-            row[f"volume_{label}"] = vol
-            chg = pct(ref_now, ref_price(s, start)) if vol > 0 else None
+            row[f"volume_{label}"] = count_in(s, start, today)
+            chg, held = change_since(s, counted, start, today)
             row[f"price_chg_{label}_pct"] = fmt(chg)
             if chg is not None:
                 filled[f"price_chg_{label}_pct"] += 1
+            if held:
+                held_windows.add(label)
         for label, n in EXTRA_WINDOWS.items():
             start = today - timedelta(days=n)
-            vol = count_in(s, start, today)
-            row[f"volume_{label}"] = vol
-            row[f"price_chg_{label}_pct"] = fmt(pct(ref_now, ref_price(s, start)) if vol > 0 else None)
+            row[f"volume_{label}"] = count_in(s, start, today)
+            chg, held = change_since(s, counted, start, today)
+            row[f"price_chg_{label}_pct"] = fmt(chg)
+            if held:
+                held_windows.add(label)
+        row["chg_held_windows"] = " ".join(w for w in CAP_WINDOWS if w in held_windows)
+        if held_windows:
+            filled["chg_held_windows"] += 1
         row["cap_price"] = fmt(cap_price(s, today))
         for label, n in CAP_WINDOWS.items():
             row[f"cap_price_{label}_ago"] = fmt(cap_price(s, today - timedelta(days=n)))
@@ -687,9 +754,10 @@ def build(store=HERE, out=LATEST):
         row["pop_30d_ago"] = fmt(p30)
         row["pop_chg_30d"] = fmt(pop_now - p30) if (pop_now is not None and p30 is not None) else ""
         mc = None
-        if pop_now and p30 and ref_now is not None and row["volume_30d"] > 0:
-            ref_30 = ref_price(s, today - timedelta(days=30))
-            mc = pct(ref_now * pop_now, ref_30 * p30) if ref_30 else None
+        ref_c = ref_price(counted, today)   # = ref_now unless the card has held-back high sales
+        if pop_now and p30 and ref_c is not None and count_in(counted, today - timedelta(days=30), today) > 0:
+            ref_30 = ref_price(counted, today - timedelta(days=30))
+            mc = pct(ref_c * pop_now, ref_30 * p30) if ref_30 else None
         row["mkt_cap_chg_30d_pct"] = fmt(mc)
         if mc is not None:
             filled["mkt_cap_chg_30d_pct"] += 1
@@ -705,7 +773,7 @@ def build(store=HERE, out=LATEST):
 
     out.mkdir(parents=True, exist_ok=True)
     with open(out / "cards.csv", "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=CARD_COLS + DERIVED_COLS + PSA9_COLS + LIVE_COLS + PSA9_LIVE_COLS + CAP_COLS, extrasaction="ignore")
+        w = csv.DictWriter(f, fieldnames=CARD_COLS + DERIVED_COLS + PSA9_COLS + LIVE_COLS + PSA9_LIVE_COLS + CAP_COLS + HELD_COLS, extrasaction="ignore")
         w.writeheader()
         w.writerows(rows)
 
@@ -759,6 +827,7 @@ def build(store=HERE, out=LATEST):
         "clean_sales": n_clean,
         "rows_with_psa9_last_sale": filled["psa9_last_sale_price"],
         "rows_unconfirmed_last_sale": sum(1 for r in rows if r["last_sale_unconfirmed"] == 1),
+        "rows_chg_counts_held_high": filled["chg_held_windows"],
         "rows_listings_checked": sum(1 for r in rows if r["listings_checked_at"]),
         "rows_with_live_auction": sum(1 for r in rows if r["live_auction_count"]),
         "rows_with_bin_listing": sum(1 for r in rows if r["lowest_bin_price"]),

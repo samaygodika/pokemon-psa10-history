@@ -32,7 +32,9 @@ Two append-only, committed files, one row per (data_date, key), never rewritten:
 
 "30-day change" is the feed's price_chg_30d_pct / psa9_price_chg_30d_pct (median of the
 last 3 clean sales vs 30 days earlier), i.e. what the app shows, not the monthly buckets
-the backtests use. Card types are the analysis/psa9_hype.py classifier, ported to plain
+the backtests use. From the 2026-10-01 log on, the PSA 10 one also counts sales the
+outlier filter holds back on the high side (metrics.py, chg_held_windows); rows logged
+before that don't. Card types are the analysis/psa9_hype.py classifier, ported to plain
 regexes so the nightly stays standard-library only. Standard library only.
 """
 import csv
