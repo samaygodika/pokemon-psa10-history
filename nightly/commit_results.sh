@@ -39,6 +39,7 @@ for attempt in 1 2 3; do
   $PY history/ingest.py "$OUT" --date "$DAY"
   $PY history/metrics.py
   $PY history/coverage.py
+  $PY history/tcgplayer_ids.py --tcgcsv "$OUT/tcgcsv" || true   # the run's catalog; origin's file if it has none
 done
 echo "could not push after 3 attempts" >&2
 exit 1

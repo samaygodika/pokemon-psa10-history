@@ -13,6 +13,8 @@
 #   5. metrics        -> latest/cards.csv, latest/series/*.csv, latest/recent_sales{,_psa9}/*.csv, latest/summary.json
 #   6. coverage       -> latest/characters.csv (per-character alt-side market cap and coverage)
 #   7. flags          -> history/psa9_flags.csv, history/psa9_category_moves.csv (Sid's PSA 9 buy conditions, logged forward)
+#   8. tcgplayer ids  -> latest/tcgplayer_ids.csv (each English card's TCGplayer product id + image URL, from
+#                        tcgcsv.com's free copy of TCGplayer's catalog; PokeSniper's images without PPT)
 #
 # Only history/ and latest/ are committed; snapshots/ is raw and gitignored.
 # Every dated snapshot is kept locally on purpose (cheap, and lets a bad ingest
@@ -45,10 +47,10 @@ LOG="$OUT/run.log"
 exec > >(tee -a "$LOG") 2>&1
 echo "=== $SCOPE scrape $DAY started $(date '+%F %T') ==="
 
-echo "--- 1/7 index listing ---"
+echo "--- 1/8 index listing ---"
 $PY alt_scraper.py --list '*' --out "$OUT"
 
-echo "--- 2/7 scope ($SCOPE) ---"
+echo "--- 2/8 scope ($SCOPE) ---"
 if [ "$SCOPE" = "full" ]; then
   # The index listing already wrote all_pokemon_cards.txt/.json in the format the scraper takes.
   SCOPE_LIST="$OUT/all_pokemon_cards.txt"
@@ -63,7 +65,7 @@ else
   SCOPE_LIST="$OUT/scope.txt"
 fi
 
-echo "--- 3/7 scrape ---"
+echo "--- 3/8 scrape ---"
 # caffeinate (macOS only) keeps the machine from idle-sleeping mid-run; a
 # closed lid still sleeps, launchd resumes the job on wake. No-op elsewhere.
 CAFF=""; command -v caffeinate >/dev/null && CAFF="caffeinate -i"
@@ -119,15 +121,22 @@ echo "=== scrape done $(date '+%F %T'): $ROWS rows in $OUT/cards.csv ==="
 
 if [ -n "${NIGHTLY_SKIP_HISTORY:-}" ]; then exit 0; fi
 
-echo "--- 4/7 ingest into history/ ---"
+echo "--- 4/8 ingest into history/ ---"
 $PY history/ingest.py "$OUT" --date "$DAY"
 
-echo "--- 5/7 rebuild latest/ ---"
+echo "--- 5/8 rebuild latest/ ---"
 $PY history/metrics.py
 
-echo "--- 6/7 per-character coverage ---"
+echo "--- 6/8 per-character coverage ---"
 $PY history/coverage.py
 
-echo "--- 7/7 PSA 9 buy-condition flags ---"
+echo "--- 7/8 PSA 9 buy-condition flags ---"
 $PY history/flags.py
+
+echo "--- 8/8 TCGplayer ids + card images ---"
+# tcgcsv.com (TCGplayer's catalog, free, ~220 requests) into the snapshot, matched to latest/cards.csv.
+# If it's unreachable, yesterday's latest/tcgplayer_ids.csv stays: the run doesn't fail over images.
+if ! $PY history/tcgplayer_ids.py --fetch --tcgcsv "$OUT/tcgcsv"; then
+  echo "tcgplayer ids: catalog download or match failed, kept the previous latest/tcgplayer_ids.csv"
+fi
 echo "=== all done $(date '+%F %T') ==="

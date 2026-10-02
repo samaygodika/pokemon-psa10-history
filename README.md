@@ -11,7 +11,7 @@ as its only PSA 10 price/population source. Python 3.8+ standard library only.
 alt_scraper.py        the scraper (one run = cards.csv + sales.csv + listings.csv)
 nightly/              scheduled run: index listing -> scope -> scrape -> ingest -> latest/
 history/              the store: assets.csv, daily/<date>.csv, sales/<month>.csv, live_listings.csv  (committed)
-latest/               what the server reads: cards.csv, series/<xx>.csv, recent_sales/<xx>.csv, clean_sales/<month>.csv, characters.csv, summary.json  (committed)
+latest/               what the server reads: cards.csv, series/<xx>.csv, recent_sales/<xx>.csv, clean_sales/<month>.csv, characters.csv, tcgplayer_ids.csv, summary.json  (committed)
 snapshots/            raw per-run output (gitignored, hundreds of MB)
 .github/workflows/    GitHub Actions cron: nightly roster candidates + vintage checklist, weekly full index
 ```
@@ -86,6 +86,30 @@ fairly. Until 2026-09-28 the cap used the literal `last_sale_price`, unconfirmed
 sales included (560 of them added $320M, 11% of the ≤ 2013 cap; Torchic and
 Mudkip sat at #11 and #13 on one held-back Gold Star sale each).
 
+`latest/tcgplayer_ids.csv` (from `history/tcgplayer_ids.py`, from 2026-10-02) gives each
+English card its TCGplayer product id and card image, so the app can show a card without
+PokemonPriceTracker: PPT's records are TCGplayer's catalog (its `tcgPlayerId`, `setName`,
+`cardNumber` and `rarity` are TCGplayer's, and its `imageCdnUrl` is TCGplayer's public image
+CDN), and tcgcsv.com publishes that catalog free every day. One row per matched card;
+a card with no row has no match, never a guess.
+
+| column | meaning |
+|---|---|
+| `asset_id` | alt.xyz asset id, as in `cards.csv` |
+| `tcgplayer_id` | TCGplayer product id (PPT's `tcgPlayerId`) |
+| `image_url` | `https://tcgplayer-cdn.tcgplayer.com/product/<id>_in_800x800.jpg` (PPT's `imageCdnUrl`; `_in_200x200`, `_in_1000x1000` and `_200w` exist too) |
+| `tcgplayer_name`, `tcgplayer_set`, `tcgplayer_number`, `tcgplayer_rarity` | as TCGplayer lists them, the same strings PPT returns |
+| `match` | how it was found: `unique` (one candidate), `best_set` (the set alt.xyz's set voted for), `named_variant` (alt.xyz's name spells out the bracket: "(Prerelease)", "(Poke Ball Pattern)"), `variant`, `plain_variant` (the plain card of a set's same-number variants) |
+
+On the 2026-10-01 feed: 26,566 of 31,017 English cards (85.6%; 81% of those up to 2013),
+95% of their PSA 10 market cap, 99 of the 100 biggest. The rest: TCGplayer has no such single (1,706: odd promos, renamed
+cards), not a TCGplayer product at all (1,481: Topps Chrome, playing cards, vending cards,
+Japanese-only sets alt.xyz doesn't label Japanese), or the name and number fit more than one
+product and nothing tells them apart (1,264). Checked against 28 PPT-id pairs from PokeSniper
+(22 same, 5 left out, 1 where alt.xyz's name has since become "[Winner]") and against
+PokeSniper's own matcher run over the same records (the same id on 99.1% of the 12,736
+cards both match; the docstring has the rules and the differences).
+
 PokeSniper's server downloads `latest/` from this repo on its own (raw GitHub
 URLs, checked at boot and every few hours; see its `SAMAY_DATA_URL`), so nothing
 has to be configured there. For a local checkout instead, set `SAMAY_DATA_URL=`
@@ -115,6 +139,7 @@ python3 history/ingest.py snapshots/2026-09-12            # (re)ingest one run
 python3 history/metrics.py                                # rebuild latest/ only
 python3 history/coverage.py                               # rebuild latest/characters.csv only
 python3 history/flags.py                                  # append tonight's PSA 9 buy-condition flags to history/
+python3 history/tcgplayer_ids.py --fetch                  # TCGplayer catalog -> latest/tcgplayer_ids.csv (~2 min)
 ```
 
 `history/psa9_flags.csv` and `history/psa9_category_moves.csv` (from 2026-09-27, step 7 of the
