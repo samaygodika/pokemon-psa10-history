@@ -118,7 +118,9 @@ right now at PSA 10, as alt.xyz mirrors it: eBay mostly, then Fanatics Collect
 snapshot from the card's last check, NOT live: the app must compare the end
 times with its own clock.
   listings_checked_at  = UTC time of the newest successful check of this card's
-                         listings; blank = never checked (or every check failed),
+                         listings (the nightly, or a listings refresh between
+                         nightlies for cards with a running auction, 2026-10-03);
+                         blank = never checked (or every check failed),
                          so every live column is blank = unknown (not "nothing
                          listed"). The share of cards with anything listed
                          tracks PSA 10 pop (pop 1000+: ~99%; pop 1-2: ~10%;

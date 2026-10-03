@@ -1,0 +1,44 @@
+# Listings refresh between nightlies (2026-10-03): re-checks the live listings of every card the
+# feed shows with a running auction, so an auction that ended or was pulled early stops showing as
+# live within hours instead of up to a day. ~7k alt.xyz requests, ~30-40 min. Shares the
+# `scrape` concurrency group with the nightly and weekly runs, so it queues behind them rather
+# than committing on top of a half-finished run.
+name: listings refresh (cards with a running auction)
+on:
+  schedule:
+    - cron: "0 2,8,20 * * *"   # 02:00, 08:00, 20:00 UTC; the nightly covers ~12:00-18:00 UTC
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "cards per grade (smoke test, no commit)"
+        required: false
+        default: ""
+concurrency:
+  group: scrape
+  cancel-in-progress: false
+permissions:
+  contents: write
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: refresh listings + rebuild latest/ + commit
+        env:
+          ALT_SESSION_TOKEN: ${{ secrets.ALT_SESSION_TOKEN }}   # alt.xyz login (README, 'Login')
+          NIGHTLY_WORKERS: "6"
+          NIGHTLY_DELAY: "0.05"
+          REFRESH_LIMIT: ${{ inputs.limit }}
+          NO_COMMIT: ${{ inputs.limit != '' && '1' || '' }}
+        run: nightly/run_listings_refresh.sh
+      - name: keep the raw run as a downloadable artifact (7 days)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: listings-refresh-${{ github.run_id }}
+          path: snapshots/refresh
+          retention-days: 7

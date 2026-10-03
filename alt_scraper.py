@@ -850,6 +850,12 @@ def main():
                     help="with --also-grade: also fetch the live listings at each of those grades into listings.csv "
                          "(one more request per card that has copies at the grade) and record the check time in "
                          "psa9_listings_checked_at. Off by default")
+    ap.add_argument("--listings-only", action="store_true",
+                    help="fetch only the live listings at --grade (no pops, no sales): one request per card, for the "
+                         "listings refresh between nightlies (nightly/run_listings_refresh.sh). cards.csv then carries "
+                         "the card's identity and the check time in the column for that grade (listings_checked_at "
+                         "for PSA 10, psa9_listings_checked_at for PSA 9) and nothing else; ingest it with "
+                         "history/ingest.py --listings-only. Not combinable with --also-grade")
     ap.add_argument("--category", default="POKEMON_CARDS", help="search category filter, or ALL. Default POKEMON_CARDS")
     ap.add_argument("--loose", action="store_true", help="with --list: also keep cards that only mention TEXT in the set name")
     ap.add_argument("--min-pop", type=int, default=0, metavar="N",
@@ -899,13 +905,18 @@ def main():
     company = args.company.upper()
     grade = normalise_grade(args.grade)
     also_grades = [g for g in dict.fromkeys(normalise_grade(g) for g in args.also_grade) if g != grade]
+    if args.listings_only and (also_grades or args.skip_unchanged_sales):
+        ap.error("--listings-only fetches one grade's listings and nothing else; drop --also-grade / --skip-unchanged-sales")
+    if args.listings_only and grade != "10.0" and also_listings_col(grade) not in CARD_COLS:
+        ap.error(f"--listings-only: cards.csv has no check-time column for {company} {grade} (only 10 and 9)")
     DELAY_SECONDS = max(0.0, args.delay)
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
 
     inputs, sidecar = read_inputs(args.inputs)
     n = len(inputs)
-    print(f"{n} card(s) to fetch, {company} {grade}" + "".join(f" + {g} sales{' and listings' if args.also_listings else ''}" for g in also_grades)
+    print(f"{n} card(s) to fetch, {company} {grade}" + (" live listings only" if args.listings_only else "")
+          + "".join(f" + {g} sales{' and listings' if args.also_listings else ''}" for g in also_grades)
           + f", {args.workers} worker(s), {DELAY_SECONDS}s pause"
           + (f", {len(sidecar)} card details preloaded" if sidecar else "") + "\n")
     prev_daily = None
@@ -953,6 +964,19 @@ def main():
                 if asset["id"] in seen_assets:
                     return "done", header + "\n        (already done, skipped)", None, [], [], []
                 seen_assets.add(asset["id"])
+            if args.listings_only:
+                # The refresh: today's listings at one grade, nothing else. The row keeps the card's
+                # identity; pops and sales are blank (unknown), never 0. The check time goes in the
+                # column for this grade, so ingest --listings-only replaces the right rows.
+                listings = fetch_live_listings(asset["id"], company, grade)
+                checked_at = datetime.now(timezone.utc).isoformat(timespec="seconds") if listings is not None else ""
+                row = summarise(asset, [], [], company, grade, raw, listing, public_page_url(listings), (), checked_at)
+                if grade != "10.0":
+                    row["listings_checked_at"] = ""
+                    row[also_listings_col(grade)] = checked_at
+                lrows = list(live_rows(asset, listings or [], company, grade, checked_at))
+                msg = header + f"\n        {company} {grade} listings: " + (f"{len(lrows)}" if listings is not None else "request failed")
+                return "ok", msg, row, [], lrows, []
             pops = fetch_pops(asset["id"])
             pop_here = pop_count(pops, company, grade)
             company_rows = any(p["gradingCompany"] == company for p in pops)
@@ -1012,7 +1036,8 @@ def main():
         if msg:
             print(msg, file=sys.stderr if status == "failed" else sys.stdout, flush=True)
         if row is not None:
-            if row["listings_checked_at"]:
+            check_col = also_listings_col(grade) if (args.listings_only and grade != "10.0") else "listings_checked_at"
+            if row[check_col]:
                 stats.record(row["pop_at_grade"], lrows)
             else:
                 stats.failed += 1     # the listings request failed: unchecked, not "nothing listed"

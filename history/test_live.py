@@ -226,10 +226,101 @@ def test_metrics_listing_age_cols():
     print("listing age / suspect bid ok")
 
 
+def test_ingest_listings_only():
+    """A listings refresh replaces the checked grade's rows and moves the check time forward
+    in the card's newest daily row; no daily row is added or replaced, sales untouched."""
+    with tempfile.TemporaryDirectory() as d:
+        store, run = Path(d) / "store", Path(d) / "run"
+        (store / "daily").mkdir(parents=True); run.mkdir()
+        night = "2026-10-02T14:00:00+00:00"
+        refresh = "2026-10-03T02:10:00+00:00"
+        daily_cols = ingest.DAILY_COLS
+        _write(store / "daily" / "2026-10-01.csv", daily_cols, [
+            {"asset_id": "A", "scraped_at": "2026-10-01T13:00:00+00:00", "pop_at_grade": "5", "listings_checked_at": "2026-10-01T13:00:00+00:00"},
+            {"asset_id": "C", "scraped_at": "2026-10-01T13:00:00+00:00", "pop_at_grade": "9", "listings_checked_at": "2026-10-01T13:00:00+00:00"},
+        ])
+        _write(store / "daily" / "2026-10-02.csv", daily_cols, [
+            {"asset_id": "A", "scraped_at": night, "pop_at_grade": "5", "num_sales": "3", "listings_checked_at": night, "psa9_listings_checked_at": night},
+            {"asset_id": "B", "scraped_at": night, "pop_at_grade": "1", "listings_checked_at": night, "psa9_listings_checked_at": ""},
+        ])
+        base = {"grading_company": "PSA", "source": "eBay", "current_bid": "", "bid_count": "", "end_date": "",
+                "buy_it_now_price": "", "url": "", "checked_at": night, "first_seen": "2026-10-02"}
+        _write(store / "live_listings.csv", ingest.LIVE_COLS, [
+            dict(base, asset_id="A", grade="10.0", listing_type="AUCTION", end_date="2026-10-03T01:00:00+00:00", url="a-ended"),
+            dict(base, asset_id="A", grade="10.0", listing_type="AUCTION", end_date="2026-10-05T01:00:00+00:00", url="a-live"),
+            dict(base, asset_id="A", grade="9.0", listing_type="BUY_IT_NOW", buy_it_now_price="40", url="a9"),
+            dict(base, asset_id="B", grade="10.0", listing_type="AUCTION", end_date="2026-10-04T01:00:00+00:00", url="b-pulled"),
+            dict(base, asset_id="C", grade="10.0", listing_type="BUY_IT_NOW", buy_it_now_price="70", url="c-bin"),
+        ])
+        # The refresh run (PSA 10): A still has a-live (a-ended is gone), B's auction was pulled.
+        _write(run / "cards.csv", ["asset_id", "card_name", "grade", "listings_checked_at", "psa9_listings_checked_at"], [
+            {"asset_id": "A", "card_name": "A", "grade": "10.0", "listings_checked_at": refresh},
+            {"asset_id": "B", "card_name": "B", "grade": "10.0", "listings_checked_at": refresh},
+            {"asset_id": "Z", "card_name": "Z", "grade": "10.0", "listings_checked_at": refresh},   # not in any daily file
+        ])
+        _write(run / "listings.csv", ingest.LIVE_COLS[:-1], [
+            dict(base, asset_id="A", grade="10.0", listing_type="AUCTION", end_date="2026-10-05T01:00:00+00:00", url="a-live", checked_at=refresh),
+        ])
+        out = ingest.ingest_listings_only(run, "2026-10-03", store)
+        by = _urls_by_key(store)
+        assert by == {("A", "10.0"): ["a-live"], ("A", "9.0"): ["a9"], ("C", "10.0"): ["c-bin"]}, by
+        fs = {r["url"]: r["first_seen"] for r in ingest.read_csv(store / "live_listings.csv")}
+        assert fs["a-live"] == "2026-10-02", "a re-seen auction keeps its first_seen"
+        d2 = {r["asset_id"]: r for r in ingest.read_csv(store / "daily" / "2026-10-02.csv")}
+        assert sorted(d2) == ["A", "B"], "no daily row added or removed"
+        assert d2["A"]["listings_checked_at"] == refresh and d2["A"]["psa9_listings_checked_at"] == night, d2["A"]
+        assert d2["A"]["num_sales"] == "3" and d2["A"]["scraped_at"] == night, "the night's numbers stand"
+        assert d2["B"]["listings_checked_at"] == refresh and d2["B"]["psa9_listings_checked_at"] == ""
+        d1 = {r["asset_id"]: r for r in ingest.read_csv(store / "daily" / "2026-10-01.csv")}
+        assert d1["A"]["listings_checked_at"] == "2026-10-01T13:00:00+00:00", "only the newest row of a card moves"
+        assert d1["C"]["listings_checked_at"] == "2026-10-01T13:00:00+00:00", "an unrefreshed card is untouched"
+        assert out["refresh_bumped"] == 2 and out["live_checks"] == {"10.0": 3, "9.0": 0}, out
+        assert not (store / "daily" / "2026-10-03.csv").exists(), "a refresh never creates a daily file"
+        # metrics reads the moved check time: the newest daily row wins
+        daily, days = metrics.load_daily(store)
+        assert days == ["2026-10-01", "2026-10-02"]
+        print("listings-only ingest ok")
+
+
+def test_scraper_listings_only():
+    """alt_scraper.py --listings-only: one listings request per card, no pops or sales; the
+    check time lands in the column for the grade asked."""
+    import alt_scraper as s   # noqa: E402
+    calls = []
+    s.fetch_live_listings = lambda aid, company, grade: calls.append(("listings", aid, grade)) or [
+        {"id": "L1", "auctionHouse": "eBay", "buyItNowPrice": None,
+         "auctionInfo": {"endDate": "2026-10-05T01:00:00+00:00", "numBids": 3, "highestBid": 120},
+         "attributes": {"grade": grade, "gradingCompany": company, "itemDetailUrl": "https://www.ebay.com/itm/1"}}]
+    s.fetch_pops = lambda aid: calls.append(("pops", aid)) or []
+    s.fetch_sales = lambda aid, company, grade: calls.append(("sales", aid, grade)) or []
+    s.DELAY_SECONDS = 0
+    with tempfile.TemporaryDirectory() as d:
+        lst = Path(d) / "refresh_psa9.txt"
+        lst.write_text("asset:00000000-0000-0000-0000-00000000000a   # card A\n")
+        import json
+        (Path(d) / "refresh_psa9.json").write_text(json.dumps({"00000000-0000-0000-0000-00000000000a": {
+            "id": "00000000-0000-0000-0000-00000000000a", "name": "card A", "year": "2003", "subject": "Mew",
+            "category": "POKEMON_CARDS", "brand": "Set", "variety": "Holo", "cardNumber": "1"}}))
+        sys.argv = ["alt_scraper.py", "--listings-only", "--grade", "9", "--keep-empty", "--out", d, str(lst)]
+        s.main()
+        rows = list(csv.DictReader(open(Path(d) / "cards.csv")))
+        assert [c[0] for c in calls] == ["listings"], calls
+        assert calls[0][2] == "9.0"
+        assert len(rows) == 1 and rows[0]["card_name"] == "card A" and rows[0]["grade"] == "9.0", rows
+        assert rows[0]["listings_checked_at"] == "" and rows[0]["psa9_listings_checked_at"], rows[0]
+        assert rows[0]["pop_at_grade"] == "" and rows[0]["num_sales"] in ("", "0"), "pops/sales not fetched"
+        lrows = list(csv.DictReader(open(Path(d) / "listings.csv")))
+        assert len(lrows) == 1 and lrows[0]["grade"] == "9.0" and lrows[0]["listing_type"] == "AUCTION", lrows
+        assert not list(csv.DictReader(open(Path(d) / "sales.csv")))
+        print("scraper listings-only ok")
+
+
 if __name__ == "__main__":
     test_ingest_live_keeps_snapshots_and_ages_bins()
     test_ingest_live_replaces_per_grade()
     test_metrics_psa9_live_cols()
     test_ingest_live_first_seen()
     test_metrics_listing_age_cols()
+    test_ingest_listings_only()
+    test_scraper_listings_only()
     print("all live-listing checks passed")

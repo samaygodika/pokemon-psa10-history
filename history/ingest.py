@@ -66,6 +66,10 @@ Store layout (all plain CSV, all append/merge-friendly so git diffs stay small):
                                   Only the cheapest BIN per asset+grade is stored,
                                   so a BIN that stops being the cheapest and later
                                   is again starts its age over.
+                                  A listings refresh between nightlies
+                                  (--listings-only, 2026-10-03) replaces rows the
+                                  same way and moves the refreshed cards' check
+                                  times forward in their newest daily row.
 
 Standard library only, like the scraper.
 """
@@ -418,11 +422,56 @@ def ingest_live(run_dir, cards, store, day=""):
     return {"live_assets_checked": n_assets, "live_checks": by_grade, "live_rows": len(rows), "bins_aged_out": aged}
 
 
+def ingest_listings_only(run_dir, day, store=HERE):
+    """A listings refresh (alt_scraper.py --listings-only): fold the run's listings into
+    history/live_listings.csv exactly as ingest_live does, and move the check time of each
+    refreshed card forward in its newest daily row (listings_checked_at / psa9_listings_
+    checked_at), which is where metrics.py reads the check time from. Nothing else in
+    the daily files changes: no row is added or replaced, pops and sales stay as the
+    night left them. So a daily row's check time can be later than its scraped_at."""
+    run_dir = Path(run_dir)
+    cards = read_csv(run_dir / "cards.csv")
+    if not cards:
+        sys.exit(f"no cards.csv in {run_dir}")
+    live = ingest_live(run_dir, cards, store, day)
+    newer = {}   # (asset_id, check column) -> this run's check time
+    for r in cards:
+        for col in LIVE_CHECK_COLS.values():
+            if r.get(col):
+                newer[(r["asset_id"], col)] = r[col]
+    pending = {aid for aid, _ in newer}
+    bumped = 0
+    for path in sorted((store / "daily").glob("*.csv"), reverse=True):   # newest first
+        if not pending:
+            break
+        rows = read_csv(path)
+        hit = False
+        for r in rows:
+            aid = r["asset_id"]
+            if aid not in pending:
+                continue
+            pending.discard(aid)
+            for col in LIVE_CHECK_COLS.values():
+                t = newer.get((aid, col))
+                if t and t > (r.get(col) or ""):
+                    r[col] = t
+                    hit = True
+                    bumped += 1
+        if hit:
+            write_csv_atomic(path, DAILY_COLS, rows)
+    print(f"  listings refresh: {len(cards)} card(s) in run, {bumped} check time(s) moved forward in daily/, "
+          f"{len(pending)} card(s) not in any daily file (ignored)")
+    return {"refresh_cards": len(cards), "refresh_bumped": bumped, **live}
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("run_dir", help="folder holding cards.csv and sales.csv from one scrape")
     ap.add_argument("--date", help="run date YYYY-MM-DD (default: taken from the folder name)")
     ap.add_argument("--store", default=str(HERE), help="history store directory (default: this folder)")
+    ap.add_argument("--listings-only", action="store_true",
+                    help="the run is a listings refresh (alt_scraper.py --listings-only): update live_listings.csv "
+                         "and the check times only, no daily rows, no sales")
     args = ap.parse_args()
     day = args.date
     if not day:
@@ -430,7 +479,10 @@ def main():
         if not m:
             sys.exit("folder name has no YYYY-MM-DD date; pass --date")
         day = m.group(0)
-    ingest(args.run_dir, day, Path(args.store))
+    if args.listings_only:
+        ingest_listings_only(args.run_dir, day, Path(args.store))
+    else:
+        ingest(args.run_dir, day, Path(args.store))
 
 
 if __name__ == "__main__":

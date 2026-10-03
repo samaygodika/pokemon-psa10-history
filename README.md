@@ -36,7 +36,7 @@ say", never 0:
 | `psa9_scraped_date` | newest nightly that pulled this card's PSA 9 sales (nightly scope only, from 2026-09-23). **Blank = PSA 9 sales not collected**, and then every `psa9_*` sale column below is blank too. |
 | `psa9_last_sale_price/date/source`, `psa9_clean_last_sale_price`, `psa9_last_sale_unconfirmed`, `psa9_median_last_3`, `psa9_volume_30d`, `psa9_price_chg_30d_pct`, `psa9_sales_total` | the PSA 10 definitions above applied to PSA 9 sales (same mirror rule and outlier filter). `psa9_sales_total` = 0 means collected and none sold. |
 | `psa9_to_psa10_ratio` | `psa9_median_last_3` / `median_last_3`. |
-| `listings_checked_at` | UTC time alt.xyz was last asked what is for sale right now at PSA 10 (from 2026-09-25: the nightly scope daily, everything else on the weekly full run). **Blank = never checked**, and then every live column below is blank too (unknown, not "nothing listed"). Whether a card has anything listed tracks its PSA 10 pop closely (pop 1000+: ~99% do; pop 26–100: ~60%; pop 1–2: ~10%; pop 0: ~1%), so a low-pop card with a check time and no listing is a real "nothing listed". (For one day, 2026-09-26, 14,828 of these were blanked by a mistaken "alt.xyz outage" rule in the scraper — the nightly scope is sorted by pop, so the falling listing rate through a run is the cards, not the endpoint. Reverted the same day.) |
+| `listings_checked_at` | UTC time alt.xyz was last asked what is for sale right now at PSA 10 (from 2026-09-25: the nightly scope daily, everything else on the weekly full run). **Blank = never checked**, and then every live column below is blank too (unknown, not "nothing listed"). Whether a card has anything listed tracks its PSA 10 pop closely (pop 1000+: ~99% do; pop 26–100: ~60%; pop 1–2: ~10%; pop 0: ~1%), so a low-pop card with a check time and no listing is a real "nothing listed". (For one day, 2026-09-26, 14,828 of these were blanked by a mistaken "alt.xyz outage" rule in the scraper — the nightly scope is sorted by pop, so the falling listing rate through a run is the cards, not the endpoint. Reverted the same day.) Moved forward by the listings refresh between nightlies for cards with a running auction (2026-10-03). |
 | `live_auction_count`, `next_auction_end`, `next_auction_bid`, `next_auction_bid_count`, `next_auction_source`, `next_auction_url`, `last_auction_end` | the running PSA 10 auctions at that check, as alt.xyz mirrors them: eBay (~75%), Fanatics Collect including its weekly lots (the six-figure vintage auctions), CardHobby, Pristine Auction, a few Goldin; no Heritage. `next_*` = the one ending soonest; end times are UTC. **A snapshot, not live:** the app compares the end times with its own clock — while `last_auction_end` is in the future at least one auction may still be running. The bid is the high bid at the check, or the opening price while the bid count is 0; it is not a price for the card (bids jump in the final minutes). A listing can also be pulled early: a link may lead to eBay's "similar items" page. |
 | `lowest_bin_price`, `lowest_bin_source`, `lowest_bin_url` | the cheapest PSA 10 Buy It Now listing at that check (PokeSniper's `lowestListingPrice`). It can sell or be pulled between checks, and alt.xyz itself keeps ended BINs in its feed for months and re-serves them on every check (one returned as live on 2026-09-25 had ended on June 16; the listing record has no date or status field to tell), so treat the link as "was listed at", not "is listed at". Ended *auctions* alt.xyz does drop within hours. A BIN alt.xyz has not shown again for 7 days is dropped (`history/ingest.py`). How long it has been listed: `lowest_bin_first_seen` below. |
 | `psa9_listings_checked_at` | the PSA 9 counterpart of `listings_checked_at`: UTC time of the last answer from alt.xyz about what is for sale at PSA 9 (set whenever that request succeeded, even with nothing listed; blank when it failed). **On from the 2026-09-26 nightly** (`NIGHTLY_ALSO_LISTINGS`, default 1; `--also-listings` in the scraper); blank in feeds built before that. Nightly scope only, like `psa9_scraped_date`; cards with zero PSA 9 copies are not asked and stay blank; blank = never checked at PSA 9, so every `psa9_live_*` / `psa9_lowest_bin_*` column below is blank too. |
@@ -276,7 +276,19 @@ company + grade — company alone returns nothing — with `buyItNowPrice` or
 The script waits between requests and retries failed calls three times.
 `robots.txt` allows crawling; keep the worker count modest.
 
-### Why a 403
+### Listings refresh between nightlies
+
+Since 2026-10-03 `.github/workflows/listings-refresh.yml` runs `nightly/run_listings_refresh.sh`
+three times a day (02:00, 08:00, 20:00 UTC; the nightly covers the afternoon). It re-checks the
+live listings of every card `latest/cards.csv` shows with a running auction, at the grade(s)
+that have one (`nightly/refresh_scope.py`, ~4k PSA 10 + ~3k PSA 9 cards, one request each),
+with `alt_scraper.py --listings-only` (no pops, no sales) and `history/ingest.py --listings-only`
+(live_listings.csv rows replaced as usual, the card's check time moved forward in its newest
+daily row, nothing else in `history/daily/` touched), then rebuilds `latest/` and commits. So
+an auction that ended or was pulled early disappears from the pills within hours instead of a
+day, and `listings_checked_at` / `psa9_listings_checked_at` can be later than `scraped_at`. Buy
+It Nows are not re-checked here: alt.xyz re-serves ended ones anyway (see `lowest_bin_first_seen`).
+
 
 On 2026-10-02 alt.xyz changed two things at once. Its card pages now ask for a free account
 before showing market data ("Sign up for free. Access all of the market data for this asset
