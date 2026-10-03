@@ -49,7 +49,7 @@ asset_id,date,price,source,sale_type,status,outlier,url
 2df6c631-31b0-4a22-a769-7a44b5bb2f2a,2026-08-27,125,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/237024075416
 2df6c631-31b0-4a22-a769-7a44b5bb2f2a,2026-08-23,100,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/128032197061
 2df6c631-31b0-4a22-a769-7a44b5bb2f2a,2026-08-17,107.25,eBay,AUCTION,ok,0,https://www.ebay.com/itm/287521366437
-2d290b7c-4b86-42a7-866e-9cfc5e63608a,2026-10-01,932.4,Alt,AUCTION,PENDING,0,https://alt.xyz/exchange/select-listing?ids=cc1f368f-2bf3-41da-ba96-71e8c3b2d7ca
+2d290b7c-4b86-42a7-866e-9cfc5e63608a,2026-10-01,932.4,Alt,AUCTION,PAYMENT_INITIATED,0,https://alt.xyz/exchange/select-listing?ids=cc1f368f-2bf3-41da-ba96-71e8c3b2d7ca
 2d290b7c-4b86-42a7-866e-9cfc5e63608a,2026-09-28,666,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/117289791853
 2d290b7c-4b86-42a7-866e-9cfc5e63608a,2026-09-14,500,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/147279664042
 2d290b7c-4b86-42a7-866e-9cfc5e63608a,2026-09-12,399,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/298388025153
@@ -282,6 +282,8 @@ asset_id,date,price,source,sale_type,status,outlier,url
 2de0348b-aa9f-4e08-ae57-40d40061f31f,2023-06-20,11.5,eBay,AUCTION,ok,0,https://www.ebay.com/itm/2004-Pokemon-EX-Fire-Red-Leaf-Green-50-Wartortle-PSA-9-MINT-/385679961707
 2de0348b-aa9f-4e08-ae57-40d40061f31f,2023-06-16,25,eBay,AUCTION,ok,0,https://www.ebay.com/itm/Pokemon-Wartortle-Psa-9-FRLG-/115834137578
 2de0348b-aa9f-4e08-ae57-40d40061f31f,2023-04-10,12.33,eBay,AUCTION,ok,0,https://www.ebay.com/itm/Pokemon-Card-PSA-9-Mint-Wartortle-Fire-Red-Leaf-Green-2004-Non-Holo-50-112-/115755537712
+2d79d426-fb4a-4cb7-b284-03f438aad2b4,2026-10-02,228.27,eBay,AUCTION,ok,0,https://www.ebay.com/itm/278406256244
+2d79d426-fb4a-4cb7-b284-03f438aad2b4,2026-10-02,197.37,eBay,AUCTION,ok,0,https://www.ebay.com/itm/267795024938
 2d79d426-fb4a-4cb7-b284-03f438aad2b4,2026-10-01,239,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/307205112042
 2d79d426-fb4a-4cb7-b284-03f438aad2b4,2026-09-20,170,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/267791158987
 2d79d426-fb4a-4cb7-b284-03f438aad2b4,2026-09-18,230,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/820130675037
@@ -290,8 +292,6 @@ asset_id,date,price,source,sale_type,status,outlier,url
 2d79d426-fb4a-4cb7-b284-03f438aad2b4,2026-09-12,225,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/800618358304
 2d79d426-fb4a-4cb7-b284-03f438aad2b4,2026-09-09,240,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/147536016039
 2d79d426-fb4a-4cb7-b284-03f438aad2b4,2026-09-08,207.5,eBay,AUCTION,ok,0,https://www.ebay.com/itm/366642384851
-2d79d426-fb4a-4cb7-b284-03f438aad2b4,2026-09-04,218.75,eBay,AUCTION,ok,0,https://www.ebay.com/itm/407176687153
-2d79d426-fb4a-4cb7-b284-03f438aad2b4,2026-09-02,200,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/407180909934
 2d408c32-b0cb-4555-95bb-82a003bcfd82,2026-06-22,200,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/800090288147
 2d408c32-b0cb-4555-95bb-82a003bcfd82,2026-03-26,100,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/389649720714
 2d408c32-b0cb-4555-95bb-82a003bcfd82,2025-08-31,36.46,eBay,AUCTION,ok,0,https://www.ebay.com/itm/317195132576
@@ -480,6 +480,7 @@ asset_id,date,price,source,sale_type,status,outlier,url
 2d14f53e-4e5e-45be-bee8-5e65e623e216,2023-09-24,51,eBay,AUCTION,ok,0,https://www.ebay.com/itm/1999-Pokemon-Base-Set-Charmeleon-1st-Edition-MINT-PSA-9-dutch-/314831337974
 2d14f53e-4e5e-45be-bee8-5e65e623e216,2023-03-29,76,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/PSA-9-Charmeleon-1st-Edition-Dutch-Base-Set-1999-Pokemon-Card-24-/314470397282
 2d14f53e-4e5e-45be-bee8-5e65e623e216,2023-02-26,28.8,PWCC Weekly Auctions,AUCTION,ok,0,https://www.fanaticscollect.com/weekly/16ce16e8-b16c-11ed-a0d8-0a58a9feac02
+2d695e06-af7e-44cd-b6fe-7f6ac8bbdbd6,2026-10-02,235,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/327348853495
 2d695e06-af7e-44cd-b6fe-7f6ac8bbdbd6,2026-07-07,162.5,eBay,AUCTION,ok,0,https://www.ebay.com/itm/117275117101
 2d695e06-af7e-44cd-b6fe-7f6ac8bbdbd6,2026-06-17,127.22,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/389923288090
 2d695e06-af7e-44cd-b6fe-7f6ac8bbdbd6,2026-04-25,68,eBay,AUCTION,ok,0,https://www.ebay.com/itm/117148006645
@@ -489,12 +490,12 @@ asset_id,date,price,source,sale_type,status,outlier,url
 2d695e06-af7e-44cd-b6fe-7f6ac8bbdbd6,2026-03-07,60,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/376971436208
 2d695e06-af7e-44cd-b6fe-7f6ac8bbdbd6,2026-02-17,87.88,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/276410271979
 2d695e06-af7e-44cd-b6fe-7f6ac8bbdbd6,2025-12-23,52.49,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/365429344382
-2d695e06-af7e-44cd-b6fe-7f6ac8bbdbd6,2025-10-23,40,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/297245724296
 2dca5842-264a-4a21-a57d-b7805d9b35a5,2025-02-08,7.84,eBay,AUCTION,ok,0,https://www.ebay.com/itm/2018-Pokemon-Moltres-Holo-Tag-Bolt-018-095-R-PSA-9-Mint-/335793714366
 2dca5842-264a-4a21-a57d-b7805d9b35a5,2024-09-29,9.25,eBay,AUCTION,ok,0,https://www.ebay.com/itm/2018-Pokmeon-JPN-S-M-Tag-Bolt-018-Moltres-Holo-PSA-9-MINT-/365134774906
 2dca5842-264a-4a21-a57d-b7805d9b35a5,2024-05-14,16.5,eBay,AUCTION,ok,0,https://www.ebay.com/itm/2018-Pokemon-Japanese-Sun-Moon-Tag-Bolt-018-Moltres-Holo-PSA-9-MINT-/375416140258
 2dca5842-264a-4a21-a57d-b7805d9b35a5,2023-09-12,19.99,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/2018-Pokemon-Japanese-Sun-Moon-Tag-Bolt-018-Moltres-Holo-PSA-9-/195852065779
 2dca5842-264a-4a21-a57d-b7805d9b35a5,2023-03-24,15.25,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/PSA-9-Moltres-holo-Tag-Bolt-Japanese-pokemon-card-018-095-/394354220949
+2ddea9fb-96dd-48c9-882c-c477e6b53b1d,2026-10-02,151,eBay,AUCTION,ok,0,https://www.ebay.com/itm/407246198333
 2ddea9fb-96dd-48c9-882c-c477e6b53b1d,2026-05-28,247.5,eBay,AUCTION,ok,0,https://www.ebay.com/itm/306951226650
 2ddea9fb-96dd-48c9-882c-c477e6b53b1d,2026-04-22,260,PWCC Fixed Price,BEST_OFFER,ok,0,https://www.fanaticscollect.com/buy-now/afd0c45b-4f0f-40ca-89db-18a696229a37
 2ddea9fb-96dd-48c9-882c-c477e6b53b1d,2026-03-20,199,PWCC Fixed Price,BEST_OFFER,ok,0,https://www.fanaticscollect.com/buy-now/000a4f41-5636-480a-a6bd-43acb7b27648
@@ -504,7 +505,6 @@ asset_id,date,price,source,sale_type,status,outlier,url
 2ddea9fb-96dd-48c9-882c-c477e6b53b1d,2024-02-23,67.99,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/Pokemon-Skyridge-Japanese-Split-Earth-UNLIMITED-Magcargo-020-088-PSA-9-MINT-/355223635877
 2ddea9fb-96dd-48c9-882c-c477e6b53b1d,2024-01-21,63.12,eBay,AUCTION,ok,0,https://www.ebay.com/itm/Pokemon-PSA-9-Magcargo-020-Unlimited-Holo-Split-Earth-2002-Skyridge-Japanese-/285648671344
 2ddea9fb-96dd-48c9-882c-c477e6b53b1d,2023-12-10,36.02,eBay,AUCTION,ok,0,https://www.ebay.com/itm/Pokemon-Magcargo-Split-Earth-Unlimited-Japanese-Holo-Rare-020-PSA-9-Mint-/285580994960
-2ddea9fb-96dd-48c9-882c-c477e6b53b1d,2023-04-02,51.02,eBay,AUCTION,ok,0,https://www.ebay.com/itm/Pokemon-Magcargo-Split-Earth-Unlimited-Japanese-Holo-Rare-020-PSA-9-703V2-/285200299825
 2dc81e66-1ce7-4396-ad9a-df25cb09bb1a,2023-04-24,296.28,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/Lot-27-Pokemon-Empiflor-Aquapolis-H30-H32-PSA-9-/374637617083
 2d52e9e3-3edb-4bd2-ba1b-fefb8af23198,2026-09-03,299.99,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/117377817525
 2d52e9e3-3edb-4bd2-ba1b-fefb8af23198,2026-09-03,295.99,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/167698779641

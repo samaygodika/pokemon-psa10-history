@@ -79,6 +79,7 @@ asset_id,date,price,source,sale_type,status,outlier,url
 91d5de46-812a-4e8c-9b23-6705895632a8,2026-01-11,2700,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/306671370168
 91d5de46-812a-4e8c-9b23-6705895632a8,2026-01-03,2600,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/205879126679
 91d5de46-812a-4e8c-9b23-6705895632a8,2025-09-23,2500,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/336192598679
+913e0473-49b2-4916-83ca-91340887dc95,2026-10-02,199.99,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/407224598837
 913e0473-49b2-4916-83ca-91340887dc95,2026-09-28,198.5,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/227520519597
 913e0473-49b2-4916-83ca-91340887dc95,2026-09-27,207.5,eBay,AUCTION,ok,0,https://www.ebay.com/itm/117413792634
 913e0473-49b2-4916-83ca-91340887dc95,2026-09-27,179.99,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/407224598837
@@ -88,7 +89,6 @@ asset_id,date,price,source,sale_type,status,outlier,url
 913e0473-49b2-4916-83ca-91340887dc95,2026-09-19,147.5,eBay,AUCTION,ok,0,https://www.ebay.com/itm/307173713724
 913e0473-49b2-4916-83ca-91340887dc95,2026-09-14,160.5,eBay,AUCTION,ok,0,https://www.ebay.com/itm/298650799519
 913e0473-49b2-4916-83ca-91340887dc95,2026-09-12,243.42,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/137699279588
-913e0473-49b2-4916-83ca-91340887dc95,2026-09-12,189,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/147537715799
 9139f204-904b-4475-b88e-7417704cd2a0,2026-09-05,81.11,eBay,AUCTION,ok,0,https://www.ebay.com/itm/128048997542
 9139f204-904b-4475-b88e-7417704cd2a0,2026-08-31,90,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/117384174496
 9139f204-904b-4475-b88e-7417704cd2a0,2026-08-29,100,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/366100831935
@@ -229,6 +229,7 @@ asset_id,date,price,source,sale_type,status,outlier,url
 9148b83a-9648-4911-9f26-5c0c7691ac33,2026-06-13,722.32,eBay,AUCTION,ok,0,https://www.ebay.com/itm/800131348564
 9148b83a-9648-4911-9f26-5c0c7691ac33,2026-06-13,540,eBay,AUCTION,ok,0,https://www.ebay.com/itm/278057652488
 9148b83a-9648-4911-9f26-5c0c7691ac33,2026-05-24,900,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/318297241217
+9186b1f1-fa24-4f61-99d5-1e5a6dd35be2,2026-10-03,2526.13,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/298615244915
 9186b1f1-fa24-4f61-99d5-1e5a6dd35be2,2026-08-18,2325,eBay,AUCTION,ok,0,https://www.ebay.com/itm/307118560716
 9186b1f1-fa24-4f61-99d5-1e5a6dd35be2,2026-08-05,3000,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/287449771357
 9186b1f1-fa24-4f61-99d5-1e5a6dd35be2,2026-08-04,2075,eBay,AUCTION,ok,0,https://www.ebay.com/itm/307090506055
@@ -238,7 +239,6 @@ asset_id,date,price,source,sale_type,status,outlier,url
 9186b1f1-fa24-4f61-99d5-1e5a6dd35be2,2026-07-08,1500,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/307048807439
 9186b1f1-fa24-4f61-99d5-1e5a6dd35be2,2026-06-17,1750,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/236868136161
 9186b1f1-fa24-4f61-99d5-1e5a6dd35be2,2026-06-09,2000,eBay,BEST_OFFER,RELISTED,0,https://www.ebay.com/itm/236835324702
-9186b1f1-fa24-4f61-99d5-1e5a6dd35be2,2026-05-21,2061.66,eBay,AUCTION,ok,0,https://www.ebay.com/itm/117193249876
 91dfd01f-f08e-47bc-9345-7e23d33c5a3a,2026-09-24,22200,Alt,AUCTION,ok,0,https://alt.xyz/exchange/select-listing?ids=f811fa42-d411-4cc4-93d8-1523a093c626
 91dfd01f-f08e-47bc-9345-7e23d33c5a3a,2026-09-13,21000,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/358850460920
 91dfd01f-f08e-47bc-9345-7e23d33c5a3a,2026-08-28,18300,PWCC Premier Auctions,AUCTION,ok,0,https://www.pwccmarketplace.com/premier-auction/22717
@@ -481,7 +481,7 @@ asset_id,date,price,source,sale_type,status,outlier,url
 91b860f4-1195-460d-8339-dddd58a4df04,2025-01-23,112.5,eBay,AUCTION,RELISTED,0,https://www.ebay.com/itm/2006-Pokemon-EX-Holon-Phantoms-36-Camerupt-Reverse-Foil-PSA-10-GEM-MINT-/387831320976
 91b860f4-1195-460d-8339-dddd58a4df04,2023-07-27,89.99,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/EX-Holon-Phantoms-36-Camerupt-Reverse-Foil-PSA-10-/353707372312
 91b860f4-1195-460d-8339-dddd58a4df04,2021-12-02,105,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/PSA-10-Camerupt-Reverse-Holo-EX-Holon-Phantoms-36-110-POP-3-/154727331643
-91d328a0-2fac-4581-8ca4-a105da210514,2026-09-25,3186.4,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/227409553507
+91d328a0-2fac-4581-8ca4-a105da210514,2026-09-25,3148.32,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/227409553507
 91d328a0-2fac-4581-8ca4-a105da210514,2026-09-20,2880,PWCC Weekly Auctions,AUCTION,ok,0,https://www.fanaticscollect.com/weekly/62fdbbf6-ad65-11f1-94d1-0a58a9feac02
 91d328a0-2fac-4581-8ca4-a105da210514,2026-09-04,2670,Alt,AUCTION,ok,0,https://alt.xyz/exchange/select-listing?ids=8adee2d8-f4f0-4e00-8441-6a2abd44043b
 91d328a0-2fac-4581-8ca4-a105da210514,2026-07-19,2070,PWCC Weekly Auctions,AUCTION,ok,0,https://www.fanaticscollect.com/weekly/3caaf678-6ff1-11f1-93f1-0a58a9feac02

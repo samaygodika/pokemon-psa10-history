@@ -89,6 +89,7 @@ asset_id,date,price,source,sale_type,status,outlier,url
 3139ac01-bba4-4e98-913e-8a4ac0f78635,2026-08-11,405,eBay,AUCTION,ok,0,https://www.ebay.com/itm/307103702859
 3139ac01-bba4-4e98-913e-8a4ac0f78635,2026-08-09,456,PWCC Weekly Auctions,AUCTION,ok,0,https://www.fanaticscollect.com/weekly/0e48b8e2-9035-11f1-a243-0a2225b56657
 3139ac01-bba4-4e98-913e-8a4ac0f78635,2026-07-28,570,eBay,AUCTION,ok,0,https://www.ebay.com/itm/267734801609
+31c0ab5e-1dcd-4e10-9aed-349b554547c7,2026-10-02,2600,eBay,AUCTION,ok,0,https://www.ebay.com/itm/117430254100
 31c0ab5e-1dcd-4e10-9aed-349b554547c7,2026-10-01,2560.15,eBay,AUCTION,ok,0,https://www.ebay.com/itm/128094314558
 31c0ab5e-1dcd-4e10-9aed-349b554547c7,2026-10-01,2450,eBay,AUCTION,ok,0,https://www.ebay.com/itm/407248350842
 31c0ab5e-1dcd-4e10-9aed-349b554547c7,2026-10-01,2300,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/307196962138
@@ -98,7 +99,6 @@ asset_id,date,price,source,sale_type,status,outlier,url
 31c0ab5e-1dcd-4e10-9aed-349b554547c7,2026-09-28,2015,eBay,AUCTION,ok,0,https://www.ebay.com/itm/307190190901
 31c0ab5e-1dcd-4e10-9aed-349b554547c7,2026-09-27,1877.77,eBay,AUCTION,ok,0,https://www.ebay.com/itm/287596124942
 31c0ab5e-1dcd-4e10-9aed-349b554547c7,2026-09-24,2200,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/307187645124
-31c0ab5e-1dcd-4e10-9aed-349b554547c7,2026-09-19,2500,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/287557427051
 31655922-18c4-4b6c-962f-312f5a50504d,2026-09-29,665,eBay,AUCTION,ok,0,https://www.ebay.com/itm/278396208396
 31655922-18c4-4b6c-962f-312f5a50504d,2026-09-28,700,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/307202453729
 31655922-18c4-4b6c-962f-312f5a50504d,2026-09-12,448.42,eBay,AUCTION,ok,0,https://www.ebay.com/itm/206537061578
@@ -168,13 +168,14 @@ asset_id,date,price,source,sale_type,status,outlier,url
 31b5729f-e1ce-4700-88a6-d07f6346faf9,2026-09-09,4331,Goldin Auctions,AUCTION,ok,0,https://goldin.co/item/2004-pokemon-ex-team-rocket-returns-holo-103-rocket-s-sneasel-ex-psa-gxiqj6
 31b5729f-e1ce-4700-88a6-d07f6346faf9,2026-08-24,4100,PWCC Fixed Price,BEST_OFFER,ok,0,https://www.fanaticscollect.com/buy-now/99d246c8-e21b-4904-9684-24514bda5e12
 31b5729f-e1ce-4700-88a6-d07f6346faf9,2026-08-23,4080,PWCC Weekly Auctions,AUCTION,ok,0,https://www.fanaticscollect.com/weekly/e168ece4-9826-11f1-b627-0ae41f0ea48b
-31b5729f-e1ce-4700-88a6-d07f6346faf9,2026-08-18,5100,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/278242688888
+31b5729f-e1ce-4700-88a6-d07f6346faf9,2026-08-18,5100,eBay,BEST_OFFER,NOT_PAID,0,https://www.ebay.com/itm/278242688888
 31b5729f-e1ce-4700-88a6-d07f6346faf9,2026-08-16,3840,PWCC Weekly Auctions,AUCTION,ok,0,https://www.fanaticscollect.com/weekly/03dec26a-8fd2-11f1-8adb-0a9d7b869c39
 31b5729f-e1ce-4700-88a6-d07f6346faf9,2026-08-09,3843,Goldin Auctions,AUCTION,ok,0,https://goldin.co/item/2004-pokemon-ex-team-rocket-returns-holo-103-rocket-s-sneasel-ex-psa-ga9zt1
 31a5889d-e2f3-4af2-a527-e23476480dad,2025-11-23,3720,PWCC Weekly Auctions,AUCTION,ok,0,https://www.fanaticscollect.com/weekly/86800910-bf29-11f0-b057-0a58a9feac02
 31a5889d-e2f3-4af2-a527-e23476480dad,2025-04-13,3360,PWCC Weekly Auctions,AUCTION,ok,0,https://www.fanaticscollect.com/weekly/f32d516a-043c-11f0-98ee-0a58a9feac02
 31a5889d-e2f3-4af2-a527-e23476480dad,2025-02-06,1885.5,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/Pokemon-PSA-10-Latias-ex-014-068-Dragon-Frontiers-Delta-1st-Ed-2006-Japanese-/306063679299
 31a5889d-e2f3-4af2-a527-e23476480dad,2021-05-04,625,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/PSA-10-Latias-ex-Japanese-Pokemon-1st-Ed-Dragon-Frontiers-014-068-Delta-Species-/203411460779
+319bd78d-538a-4461-bf56-8dca304cd53b,2026-10-02,3261,eBay,AUCTION,ok,0,https://www.ebay.com/itm/117429531963
 319bd78d-538a-4461-bf56-8dca304cd53b,2026-10-01,4344,Alt,AUCTION,PENDING,0,https://alt.xyz/exchange/select-listing?ids=3548a7d7-b462-4cc8-876d-c94af4bef2ed
 319bd78d-538a-4461-bf56-8dca304cd53b,2026-10-01,3242.4,Alt,AUCTION,PENDING,0,https://alt.xyz/exchange/select-listing?ids=18e837c3-b49b-4a3f-a5be-f9e5183dd9dd
 319bd78d-538a-4461-bf56-8dca304cd53b,2026-09-16,3400,eBay,AUCTION,ok,0,https://www.ebay.com/itm/117401566238
@@ -184,7 +185,6 @@ asset_id,date,price,source,sale_type,status,outlier,url
 319bd78d-538a-4461-bf56-8dca304cd53b,2026-08-30,2310,PWCC Weekly Auctions,AUCTION,ok,0,https://www.fanaticscollect.com/weekly/696a53b0-9d7e-11f1-a3ac-0a58a9feac02
 319bd78d-538a-4461-bf56-8dca304cd53b,2026-08-19,2977.04,eBay,BUY_IT_NOW,RELISTED,0,https://www.ebay.com/itm/327295313041
 319bd78d-538a-4461-bf56-8dca304cd53b,2026-08-09,2874,eBay,AUCTION,ok,0,https://www.ebay.com/itm/117329144749
-319bd78d-538a-4461-bf56-8dca304cd53b,2026-08-09,2640,PWCC Weekly Auctions,AUCTION,ok,0,https://www.fanaticscollect.com/weekly/e67f3fd8-7b9a-11f1-a143-0a58a9feac02
 31844cbc-05ae-44f0-9c97-78d5831ad41e,2026-09-19,137500,Heritage Auctions,AUCTION,ok,1,https://comics.ha.com/itm/memorabilia/trading-cards/pokemon-dark-vaporeon-9-legendary-collection-psa-trading-card-game-gem-mint-10-wizards-of-the-coast-2002-rare-reverse-holo/p/7459-88002.s?type=DA-DMC-AltPlatform-TradingCardGames-7459-09182026
 31844cbc-05ae-44f0-9c97-78d5831ad41e,2026-05-31,19200,PWCC Weekly Auctions,AUCTION,ok,0,https://www.fanaticscollect.com/weekly/672f9a1c-5317-11f1-8770-0a58a9feac02
 31844cbc-05ae-44f0-9c97-78d5831ad41e,2026-05-14,15000,Heritage Auctions,AUCTION,ok,0,https://comics.ha.com/itm/memorabilia/trading-cards/pokemon-dark-vaporeon-9-legendary-collection-psa-trading-card-game-gem-mint-10-wizards-of-the-coast-2002-rare-reverse-hol/a/43246-78119.s?type=DA-DMC-AltPlatform-TradingCardGames-43246-05142026
@@ -225,6 +225,7 @@ asset_id,date,price,source,sale_type,status,outlier,url
 31cfd52c-f0ff-4594-829e-8ee3fa41fe61,2022-06-23,25,eBay,AUCTION,ok,0,https://www.ebay.com/itm/2020-GALARIAN-CURSOLA-Pokemon-Rebel-Clash-079-HOLO-PSA-10-gem-mint-/275341490547
 31cfd52c-f0ff-4594-829e-8ee3fa41fe61,2021-12-12,8.13,eBay,AUCTION,ok,0,https://www.ebay.com/itm/2020-POKEMON-SWORD-SHIELD-REBEL-CLASH-GALARIAN-CURSOLA-HOLO-PSA-10-A3230589-255-/265428457692
 31cfd52c-f0ff-4594-829e-8ee3fa41fe61,2021-12-10,21,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/2020-Pokemon-SWSH-Rebel-Clash-079-Galarian-Cursola-Holo-PSA-10-GEM-Mint-/255227158829
+31cc160c-c7e2-4a9e-93d2-1f0f17b6ace1,2026-10-02,1025,eBay,AUCTION,ok,0,https://www.ebay.com/itm/307196664118
 31cc160c-c7e2-4a9e-93d2-1f0f17b6ace1,2026-09-16,1099.99,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/298539319586
 31cc160c-c7e2-4a9e-93d2-1f0f17b6ace1,2026-08-27,1061.23,eBay,BEST_OFFER,RELISTED,0,https://www.ebay.com/itm/158023655584
 31cc160c-c7e2-4a9e-93d2-1f0f17b6ace1,2026-08-16,630,eBay,AUCTION,ok,0,https://www.ebay.com/itm/800494415613
@@ -234,7 +235,6 @@ asset_id,date,price,source,sale_type,status,outlier,url
 31cc160c-c7e2-4a9e-93d2-1f0f17b6ace1,2026-06-09,1000,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/157867768238
 31cc160c-c7e2-4a9e-93d2-1f0f17b6ace1,2026-06-07,1176,eBay,AUCTION,ok,0,https://www.ebay.com/itm/287359696571
 31cc160c-c7e2-4a9e-93d2-1f0f17b6ace1,2026-05-24,720,PWCC Weekly Auctions,AUCTION,ok,0,https://www.fanaticscollect.com/weekly/6bea768a-4af2-11f1-bca9-0a58a9feac02
-31cc160c-c7e2-4a9e-93d2-1f0f17b6ace1,2026-04-26,548.73,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/366355596526
 31a56c4b-1ccd-4cb3-88b0-1f2570e8c6d3,2026-09-27,69.6,PWCC Weekly Auctions,AUCTION,ok,0,https://www.fanaticscollect.com/weekly/cdb02d24-b2da-11f1-9bdd-0affdeff6541
 31a56c4b-1ccd-4cb3-88b0-1f2570e8c6d3,2026-09-27,61,eBay,AUCTION,ok,0,https://www.ebay.com/itm/117420513007
 31a56c4b-1ccd-4cb3-88b0-1f2570e8c6d3,2026-09-24,105.18,eBay,AUCTION,ok,0,https://www.ebay.com/itm/206564359024
