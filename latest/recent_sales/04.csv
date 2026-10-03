@@ -1,4 +1,5 @@
 asset_id,date,price,source,sale_type,status,outlier,url
+04b9a372-2539-4cce-b750-c403263dd5ef,2026-10-01,104.4,Alt,AUCTION,PENDING,0,https://alt.xyz/exchange/select-listing?ids=bb6af576-eb1c-4b6a-ae99-dcceeeaea86f
 04b9a372-2539-4cce-b750-c403263dd5ef,2026-09-27,107.08,eBay,AUCTION,ok,0,https://www.ebay.com/itm/137735050458
 04b9a372-2539-4cce-b750-c403263dd5ef,2026-09-27,102.52,eBay,AUCTION,ok,0,https://www.ebay.com/itm/137739755398
 04b9a372-2539-4cce-b750-c403263dd5ef,2026-09-27,84.29,eBay,AUCTION,ok,0,https://www.ebay.com/itm/137739755396
@@ -8,7 +9,6 @@ asset_id,date,price,source,sale_type,status,outlier,url
 04b9a372-2539-4cce-b750-c403263dd5ef,2026-09-23,88.51,CardHobby,AUCTION,ok,0,https://www.cardhobby.com/#/carddetails/135752966
 04b9a372-2539-4cce-b750-c403263dd5ef,2026-09-23,78,eBay,AUCTION,ok,0,https://www.ebay.com/itm/158305909620
 04b9a372-2539-4cce-b750-c403263dd5ef,2026-09-22,79.99,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/307193875830
-04b9a372-2539-4cce-b750-c403263dd5ef,2026-09-22,77,eBay,AUCTION,ok,0,https://www.ebay.com/itm/407225644117
 04a09394-1e5d-4f87-9a80-18c04c32411d,2026-09-22,127.5,eBay,AUCTION,ok,0,https://www.ebay.com/itm/377503961575
 04a09394-1e5d-4f87-9a80-18c04c32411d,2026-09-21,122.47,CardHobby,AUCTION,ok,0,https://www.cardhobby.com/#/carddetails/136530031
 04a09394-1e5d-4f87-9a80-18c04c32411d,2026-09-20,76,eBay,AUCTION,ok,0,https://www.ebay.com/itm/820124072188
@@ -72,6 +72,8 @@ asset_id,date,price,source,sale_type,status,outlier,url
 049c76f5-9463-4ae1-8848-80b7070f3d24,2026-07-11,55,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/116746383154
 049c76f5-9463-4ae1-8848-80b7070f3d24,2026-07-11,50,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/376890113302
 049c76f5-9463-4ae1-8848-80b7070f3d24,2026-07-08,35,eBay,AUCTION,ok,0,https://www.ebay.com/itm/147408974783
+042e87f2-ea3d-4521-9ee5-6104c369bdae,2026-10-01,164,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/377532552839
+042e87f2-ea3d-4521-9ee5-6104c369bdae,2026-10-01,160,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/377213020655
 042e87f2-ea3d-4521-9ee5-6104c369bdae,2026-09-29,164,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/377518934471
 042e87f2-ea3d-4521-9ee5-6104c369bdae,2026-09-29,153,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/298542673250
 042e87f2-ea3d-4521-9ee5-6104c369bdae,2026-09-29,150,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/267744281373
@@ -80,8 +82,6 @@ asset_id,date,price,source,sale_type,status,outlier,url
 042e87f2-ea3d-4521-9ee5-6104c369bdae,2026-09-20,150,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/820106521688
 042e87f2-ea3d-4521-9ee5-6104c369bdae,2026-09-16,125.5,eBay,AUCTION,ok,0,https://www.ebay.com/itm/307169349712
 042e87f2-ea3d-4521-9ee5-6104c369bdae,2026-09-12,139.99,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/800593057767
-042e87f2-ea3d-4521-9ee5-6104c369bdae,2026-09-12,139,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/257733225824
-042e87f2-ea3d-4521-9ee5-6104c369bdae,2026-09-09,150.5,eBay,AUCTION,ok,0,https://www.ebay.com/itm/307156526190
 04f0e9e3-ac1c-4d28-ba4f-9c0c552bd998,2026-09-17,71,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/257591063809
 04f0e9e3-ac1c-4d28-ba4f-9c0c552bd998,2026-09-05,70,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/358893795809
 04f0e9e3-ac1c-4d28-ba4f-9c0c552bd998,2026-07-01,45,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/158015820225
@@ -776,16 +776,16 @@ asset_id,date,price,source,sale_type,status,outlier,url
 04cffddc-d85e-4cd9-b6d6-5760b96f0d8f,2026-09-20,51.5,eBay,AUCTION,ok,0,https://www.ebay.com/itm/117403896151
 04cffddc-d85e-4cd9-b6d6-5760b96f0d8f,2026-09-19,60.99,eBay,AUCTION,ok,0,https://www.ebay.com/itm/800653061818
 04cffddc-d85e-4cd9-b6d6-5760b96f0d8f,2026-09-14,66,eBay,AUCTION,ok,0,https://www.ebay.com/itm/800613189643
+0449c011-94d4-4dae-bad7-552e388be600,2026-10-02,167.99,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/117442535392
+0449c011-94d4-4dae-bad7-552e388be600,2026-10-01,192,Alt,AUCTION,ok,0,https://alt.xyz/exchange/select-listing?ids=0ba25e69-dd89-4fa0-87ed-6f762b88cc6a
+0449c011-94d4-4dae-bad7-552e388be600,2026-10-01,167.5,eBay,AUCTION,ok,0,https://www.ebay.com/itm/800710369092
+0449c011-94d4-4dae-bad7-552e388be600,2026-10-01,162.5,eBay,AUCTION,ok,0,https://www.ebay.com/itm/800711865468
+0449c011-94d4-4dae-bad7-552e388be600,2026-10-01,162.5,eBay,AUCTION,ok,0,https://www.ebay.com/itm/398428838403
 0449c011-94d4-4dae-bad7-552e388be600,2026-09-30,162.5,eBay,AUCTION,ok,0,https://www.ebay.com/itm/377518321581
 0449c011-94d4-4dae-bad7-552e388be600,2026-09-29,150,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/307204309842
 0449c011-94d4-4dae-bad7-552e388be600,2026-09-28,189.99,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/298706590031
 0449c011-94d4-4dae-bad7-552e388be600,2026-09-28,186,PWCC Fixed Price,BEST_OFFER,ok,0,https://www.fanaticscollect.com/buy-now/d3bb85d3-88b5-403d-bc62-e863df6b3e20
 0449c011-94d4-4dae-bad7-552e388be600,2026-09-28,172.5,eBay,AUCTION,ok,0,https://www.ebay.com/itm/278387974052
-0449c011-94d4-4dae-bad7-552e388be600,2026-09-27,233.52,eBay,AUCTION,ok,0,https://www.ebay.com/itm/137742922400
-0449c011-94d4-4dae-bad7-552e388be600,2026-09-27,211.94,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/267796821927
-0449c011-94d4-4dae-bad7-552e388be600,2026-09-27,169.4,eBay,AUCTION,ok,0,https://www.ebay.com/itm/117420512969
-0449c011-94d4-4dae-bad7-552e388be600,2026-09-27,167.5,eBay,AUCTION,ok,0,https://www.ebay.com/itm/278387671477
-0449c011-94d4-4dae-bad7-552e388be600,2026-09-27,153,eBay,AUCTION,ok,0,https://www.ebay.com/itm/407225686830
 04c704f4-287e-4c92-8e4f-9f2686d82996,2026-06-06,149.99,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/334668660818
 04c704f4-287e-4c92-8e4f-9f2686d82996,2025-02-15,34.99,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/PSA-10-GEM-MINT-Mistys-Dewgong-54-132-Gym-Pokemon-Card-607-/335811917690
 04c704f4-287e-4c92-8e4f-9f2686d82996,2024-12-10,45,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/2000-Pokemon-GYM-CHALLENGE-54-MISTYS-DEWGONG-PSA-10-GEM-MINT-/375014698628
@@ -897,16 +897,16 @@ asset_id,date,price,source,sale_type,status,outlier,url
 0431573b-5b52-49b7-902d-5c7214f5e7d3,2024-03-10,36,PWCC Weekly Auctions,AUCTION,ok,0,https://www.fanaticscollect.com/weekly/28ee3268-daba-11ee-972b-0a58a9feac02
 0431573b-5b52-49b7-902d-5c7214f5e7d3,2023-10-15,37.2,PWCC Weekly Auctions,AUCTION,ok,0,https://www.fanaticscollect.com/weekly/0f776552-4c3f-11ee-96b5-0a74c53adf9d
 0431573b-5b52-49b7-902d-5c7214f5e7d3,2023-10-08,44.4,PWCC Weekly Auctions,AUCTION,ok,0,https://www.fanaticscollect.com/weekly/0f6a9a2a-4c3f-11ee-8f1e-0a74c53adf9d
-04ef1814-e99d-4767-b78d-2a7cd9d8e718,2026-09-30,2998,PWCC Fixed Price,BEST_OFFER,ok,0,https://www.fanaticscollect.com/buy-now/31776074-63ab-463e-a00a-5246362bd5c6
-04ef1814-e99d-4767-b78d-2a7cd9d8e718,2026-09-30,2950,PWCC Fixed Price,BEST_OFFER,ok,0,https://www.fanaticscollect.com/buy-now/53fbfa0f-738c-4168-b0d4-fa8d8494e61f
-04ef1814-e99d-4767-b78d-2a7cd9d8e718,2026-09-30,2450,eBay,AUCTION,ok,0,https://www.ebay.com/itm/307192869737
-04ef1814-e99d-4767-b78d-2a7cd9d8e718,2026-09-30,2436,eBay,AUCTION,ok,0,https://www.ebay.com/itm/298697859999
-04ef1814-e99d-4767-b78d-2a7cd9d8e718,2026-09-30,2400,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/117437740449
-04ef1814-e99d-4767-b78d-2a7cd9d8e718,2026-09-30,2395,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/298716936274
-04ef1814-e99d-4767-b78d-2a7cd9d8e718,2026-09-30,2376,eBay,AUCTION,ok,0,https://www.ebay.com/itm/820162788466
-04ef1814-e99d-4767-b78d-2a7cd9d8e718,2026-09-30,2324,eBay,AUCTION,ok,0,https://www.ebay.com/itm/377522644962
-04ef1814-e99d-4767-b78d-2a7cd9d8e718,2026-09-30,2301,eBay,AUCTION,ok,0,https://www.ebay.com/itm/800697504055
-04ef1814-e99d-4767-b78d-2a7cd9d8e718,2026-09-30,2276,eBay,AUCTION,ok,0,https://www.ebay.com/itm/128098597415
+04ef1814-e99d-4767-b78d-2a7cd9d8e718,2026-10-02,2749.99,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/178542815476
+04ef1814-e99d-4767-b78d-2a7cd9d8e718,2026-10-02,2473.68,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/198673999300
+04ef1814-e99d-4767-b78d-2a7cd9d8e718,2026-10-02,2089.51,eBay,AUCTION,ok,0,https://www.ebay.com/itm/318915996789
+04ef1814-e99d-4767-b78d-2a7cd9d8e718,2026-10-01,2832.5,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/366478909472
+04ef1814-e99d-4767-b78d-2a7cd9d8e718,2026-10-01,2520,Alt,AUCTION,PENDING,0,https://alt.xyz/exchange/select-listing?ids=35172c6b-9b57-4c5f-88ad-c6d064937aac
+04ef1814-e99d-4767-b78d-2a7cd9d8e718,2026-10-01,2500.68,eBay,AUCTION,ok,0,https://www.ebay.com/itm/117428212750
+04ef1814-e99d-4767-b78d-2a7cd9d8e718,2026-10-01,2460,Alt,AUCTION,PENDING,0,https://alt.xyz/exchange/select-listing?ids=6ced40cd-d352-41a9-b87b-5ab51d576b48
+04ef1814-e99d-4767-b78d-2a7cd9d8e718,2026-10-01,2400,eBay,AUCTION,ok,0,https://www.ebay.com/itm/307192869777
+04ef1814-e99d-4767-b78d-2a7cd9d8e718,2026-10-01,2350,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/287620882289
+04ef1814-e99d-4767-b78d-2a7cd9d8e718,2026-10-01,1506,Alt,AUCTION,PENDING,0,https://alt.xyz/exchange/select-listing?ids=bffd2daf-f281-401c-aeb3-9941a133848a
 04fcc041-dbee-421e-8d8b-7c31da9a633a,2026-09-14,112.77,CardHobby,AUCTION,ok,0,https://www.cardhobby.com/#/carddetails/135351097
 04fcc041-dbee-421e-8d8b-7c31da9a633a,2026-09-09,165,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/117403490694
 04fcc041-dbee-421e-8d8b-7c31da9a633a,2026-09-08,137.51,eBay,AUCTION,ok,0,https://www.ebay.com/itm/298632500682
@@ -1047,6 +1047,7 @@ asset_id,date,price,source,sale_type,status,outlier,url
 048ebdb7-fd26-4433-a631-4a550ccb7d7e,2026-09-03,55.5,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/326508451209
 046a0c7e-aa06-42eb-a4b3-95f7da461f28,2026-01-22,36.99,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/297862369978
 046a0c7e-aa06-42eb-a4b3-95f7da461f28,2025-02-03,10.5,eBay,AUCTION,ok,0,https://www.ebay.com/itm/Beldum-29-Pokemon-Hidden-Legends-PSA-10-Gem-Mint-/196968354347
+043a804e-28d4-4f21-b274-9a4de857ec0a,2026-10-02,799.99,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/298715487115
 043a804e-28d4-4f21-b274-9a4de857ec0a,2026-09-29,750,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/237092590341
 043a804e-28d4-4f21-b274-9a4de857ec0a,2026-09-28,780,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/117435292838
 043a804e-28d4-4f21-b274-9a4de857ec0a,2026-09-27,770,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/237092294237
@@ -1056,7 +1057,6 @@ asset_id,date,price,source,sale_type,status,outlier,url
 043a804e-28d4-4f21-b274-9a4de857ec0a,2026-09-22,770,eBay,AUCTION,ok,0,https://www.ebay.com/itm/377503988894
 043a804e-28d4-4f21-b274-9a4de857ec0a,2026-09-21,760,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/117421597667
 043a804e-28d4-4f21-b274-9a4de857ec0a,2026-09-20,750,PWCC Weekly Auctions,AUCTION,ok,0,https://www.fanaticscollect.com/weekly/8f1936aa-9ff2-11f1-b9d4-02fff4b5ca79
-043a804e-28d4-4f21-b274-9a4de857ec0a,2026-09-20,720,PWCC Weekly Auctions,AUCTION,ok,0,https://www.fanaticscollect.com/weekly/5bc7c0e6-ac54-11f1-8bee-06d19b0b9c59
 04a7ef6c-7fe8-4f6e-9647-6d246b08beda,2026-09-10,24.2,CardHobby,AUCTION,ok,0,https://www.cardhobby.com/#/carddetails/134533196
 04a7ef6c-7fe8-4f6e-9647-6d246b08beda,2026-09-02,43,PWCC Fixed Price,BEST_OFFER,ok,0,https://www.fanaticscollect.com/buy-now/54a2642b-736c-498c-9625-d128f37a4762
 04a7ef6c-7fe8-4f6e-9647-6d246b08beda,2026-07-21,45.58,CardHobby,AUCTION,ok,0,https://www.cardhobby.com/#/carddetails/123547163
@@ -1067,6 +1067,7 @@ asset_id,date,price,source,sale_type,status,outlier,url
 04a7ef6c-7fe8-4f6e-9647-6d246b08beda,2026-07-01,35,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/376417713568
 04a7ef6c-7fe8-4f6e-9647-6d246b08beda,2026-06-15,39.95,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/116925170661
 04a7ef6c-7fe8-4f6e-9647-6d246b08beda,2026-06-14,28.26,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/287371292609
+0476d73e-fac9-4d45-b841-3c9e0bf91105,2026-10-01,55,PWCC Fixed Price,BEST_OFFER,ok,0,https://www.fanaticscollect.com/buy-now/f4a0192d-1100-4952-8286-30555abb58ca
 0476d73e-fac9-4d45-b841-3c9e0bf91105,2026-09-09,114.99,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/237027498800
 0476d73e-fac9-4d45-b841-3c9e0bf91105,2026-09-04,80,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/407193084966
 0476d73e-fac9-4d45-b841-3c9e0bf91105,2026-08-16,100,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/257436013655
@@ -1076,7 +1077,6 @@ asset_id,date,price,source,sale_type,status,outlier,url
 0476d73e-fac9-4d45-b841-3c9e0bf91105,2026-05-30,100,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/298346330253
 0476d73e-fac9-4d45-b841-3c9e0bf91105,2026-05-29,79.99,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/336569436779
 0476d73e-fac9-4d45-b841-3c9e0bf91105,2026-05-10,48,eBay,AUCTION,ok,0,https://www.ebay.com/itm/298284102931
-0476d73e-fac9-4d45-b841-3c9e0bf91105,2026-05-07,80.4,Alt,AUCTION,ok,0,https://alt.xyz/exchange/select-listing?ids=a1edd687-caa3-4ffd-ba8e-ea1df6aaa3f7
 04698624-3a7b-430c-8018-d86ec48e3b95,2026-05-17,117.41,eBay,AUCTION,ok,0,https://www.ebay.com/itm/406926889410
 04698624-3a7b-430c-8018-d86ec48e3b95,2026-04-05,111.05,eBay,AUCTION,ok,0,https://www.ebay.com/itm/137156798743
 04698624-3a7b-430c-8018-d86ec48e3b95,2025-04-06,70.12,eBay,AUCTION,ok,0,https://www.ebay.com/itm/135649160140
