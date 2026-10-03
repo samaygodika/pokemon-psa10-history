@@ -58,6 +58,14 @@ Store layout (all plain CSV, all append/merge-friendly so git diffs stay small):
                                   them every check, so this only catches BINs alt
                                   has itself dropped. Other BIN listings stay in the
                                   run folder only, to keep the daily git diff small.
+                                  first_seen = the run day a listing was first
+                                  recorded here (2026-10-03), kept while alt.xyz
+                                  keeps showing it: the only clue to a BIN that has
+                                  been "live" for months (a Kyogre Gold Star BIN
+                                  returned as live on 2026-09-25 had ended June 16).
+                                  Only the cheapest BIN per asset+grade is stored,
+                                  so a BIN that stops being the cheapest and later
+                                  is again starts its age over.
 
 Standard library only, like the scraper.
 """
@@ -85,7 +93,10 @@ DAILY_COLS = ["asset_id", "pop_at_grade", "company_total_pop", "index_total_pop"
 SALE_COLS = ["asset_id", "date", "price", "grading_company", "grade", "source", "sale_type", "url",
              "label", "subject_to_change", "skipped_reason", "alt_tx_id"]
 LIVE_COLS = ["asset_id", "grading_company", "grade", "listing_type", "source", "current_bid", "bid_count", "end_date",
-             "buy_it_now_price", "url", "checked_at"]
+             "buy_it_now_price", "url", "checked_at", "first_seen"]
+# first_seen (2026-10-03) = the run day a listing (asset, grade, url) was first recorded here,
+# carried across runs while alt.xyz keeps showing it; blank = unknown (older rows were
+# backfilled from this file's git history, analysis/backfill_listing_first_seen.py)
 BIN_MAX_AGE_DAYS = 7   # a Buy It Now row survives this long without alt.xyz showing it again
 # grade -> the cards.csv column with the UTC time of the run's believable live-listings check at that
 # grade (blank = not asked, or the request failed); live rows are replaced per (asset, grade)
@@ -188,7 +199,7 @@ def ingest(run_dir, day, store=HERE):
           f"{stats['sales_moved']} moved to another month, {stats['sales_dropped']} dropped (no longer listed by alt.xyz), "
           f"{stats['sales_month_files_rewritten']} month files rewritten")
 
-    live = ingest_live(run_dir, cards, store)
+    live = ingest_live(run_dir, cards, store, day)
     return {"assets": len(assets), "new_assets": new_assets, "daily_rows": len(daily), **stats, **live}
 
 
@@ -347,8 +358,9 @@ def norm_grade(s):
         return s or ""
 
 
-def ingest_live(run_dir, cards, store):
-    """Fold the run's listings.csv into history/live_listings.csv (see the module doc)."""
+def ingest_live(run_dir, cards, store, day=""):
+    """Fold the run's listings.csv into history/live_listings.csv (see the module doc).
+    `day` is the run day written as first_seen on listings not recorded before."""
     listings_path = run_dir / "listings.csv"
     if not listings_path.exists():          # a run from before 2026-09-24 has no listings
         print("  live_listings.csv: run has no listings.csv, left as is")
@@ -364,13 +376,18 @@ def ingest_live(run_dir, cards, store):
             incoming[key].append(r)
 
     live_path = store / "live_listings.csv"
-    kept = [r for r in read_csv(live_path) if (r["asset_id"], norm_grade(r["grade"])) not in checked]
+    stored = read_csv(live_path)
+    # When each listing we already hold was first recorded, so a re-seen listing keeps its age.
+    seen = {(r["asset_id"], norm_grade(r["grade"]), r["url"]): r.get("first_seen", "") for r in stored}
+    kept = [r for r in stored if (r["asset_id"], norm_grade(r["grade"])) not in checked]
     fresh = []
     for rows in incoming.values():
         fresh += [r for r in rows if r["listing_type"] == "AUCTION"]
         bins = [r for r in rows if r["listing_type"] != "AUCTION" and to_float(r["buy_it_now_price"])]
         if bins:
             fresh.append(min(bins, key=lambda r: to_float(r["buy_it_now_price"])))
+    for r in fresh:
+        r["first_seen"] = seen.get((r["asset_id"], norm_grade(r["grade"]), r["url"])) or day
     # An auction whose end is before the newest check anywhere in this run has certainly
     # ended; the rows of assets this run didn't check are where such leftovers live.
     horizon = max(checked.values(), default="")

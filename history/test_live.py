@@ -154,8 +154,82 @@ def test_metrics_psa9_live_cols():
     print("psa9 live_cols ok")
 
 
+def test_ingest_live_first_seen():
+    """A listing keeps the day it was first recorded while alt.xyz keeps showing it; a new
+    one gets the run day; a row from before the column existed stays blank until backfilled."""
+    with tempfile.TemporaryDirectory() as d:
+        store, run = Path(d) / "store", Path(d) / "run"
+        store.mkdir(); run.mkdir()
+        now = "2026-10-03T14:00:00+00:00"
+        base = {"grading_company": "PSA", "grade": "10.0", "source": "eBay", "current_bid": "", "bid_count": "",
+                "end_date": "", "buy_it_now_price": "", "url": "", "checked_at": "2026-10-02T14:00:00+00:00"}
+        _write(store / "live_listings.csv", ingest.LIVE_COLS, [
+            dict(base, asset_id="A", listing_type="BUY_IT_NOW", buy_it_now_price="100", url="a-bin", first_seen="2026-09-25"),
+            dict(base, asset_id="A", listing_type="AUCTION", end_date="2026-10-09T00:00:00+00:00", url="a-auc", first_seen="2026-10-01"),
+            dict(base, asset_id="B", listing_type="BUY_IT_NOW", buy_it_now_price="50", url="b-bin", first_seen=""),   # pre-column row
+        ])
+        cards = [{"asset_id": "A", "listings_checked_at": now}]
+        _write(run / "listings.csv", ingest.LIVE_COLS[:-1], [          # the scraper's file has no first_seen
+            dict(base, asset_id="A", listing_type="BUY_IT_NOW", buy_it_now_price="90", url="a-bin", checked_at=now),  # same listing, price edited
+            dict(base, asset_id="A", listing_type="AUCTION", end_date="2026-10-09T00:00:00+00:00", url="a-auc", checked_at=now),
+            dict(base, asset_id="A", listing_type="AUCTION", end_date="2026-10-10T00:00:00+00:00", url="a-auc2", checked_at=now),
+        ])
+        ingest.ingest_live(run, cards, store, day="2026-10-03")
+        fs = {r["url"]: r["first_seen"] for r in ingest.read_csv(store / "live_listings.csv")}
+        assert fs == {"a-bin": "2026-09-25", "a-auc": "2026-10-01", "a-auc2": "2026-10-03", "b-bin": ""}, fs
+        # Run 2: a cheaper BIN replaces a-bin as the stored one; it is new, so it gets today.
+        _write(run / "listings.csv", ingest.LIVE_COLS[:-1], [
+            dict(base, asset_id="A", listing_type="BUY_IT_NOW", buy_it_now_price="90", url="a-bin", checked_at=now),
+            dict(base, asset_id="A", listing_type="BUY_IT_NOW", buy_it_now_price="80", url="a-bin-cheaper", checked_at=now),
+        ])
+        ingest.ingest_live(run, cards, store, day="2026-10-04")
+        fs = {r["url"]: r["first_seen"] for r in ingest.read_csv(store / "live_listings.csv")}
+        assert fs == {"a-bin-cheaper": "2026-10-04", "b-bin": ""}, fs
+        assert "first_seen" in ingest.LIVE_COLS and ingest.LIVE_COLS[-1] == "first_seen"
+        print("first_seen ok")
+
+
+def test_metrics_listing_age_cols():
+    now = "2026-10-03T14:00:00+00:00"
+    rows = [
+        {"listing_type": "AUCTION", "end_date": "2026-10-05T00:00:00+00:00", "current_bid": "700", "bid_count": "0",
+         "source": "eBay", "url": "u1", "buy_it_now_price": "", "first_seen": "2026-10-02"},
+        {"listing_type": "AUCTION", "end_date": "2026-10-09T00:00:00+00:00", "current_bid": "5", "bid_count": "2",
+         "source": "eBay", "url": "u2", "buy_it_now_price": "", "first_seen": "2026-10-03"},
+        {"listing_type": "BUY_IT_NOW", "end_date": "", "current_bid": "", "bid_count": "", "source": "eBay", "url": "u3",
+         "buy_it_now_price": "120", "first_seen": "2026-09-26"},
+        {"listing_type": "BUY_IT_NOW", "end_date": "", "current_bid": "", "bid_count": "", "source": "eBay", "url": "u4",
+         "buy_it_now_price": "95", "first_seen": "2026-10-01"},
+    ]
+    assert metrics.LISTING_AGE_COLS == ["lowest_bin_first_seen", "next_auction_bid_suspect",
+                                        "psa9_lowest_bin_first_seen", "psa9_next_auction_bid_suspect"]
+    # ref 100: the next auction (soonest end, u1) carries a $700 opening price = 7x -> suspect
+    c = metrics.listing_age_cols(now, rows, 100.0)
+    assert c == {"lowest_bin_first_seen": "2026-10-01", "next_auction_bid_suspect": 1}, c   # u4 is the cheapest BIN
+    # exactly at the band is not above it
+    assert metrics.listing_age_cols(now, rows, 700 / metrics.SUSPECT_BID_MULT)["next_auction_bid_suspect"] == 0
+    # no clean reference -> blank (unknown), the BIN age still known
+    c = metrics.listing_age_cols(now, rows, None)
+    assert c == {"lowest_bin_first_seen": "2026-10-01", "next_auction_bid_suspect": ""}, c
+    # never checked -> both blank, whatever the rows
+    assert not any(metrics.listing_age_cols("", rows, 100.0).values())
+    # checked, nothing running and no BIN -> both blank
+    assert not any(metrics.listing_age_cols(now, [], 100.0).values())
+    # a BIN row from before the column existed -> blank age
+    c = metrics.listing_age_cols(now, [dict(rows[3], first_seen="")], 100.0)
+    assert c["lowest_bin_first_seen"] == "" and c["next_auction_bid_suspect"] == ""
+    # PSA 9 prefix
+    c = metrics.listing_age_cols(now, rows, 100.0, prefix="psa9_")
+    assert list(c) == ["psa9_lowest_bin_first_seen", "psa9_next_auction_bid_suspect"] and c["psa9_next_auction_bid_suspect"] == 1
+    # live_cols itself is unchanged by the new rows' extra key
+    assert list(metrics.live_cols(now, rows)) == metrics.LIVE_COLS
+    print("listing age / suspect bid ok")
+
+
 if __name__ == "__main__":
     test_ingest_live_keeps_snapshots_and_ages_bins()
     test_ingest_live_replaces_per_grade()
     test_metrics_psa9_live_cols()
+    test_ingest_live_first_seen()
+    test_metrics_listing_age_cols()
     print("all live-listing checks passed")

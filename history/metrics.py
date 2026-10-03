@@ -153,6 +153,32 @@ times with its own clock.
                          once on, blank still = never checked at PSA 9, and a
                          count of 0 = checked, nothing running.
 
+Listing age and suspect bids (2026-10-03), the last four columns of cards.csv
+(Sid: "Buy now / Live data is sometimes still inaccurate"). alt.xyz re-serves
+ended eBay Buy It Nows for months and its listing record carries no date or
+status, so the feed's own first sighting is the only age there is; and a
+running auction can carry a bid that is not for this card (a $120k bid on a
+$2.6k Dragonite: a mislabeled lot, the same fault as mislabeled sales).
+  lowest_bin_first_seen
+                       = the run day the feed first recorded the lowest_bin_url
+                         listing for this card and grade (history/
+                         live_listings.csv first_seen; rows from before
+                         2026-10-03 backfilled from the file's git history, so
+                         the earliest possible value is 2026-09-25). The longer
+                         ago, the more likely the BIN has ended: the app can
+                         grey out or hide old ones. Blank = no BIN, or unknown.
+  next_auction_bid_suspect
+                       = 1 when next_auction_bid (high bid, or opening price at
+                         0 bids) is above SUSPECT_BID_MULT x median_last_3, the
+                         card's clean reference; 0 = checked against the
+                         reference and not out of line; blank = no auction, or
+                         no clean reference to judge by. A 1 means "do not show
+                         this bid as the card's price", not "fake": a real
+                         re-pricing looks the same until a sale confirms it.
+  psa9_lowest_bin_first_seen, psa9_next_auction_bid_suspect
+                       = the same two for the PSA 9 listing columns, judged
+                         against psa9_median_last_3.
+
 Market cap inputs (2026-09-28), the last columns of cards.csv before chg_held_windows:
   price_chg_60d_pct, price_chg_180d_pct, volume_60d, volume_180d
                        = the price_chg / volume rules above for 60 and 180
@@ -227,7 +253,12 @@ LIVE_COLS = ["listings_checked_at", "live_auction_count", "next_auction_end", "n
 PSA9_LIVE_COLS = ["psa9_" + c for c in LIVE_COLS]   # the same eleven for PSA 9 listings
 CAP_COLS = ([f"price_chg_{w}_pct" for w in EXTRA_WINDOWS] + [f"volume_{w}" for w in EXTRA_WINDOWS] + ["cap_price"]
             + [f"cap_price_{w}_ago" for w in CAP_WINDOWS])   # 2026-09-28
-HELD_COLS = ["chg_held_windows"]   # 2026-10-01; the very end of cards.csv
+HELD_COLS = ["chg_held_windows"]   # 2026-10-01
+# 2026-10-03, the very end of cards.csv: how long the cheapest BIN has been listed, and
+# whether the next auction's bid is out of line with the card's price (see the module doc)
+LISTING_AGE_COLS = ["lowest_bin_first_seen", "next_auction_bid_suspect",
+                    "psa9_lowest_bin_first_seen", "psa9_next_auction_bid_suspect"]
+SUSPECT_BID_MULT = OUTLIER_HIGH   # a bid above this x the clean reference is flagged, same band as a sale
 LIVE_CHECK_COLS = {"10.0": "listings_checked_at", "9.0": "psa9_listings_checked_at"}   # grade -> daily column with its check time
 
 
@@ -580,6 +611,17 @@ def to_float(s):
         return None
 
 
+def running_auctions(listings):
+    """The auction rows with an end time, soonest first."""
+    return sorted((r for r in listings if r["listing_type"] == "AUCTION" and r["end_date"]), key=lambda r: r["end_date"])
+
+
+def lowest_bin(listings):
+    """The cheapest priced Buy It Now row, or None."""
+    bins = [r for r in listings if r["listing_type"] != "AUCTION" and to_float(r["buy_it_now_price"])]
+    return min(bins, key=lambda r: to_float(r["buy_it_now_price"])) if bins else None
+
+
 def live_cols(checked_at, listings, prefix=""):
     """The live-listing columns for one card (see the module doc). prefix="psa9_" names the
     PSA 9 set (PSA9_LIVE_COLS): same rules, fed the card's PSA 9 rows and PSA 9 check time."""
@@ -587,7 +629,7 @@ def live_cols(checked_at, listings, prefix=""):
     if not checked_at:
         return {prefix + c: v for c, v in out.items()}
     out["listings_checked_at"] = checked_at
-    auctions = sorted((r for r in listings if r["listing_type"] == "AUCTION" and r["end_date"]), key=lambda r: r["end_date"])
+    auctions = running_auctions(listings)
     out["live_auction_count"] = len(auctions)
     if auctions:
         nxt = auctions[0]
@@ -597,12 +639,27 @@ def live_cols(checked_at, listings, prefix=""):
         out["next_auction_source"] = nxt["source"]
         out["next_auction_url"] = nxt["url"]
         out["last_auction_end"] = auctions[-1]["end_date"]
-    bins = [r for r in listings if r["listing_type"] != "AUCTION" and to_float(r["buy_it_now_price"])]
-    if bins:
-        low = min(bins, key=lambda r: to_float(r["buy_it_now_price"]))
+    low = lowest_bin(listings)
+    if low:
         out["lowest_bin_price"] = fmt(to_float(low["buy_it_now_price"]))
         out["lowest_bin_source"] = low["source"]
         out["lowest_bin_url"] = low["url"]
+    return {prefix + c: v for c, v in out.items()}
+
+
+def listing_age_cols(checked_at, listings, ref, prefix=""):
+    """lowest_bin_first_seen and next_auction_bid_suspect for one card and grade (see the
+    module doc): the first-seen day of the row live_cols picks as the lowest BIN, and the
+    next auction's bid against `ref` (the grade's clean reference price, None = unknown)."""
+    out = {"lowest_bin_first_seen": "", "next_auction_bid_suspect": ""}
+    if checked_at:
+        low = lowest_bin(listings)
+        if low:
+            out["lowest_bin_first_seen"] = low.get("first_seen", "")
+        auctions = running_auctions(listings)
+        bid = to_float(auctions[0]["current_bid"]) if auctions else None
+        if bid is not None and ref:
+            out["next_auction_bid_suspect"] = 1 if bid > SUSPECT_BID_MULT * ref else 0
     return {prefix + c: v for c, v in out.items()}
 
 
@@ -769,11 +826,20 @@ def build(store=HERE, out=LATEST):
             filled["psa9_last_sale_price"] += 1
         row.update(live_cols(checked_at["10.0"].get(aid), live.get((aid, "10.0"), [])))
         row.update(live_cols(checked_at["9.0"].get(aid), live.get((aid, "9.0"), []), prefix="psa9_"))
+        row.update(listing_age_cols(checked_at["10.0"].get(aid), live.get((aid, "10.0"), []), ref_now))
+        row.update(listing_age_cols(checked_at["9.0"].get(aid), live.get((aid, "9.0"), []),
+                                    to_float(row["psa9_median_last_3"]), prefix="psa9_"))
+        for c in ("lowest_bin_first_seen", "psa9_lowest_bin_first_seen"):
+            if row[c]:
+                filled[c] += 1
+        for c in ("next_auction_bid_suspect", "psa9_next_auction_bid_suspect"):
+            if row[c] == 1:
+                filled[c] += 1
         rows.append(row)
 
     out.mkdir(parents=True, exist_ok=True)
     with open(out / "cards.csv", "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=CARD_COLS + DERIVED_COLS + PSA9_COLS + LIVE_COLS + PSA9_LIVE_COLS + CAP_COLS + HELD_COLS, extrasaction="ignore")
+        w = csv.DictWriter(f, fieldnames=CARD_COLS + DERIVED_COLS + PSA9_COLS + LIVE_COLS + PSA9_LIVE_COLS + CAP_COLS + HELD_COLS + LISTING_AGE_COLS, extrasaction="ignore")
         w.writeheader()
         w.writerows(rows)
 
@@ -831,6 +897,10 @@ def build(store=HERE, out=LATEST):
         "rows_listings_checked": sum(1 for r in rows if r["listings_checked_at"]),
         "rows_with_live_auction": sum(1 for r in rows if r["live_auction_count"]),
         "rows_with_bin_listing": sum(1 for r in rows if r["lowest_bin_price"]),
+        "rows_bin_first_seen_known": filled["lowest_bin_first_seen"],          # 2026-10-03
+        "rows_next_auction_bid_suspect": filled["next_auction_bid_suspect"],
+        "rows_psa9_bin_first_seen_known": filled["psa9_lowest_bin_first_seen"],
+        "rows_psa9_next_auction_bid_suspect": filled["psa9_next_auction_bid_suspect"],
         "rows_psa9_listings_checked": sum(1 for r in rows if r["psa9_listings_checked_at"]),
         "rows_with_psa9_live_auction": sum(1 for r in rows if r["psa9_live_auction_count"]),
         "rows_with_psa9_bin_listing": sum(1 for r in rows if r["psa9_lowest_bin_price"]),
