@@ -124,12 +124,14 @@ it is. The image of a row with a `tcgplayer_id` is
 | `asset_id` | alt.xyz asset id (`cards.csv`); blank for a TCGplayer-only card |
 | `tcgplayer_id` | TCGplayer product id; blank for an alt.xyz-only card |
 | `status` | `linked` (the same pair as `tcgplayer_ids.csv`), `alt_only` (a real English card TCGplayer has no product for, or one the matcher won't guess between), `not_english` (alt.xyz files it as English but it isn't an English TCG card: Japanese and Chinese sets and promos, Topps movie cards, playing cards...), `tcgplayer_only` (a TCGplayer single alt.xyz has no row for) |
-| `how` | `linked`: the `match` kind; `alt_only`: `no_candidate`, `variant_not_found` (a stamped / Cosmos / staff print TCGplayer doesn't list), `set_not_aligned`, `ambiguous_set`, `ambiguous_variant`; `not_english`: `not_on_tcgplayer` or `not_english_tcg`; `tcgplayer_only`: blank, or `candidate_of_alt_row` when an unmatched alt.xyz row might be this card |
+| `how` | `linked`: the `match` kind; `alt_only`: `no_candidate`, `variant_not_found` (a stamped / Cosmos / staff print TCGplayer doesn't list), `set_not_aligned`, `ambiguous_set`, `ambiguous_variant`; `not_english`: `not_on_tcgplayer` or `not_english_tcg`; `tcgplayer_only`: blank, `candidate_of_alt_row` when an unmatched alt.xyz row might be this card, or `unnumbered` (a single TCGplayer gives no number: My First Battle, V-UNION [Set of 4], unnumbered energies; never matched to an alt.xyz row; from 2026-10-05) |
 | `name`, `number` | TCGplayer's for `linked` / `tcgplayer_only`; alt.xyz's subject and number otherwise |
 | `set`, `set_source` | TCGplayer's set (`tcgplayer`); for an alt.xyz-only card the TCGplayer set its candidates are all in (`candidates`) or its alt.xyz set voted for (`voted`), else blank |
 | `rarity` | TCGplayer's; blank for an alt.xyz-only card (unknown, not common) |
 | `year` | alt.xyz's year for a card it has; else the set's year from `tcgplayer_sets.csv`, blank for a set spanning many years |
 | `print_run` | `1st Edition`, `Shadowless`, `Reverse Holo` or blank, from alt.xyz's name |
+| `printings` | every printing TCGplayer sells the product in, `\|`-separated, as TCGCSV's prices name them (`1st Edition Holofoil\|Unlimited Holofoil`, `Holofoil\|Reverse Holofoil`, `Normal`): the same list as PPT's `printingsAvailable`. Blank: no TCGplayer product, or TCGplayer lists no printing for it. TCGplayer only lists a printing it has price data for, so a print run nobody sells raw can be missing even when alt.xyz has graded copies (e.g. Neo Destiny 1st Edition Shining Mewtwo); `print_run` on the linked rows shows those (from 2026-10-05) |
+| `card_type` | `Pokemon`, `Trainer` or `Energy`, from TCGplayer's "Card Type" (a Pokémon's energy type, or Supporter / Item / Stadium / Tool / Basic Energy...). Blank: no TCGplayer product, or TCGplayer gives no type that places it (from 2026-10-05) |
 
 On the 2026-10-01 feed: 40,749 rows: 26,566 linked, 1,784 alt.xyz-only (775 with PSA 10
 copies; 928 have no PSA rows on alt.xyz), 2,667 not English (40 of 40 checked by hand were
@@ -173,7 +175,7 @@ python3 history/ingest.py snapshots/2026-09-12            # (re)ingest one run
 python3 history/metrics.py                                # rebuild latest/ only
 python3 history/coverage.py                               # rebuild latest/characters.csv only
 python3 history/flags.py                                  # append tonight's PSA 9 buy-condition flags to history/
-python3 history/tcgplayer_ids.py --fetch                  # TCGplayer catalog -> latest/tcgplayer_ids.csv, card_catalog.csv, tcgplayer_sets.csv (~2 min)
+python3 history/tcgplayer_ids.py --fetch                  # TCGplayer catalog -> latest/tcgplayer_ids.csv, card_catalog.csv, tcgplayer_sets.csv (~4 min)
 ```
 
 `history/psa9_flags.csv` and `history/psa9_category_moves.csv` (from 2026-09-27, step 7 of the

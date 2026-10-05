@@ -71,15 +71,29 @@ every TCGplayer English single no row is matched to.
                     tcgplayer_only  a TCGplayer single with no alt.xyz row
   how               linked: the match kind; alt_only: no_candidate | variant_not_found |
                     set_not_aligned | ambiguous_set | ambiguous_variant; not_english:
-                    not_on_tcgplayer | not_english_tcg; tcgplayer_only: blank, or
-                    candidate_of_alt_row when an unmatched alt.xyz row might be this card
-  name, number      TCGplayer's (linked, tcgplayer_only); alt.xyz's subject and number otherwise
+                    not_on_tcgplayer | not_english_tcg; tcgplayer_only: blank,
+                    candidate_of_alt_row when an unmatched alt.xyz row might be this card, or
+                    unnumbered: a single TCGplayer gives no number (My First Battle, V-UNION
+                    [Set of 4], unnumbered energies; from 2026-10-05), never matched to alt.xyz
+  name, number      TCGplayer's (linked, tcgplayer_only; number blank when unnumbered); alt.xyz's
+                    subject and number otherwise
   set, set_source   TCGplayer's set name (tcgplayer); for an alt.xyz-only card the set its
                     candidates are all in (candidates) or its alt.xyz set voted for (voted), else blank
   rarity            TCGplayer's; blank for an alt.xyz-only card (unknown, not common)
   year              alt.xyz's year for a card it has; else the set's year (tcgplayer_sets.csv),
                     blank for a set spanning many years
   print_run         1st Edition | Shadowless | Reverse Holo | blank, from alt.xyz's name
+  printings         every printing TCGplayer sells the product in, '|'-separated, as TCGCSV's prices
+                    name them ("1st Edition Holofoil|Unlimited Holofoil", "Holofoil|Reverse Holofoil",
+                    "Normal"): PPT's printingsAvailable, which PokeSniper's 1st Edition / Unlimited and
+                    Holo / Reverse Holo splits (and so its card ids) go by. Blank: no product, or
+                    TCGplayer lists no printing for it. TCGCSV lists a printing only while TCGplayer
+                    has price data for it, so a print run nobody sells raw can be missing even when
+                    alt.xyz has graded copies (Neo Destiny 1st Edition Shining Mewtwo; 362 products,
+                    2026-10-05): print_run on the linked rows shows those
+  card_type         Pokemon | Trainer | Energy, from TCGplayer's "Card Type" (a Pokemon's energy type,
+                    "Fire", "Darkness Metal"; what the rest are, "Supporter", "Basic Energy", "Pokemon
+                    Tool"...). Blank: no product, or nothing TCGplayer gives places it
   The image is IMAGE_URL with the tcgplayer_id (no column: it is the same pattern on every row,
   and leaving it out keeps the file ~2.5 MB smaller); no tcgplayer_id, no image.
 
@@ -90,7 +104,7 @@ cards carry it | manual: see MANUAL_SET_YEARS | multi_year: no one year fits), s
 
 Usage: python3 history/tcgplayer_ids.py [--fetch] [--tcgcsv DIR] [--out FILE] [--report FILE]
                                         [--catalog FILE] [--sets FILE]
-  --fetch downloads the catalog (~220 requests, 0.3 s apart) into --tcgcsv first.
+  --fetch downloads the catalog and its printings (~440 requests, 0.3 s apart) into --tcgcsv first.
 """
 import argparse
 import csv
@@ -153,7 +167,7 @@ PROMO_PREFIX = re.compile(r"^(SWSH|SM|XY|BW|DP|HGSS|SVP|SV|MEP|ME)0*(\d+)$")
 CATALOG = HERE / "latest" / "card_catalog.csv"
 SETS = HERE / "latest" / "tcgplayer_sets.csv"
 CATALOG_COLS = ["asset_id", "tcgplayer_id", "status", "how", "name", "set", "set_source", "number", "rarity",
-                "year", "print_run"]
+                "year", "print_run", "printings", "card_type"]
 SETS_COLS = ["group_id", "name", "published", "year", "year_source", "span_from", "span_to", "linked_cards", "note"]
 # Rows alt.xyz files as English that aren't English TCG cards, read off the unmatched rows of the
 # 2026-10-01 feed (checked only on rows that matched nothing): Japanese sets alt.xyz doesn't label
@@ -168,7 +182,12 @@ TOPPS_MOVIE = re.compile(r"^ \d{4} pokemon movie ")      # "2000 Pokemon Movie T
 # Japanese promo numbering puts the series after the number ("107/XY-P": alt.xyz "#107XYP",
 # "#036DPtP", "#052LP"); English promos put it first (SM78, XY41, SWSH050)
 JP_PROMO_NUMBER = re.compile(r"^\d*[A-Z]?(SM-?P|XY-?P|BW-?P|DPT?-?P|LP|S-?P|SV-?P)$")
-LEARNED_SHARE = 0.8     # an undated set takes the year >= 80% of its matched alt.xyz cards carry
+# TCGplayer's "Card Type": a Pokemon's energy type(s), or what a Trainer / Energy card is. Covers every
+# value on the 2026-10-02 catalog (96 spellings, incl. "Lighnting", "Trainer — Item", "Fighting/Darkness")
+POKEMON_TYPES = {"grass", "fire", "water", "lightning", "lighnting", "electric", "psychic", "fighting", "darkness",
+                 "dark", "metal", "fairy", "dragon", "colorless", "normal"}
+TRAINER_WORDS = {"trainer", "supporter", "support", "item", "stadium", "tool", "machine", "tm"}
+LEARNED_SHARE = 0.8    # an undated set takes the year >= 80% of its matched alt.xyz cards carry
 # TCGplayer sets with no release date and too few matched cards to learn one (2026-10-02).
 # group_id: (year or None, span_from, span_to, note)
 MANUAL_SET_YEARS = {
@@ -197,6 +216,9 @@ def fetch(dest=TCGCSV_DIR):
     for g in groups["results"]:
         (dest / f"{g['groupId']}.json").write_text(json.dumps(_get(f"{TCGCSV}/tcgplayer/{EN}/{g['groupId']}/products")))
         time.sleep(0.3)
+        # one row per product and printing (subTypeName): the catalog's printings column
+        (dest / f"{g['groupId']}.prices.json").write_text(json.dumps(_get(f"{TCGCSV}/tcgplayer/{EN}/{g['groupId']}/prices")))
+        time.sleep(0.3)
     print(f"tcgcsv: {len(groups['results'])} sets -> {dest}")
 
 
@@ -205,6 +227,22 @@ def ext(product, key):
         if e["name"] == key:
             return e["value"]
     return None
+
+
+def card_type(product):
+    """Pokemon | Trainer | Energy from TCGplayer's "Card Type", else "" (unknown, not guessed). A few
+    products have none: an Energy then goes by its name, a card with HP is a Pokemon."""
+    words = set(words_text(ext(product, "Card Type") or "").split())
+    if not words:
+        name = words_text(re.split(r"\s+-\s+|\s*[(\[]", product["name"])[0])
+        return "Energy" if " energy " in name else "Pokemon" if ext(product, "HP") else ""
+    if "energy" in words:
+        return "Energy"
+    if words & TRAINER_WORDS:
+        return "Trainer"
+    if words <= POKEMON_TYPES:
+        return "Pokemon"
+    return ""
 
 
 def norm_number(s):
@@ -370,29 +408,44 @@ def load_catalog(src=TCGCSV_DIR):
     built = date.fromisoformat((src / "last-updated.txt").read_text()[:10])
     groups = {g["groupId"]: g for g in json.loads((src / "groups.json").read_text())["results"]}
     by_number, by_bare, by_name = defaultdict(list), defaultdict(list), defaultdict(list)
+    unnumbered = []
     for gid, g in groups.items():
         undated = abs((date.fromisoformat(g["publishedOn"][:10]) - built).days) <= 1
         g["year"] = None if undated else int(g["publishedOn"][:4])
         g["promo"] = bool(PROMO_SET.search(g["name"]))
+        printings = defaultdict(set)                     # no prices file (an older download): blank
+        prices = src / f"{gid}.prices.json"
+        for pr in json.loads(prices.read_text())["results"] if prices.exists() else []:
+            if pr.get("subTypeName"):
+                printings[pr["productId"]].add(pr["subTypeName"])
         for p in json.loads((src / f"{gid}.json").read_text())["results"]:
             number = ext(p, "Number")
-            if number:                                   # singles only; sealed product has no number
+            rarity = ext(p, "Rarity")
+            if number or (rarity and rarity != "Code Card"):   # sealed product has neither
                 p["group"] = g
-                p["number"] = number
-                p["key"] = tcg_name(p)
-                num = norm_number(number)
-                by_number[num].append(p)
-                bare = PROMO_PREFIX.match(num)
-                if bare and g["promo"]:
-                    by_bare[bare.group(2)].append(p)
-                by_name[compact(re.split(r"\s+-\s+|\s*[(\[]", p["name"])[0])].append(p)
+                p["number"] = number or ""
+                p["printings"] = "|".join(sorted(printings.get(p["productId"], ())))
+                p["card_type"] = card_type(p)
+            if not number:
+                # a single TCGplayer gives no number (My First Battle, "V-UNION [Set of 4]", WC deck
+                # energies, Corocoro Pikachu): catalog only, never matched to an alt.xyz row
+                if "group" in p:
+                    unnumbered.append(p)
+                continue
+            p["key"] = tcg_name(p)
+            num = norm_number(number)
+            by_number[num].append(p)
+            bare = PROMO_PREFIX.match(num)
+            if bare and g["promo"]:
+                by_bare[bare.group(2)].append(p)
+            by_name[compact(re.split(r"\s+-\s+|\s*[(\[]", p["name"])[0])].append(p)
     set_forms = set_name_forms(groups.values())
     for ps in by_number.values():
         for p in ps:
             q = " ".join(x for x in qualifier_text(p).split() if x != "and")
             p["set_qualifier"] = q in set_forms
             p["implied"] = next((alts for pat, alts in SET_IMPLIES if pat.search(p["group"]["name"])), ())
-    return groups, (by_number, by_bare, by_name), japanese_set_names(src, groups.values())
+    return groups, (by_number, by_bare, by_name, unnumbered), japanese_set_names(src, groups.values())
 
 
 SERIES = {"sm": "sun moon", "swsh": "sword shield", "sv": "scarlet violet", "bw": "black white",
@@ -465,7 +518,7 @@ def result(row, p, how):
 
 
 def build(feed=FEED, src=TCGCSV_DIR, out=OUT, report=None, characters=CHARACTERS, catalog=None, sets=None):
-    groups, (by_number, by_bare, by_name), japanese = load_catalog(src)
+    groups, (by_number, by_bare, by_name, unnumbered), japanese = load_catalog(src)
     rows = [r for r in csv.DictReader(open(feed, newline="", encoding="utf-8")) if english_tcg(r)]
     species = base_species(r["character"] for r in csv.DictReader(open(characters, newline="", encoding="utf-8")))
 
@@ -629,7 +682,7 @@ def build(feed=FEED, src=TCGCSV_DIR, out=OUT, report=None, characters=CHARACTERS
                             for gid in votes[k]), default=(0, None))
                 return groups[best[1]]["name"] if best[0] >= MIN_SHARE else ""
             year_of = {s["group_id"]: s["year"] for s in set_rows}
-            cat_rows = catalog_rows(rows, decided, cands, by_number, skip, voted_set, year_of)
+            cat_rows = catalog_rows(rows, decided, cands, by_number, unnumbered, skip, voted_set, year_of)
             write_csv(catalog, CATALOG_COLS, cat_rows)
             print(f"card_catalog: {len(cat_rows)} cards -> {catalog}  "
                   f"({dict(Counter(c['status'] for c in cat_rows))})")
@@ -685,7 +738,7 @@ def set_years(groups, rows, decided):
     return out
 
 
-def catalog_rows(rows, decided, cands, by_number, skip, voted_set, year_of):
+def catalog_rows(rows, decided, cands, by_number, unnumbered, skip, voted_set, year_of):
     out, matched, maybe = [], set(), set()
     for r in rows:
         p, how = decided[r["asset_id"]]
@@ -694,7 +747,7 @@ def catalog_rows(rows, decided, cands, by_number, skip, voted_set, year_of):
             matched.add(p["productId"])
             out.append({**base, "tcgplayer_id": p["productId"], "status": "linked", "how": how, "name": p["name"],
                         "set": p["group"]["name"], "set_source": "tcgplayer", "number": p["number"],
-                        "rarity": ext(p, "Rarity") or ""})
+                        "rarity": ext(p, "Rarity") or "", "printings": p["printings"], "card_type": p["card_type"]})
             continue
         cs = cands[r["asset_id"]]
         if skip(r) or not_english(r):
@@ -706,16 +759,15 @@ def catalog_rows(rows, decided, cands, by_number, skip, voted_set, year_of):
         guess, source = (in_sets.pop(), "candidates") if len(in_sets) == 1 else (voted_set(r), "voted")
         out.append({**base, "tcgplayer_id": "", "status": status, "how": how, "name": r.get("subject") or "",
                     "set": guess, "set_source": source if guess else "", "number": r.get("card_number") or "",
-                    "rarity": ""})
-    for ps in by_number.values():
-        for p in ps:
-            if p["productId"] in matched:
-                continue
-            out.append({"asset_id": "", "tcgplayer_id": p["productId"], "status": "tcgplayer_only",
-                        "how": "candidate_of_alt_row" if p["productId"] in maybe else "", "name": p["name"],
-                        "set": p["group"]["name"], "set_source": "tcgplayer", "number": p["number"],
-                        "rarity": ext(p, "Rarity") or "", "year": year_of.get(p["group"]["groupId"], ""),
-                        "print_run": ""})
+                    "rarity": "", "printings": "", "card_type": ""})
+    for p in [p for ps in by_number.values() for p in ps] + unnumbered:
+        if p["productId"] in matched:
+            continue
+        out.append({"asset_id": "", "tcgplayer_id": p["productId"], "status": "tcgplayer_only",
+                    "how": "candidate_of_alt_row" if p["productId"] in maybe else "" if p["number"] else "unnumbered",
+                    "name": p["name"], "set": p["group"]["name"], "set_source": "tcgplayer", "number": p["number"],
+                    "rarity": ext(p, "Rarity") or "", "year": year_of.get(p["group"]["groupId"], ""),
+                    "print_run": "", "printings": p["printings"], "card_type": p["card_type"]})
     out.sort(key=lambda c: (c["asset_id"] == "", c["asset_id"], int(c["tcgplayer_id"] or 0)))
     return out
 

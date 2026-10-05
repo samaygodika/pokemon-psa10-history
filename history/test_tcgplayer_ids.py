@@ -59,6 +59,10 @@ GROUPS = [  # groupId, name, publishedOn, products: (productId, name, number, ra
     (1663, "Base Set (Shadowless)", "1999-01-09", [(11, "Charizard", "004/102", "Holo Rare"), (12, "Blastoise", "002/102", "Holo Rare"),
                                                    (13, "Venusaur", "015/102", "Holo Rare")]),
     (1374, "Jungle", "1999-06-16", [(15, "Scyther", "010/064", "Holo Rare")]),
+    (23266, "SV: Scarlet & Violet Trainer Items", "2023-03-31", [(81, "Ultra Ball - 196/198", "196/198", "Uncommon"),
+                                                                (82, "Basic Fire Energy", "002", "Common")]),
+    (23330, "My First Battle", "2023-07-01", [(91, "Pikachu", None, "Unconfirmed"), (92, "My First Battle [Pikachu & Bulbasaur]", None, None),
+                                              (93, "Code Card - 151 Booster Pack [Code Card]", None, "Code Card")]),
     (23237, "SV: Scarlet & Violet 151", "2023-09-22", [(21, "Nidorina", "030/165", "Uncommon"), (22, "Mew ex - 151/165", "151/165", "Double Rare"),
                                                        (23, "Mewtwo", "150/165", "Rare")]),
     (1418, "WoTC Promo", "1999-07-01", [(31, "Mewtwo (Movie Promo)", "3", "Promo")]),
@@ -70,6 +74,14 @@ GROUPS = [  # groupId, name, publishedOn, products: (productId, name, number, ra
     (22880, "Prize Pack Series Cards", "2022-11-30", [(61, "Mew ex - 151/165", "151/165", "Double Rare")]),
     (2545, "SWSH: Sword & Shield Promo Cards", "2019-11-15", [(71, "Special Delivery Charizard - SWSH075", "SWSH075", "Promo")]),
 ]
+# TCGplayer's printings (prices subTypeName) per set and product, unlisted product "Normal";
+# Miscellaneous Cards & Products has no prices file. Card Type per product, default "Fire".
+PRINTINGS = {604: {1: ["Holofoil"], 2: ["Holofoil"], 3: ["Holofoil"]},
+             1663: {11: ["Unlimited Holofoil", "1st Edition Holofoil"], 12: ["Unlimited Holofoil", "1st Edition Holofoil"],
+                    13: ["Unlimited Holofoil", "1st Edition Holofoil"]},
+             23237: {21: ["Normal", "Reverse Holofoil"]}, 23266: {}, 1374: {}, 1418: {}, 1419: {}, 1815: {}, 22880: {},
+             2545: {}}
+CARD_TYPES = {81: "Item", 82: "Basic Fire Energy"}
 ALT = [  # asset_id, year, set, variety, subject, number, expected tcgplayer_id (None = no row)
     ("bs1", "1999", "Pokemon Base Set", "", "Charizard", "4", 1),
     ("bs2", "1999", "Pokemon Base Set", "", "Blastoise", "2", 2),
@@ -143,7 +155,36 @@ def test_catalog():
         assert (s["WoTC Promo"]["year"], s["WoTC Promo"]["year_source"]) == ("1999", "published")
         assert s["Miscellaneous Cards & Products"]["year_source"] == "multi_year"
         assert s["Miscellaneous Cards & Products"]["linked_cards"] == "2"
+        # printings + card_type (2026-10-05, Sid): the product's, on linked and TCGplayer-only rows
+        assert by_asset["fe1"]["printings"] == "1st Edition Holofoil|Unlimited Holofoil", "sorted, '|'-joined"
+        assert by_asset["bs1"]["printings"] == "Holofoil" and by_asset["bs1"]["card_type"] == "Pokemon"
+        assert by_asset["sv3"]["printings"] == "Normal|Reverse Holofoil"
+        assert (by_asset["mw1"]["printings"], by_asset["mw1"]["card_type"]) == ("", ""), "alt.xyz-only: unknown"
+        assert by_asset["am1"]["printings"] == "", "no prices file for the set: blank, not guessed"
+        assert only["81"]["card_type"] == "Trainer" and only["82"]["card_type"] == "Energy"
+        assert only["81"]["printings"] == "Normal"
+        # a single with no number is listed, never matched; sealed product and code cards aren't (2026-10-05)
+        assert (only["91"]["how"], only["91"]["number"], only["91"]["name"]) == ("unnumbered", "", "Pikachu")
+        assert "92" not in only and "93" not in only, "sealed deck / digital code card"
     print("catalog ok")
+
+
+def test_card_type():
+    def ct(value, name="X", hp=None):
+        ed = ([{"name": "Card Type", "value": value}] if value else []) + ([{"name": "HP", "value": hp}] if hp else [])
+        return t.card_type({"name": name, "extendedData": ed})
+    for v in ("Fire", "Darkness Metal", "Fighting/Darkness", "Lighnting", "Dark", "Colorless Psychic", "Normal"):
+        assert ct(v) == "Pokemon", v
+    for v in ("Supporter", "Item", "Trainer", "Stadium", "Tool", "Pokémon Tool", "Trainer — Item", "Trainer - Supporter",
+              "Technical Machine", "TM", "Rocket's Secret Machine", "Supporter - Item"):
+        assert ct(v) == "Trainer", v
+    for v in ("Basic Energy", "Special Energy", "Energy", "Basic Lightning Energy", "Special Rainbow Energy"):
+        assert ct(v) == "Energy", v
+    assert ct(None, "Basic Fire Energy - MEE 002 (Cosmos Holo)") == "Energy", "no type: an Energy by its name"
+    assert ct(None, "Mewtwo", hp="130") == "Pokemon", "no type: a card with HP"
+    assert ct(None, "Brock's Scouting - 179/159") == "", "no type, no HP: unknown"
+    assert ct("Something New") == "", "a type we don't know: unknown, not guessed"
+    print("card type ok")
 
 
 def test_set_years():
@@ -190,8 +231,13 @@ def build_fixture(d):
     (d / "groups.json").write_text(json.dumps({"results": [{"groupId": g, "name": n, "publishedOn": pub} for g, n, pub, _ in GROUPS]}))
     for g, _, _, prods in GROUPS:
         (d / f"{g}.json").write_text(json.dumps({"results": [
-            {"productId": pid, "name": name, "extendedData": [{"name": "Number", "value": num}, {"name": "Rarity", "value": rar}]}
+            {"productId": pid, "name": name, "extendedData": [{"name": k, "value": v} for k, v in
+                                                              (("Number", num), ("Rarity", rar), ("Card Type", CARD_TYPES.get(pid, "Fire")))
+                                                              if v is not None]}
             for pid, name, num, rar in prods]}))
+        if g in PRINTINGS:
+            (d / f"{g}.prices.json").write_text(json.dumps({"results": [
+                {"productId": pid, "subTypeName": sub} for pid, _, _, _ in prods for sub in PRINTINGS[g].get(pid, ["Normal"])]}))
     feed, chars, out = d / "cards.csv", d / "characters.csv", d / "out.csv"
     with open(feed, "w", newline="") as f:
         w = csv.writer(f)
@@ -211,5 +257,6 @@ if __name__ == "__main__":
     test_qualifiers()
     test_build()
     test_catalog()
+    test_card_type()
     test_set_years()
     test_not_english()
