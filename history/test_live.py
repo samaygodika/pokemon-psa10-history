@@ -315,6 +315,53 @@ def test_scraper_listings_only():
         print("scraper listings-only ok")
 
 
+def test_ingest_alt_listings():
+    """alt.xyz's own listings (2026-10-06): a complete pull replaces every "Alt" row at once,
+    the per-card replacement leaves them alone, cheapest Alt BIN per asset+grade only,
+    first_seen carried, and metrics counts them with the other sites' listings."""
+    with tempfile.TemporaryDirectory() as d:
+        store, run = Path(d) / "store", Path(d) / "run"
+        store.mkdir(); run.mkdir()
+        now = "2026-10-06T16:00:00+00:00"
+        base = {"grading_company": "PSA", "grade": "10.0", "current_bid": "", "bid_count": "",
+                "end_date": "", "buy_it_now_price": "", "checked_at": now}
+        _write(store / "live_listings.csv", ingest.LIVE_COLS, [
+            dict(base, asset_id="A", listing_type="BUY_IT_NOW", source="eBay", buy_it_now_price="500", url="e1", first_seen="2026-10-01"),
+            dict(base, asset_id="A", listing_type="AUCTION", source="Alt", current_bid="300", bid_count="4",
+                 end_date="2026-10-09T01:05:00+00:00", url="alt-a1", first_seen="2026-10-02"),
+            dict(base, asset_id="B", listing_type="AUCTION", source="Alt", current_bid="10", bid_count="0",
+                 end_date="2026-10-09T01:05:00+00:00", url="alt-b1", first_seen="2026-10-02"),   # gone from the next pull
+        ])
+        pull = run / "alt_listings.csv"
+        _write(pull, ingest.LIVE_COLS, [
+            dict(base, asset_id="A", listing_type="AUCTION", source="Alt", current_bid="350", bid_count="5",
+                 end_date="2026-10-09T01:05:00+00:00", url="alt-a1"),
+            dict(base, asset_id="A", listing_type="BUY_IT_NOW", source="Alt", buy_it_now_price="450", url="alt-a2"),
+            dict(base, asset_id="A", listing_type="BUY_IT_NOW", source="Alt", buy_it_now_price="480", url="alt-a3"),
+            dict(base, asset_id="C", grade="9", listing_type="BUY_IT_NOW", source="Alt", buy_it_now_price="40", url="alt-c1"),
+        ])
+        out = ingest.ingest_alt(pull, store, "2026-10-06")
+        assert out == {"alt_rows": 3, "alt_auctions": 1}, out
+        rows = ingest.read_csv(store / "live_listings.csv")
+        got = {r["url"]: r for r in rows}
+        assert set(got) == {"e1", "alt-a1", "alt-a2", "alt-c1"}, set(got)   # B's ended, a3 not cheapest
+        assert got["alt-a1"]["current_bid"] == "350" and got["alt-a1"]["first_seen"] == "2026-10-02"
+        assert got["alt-a2"]["first_seen"] == "2026-10-06" and got["alt-c1"]["grade"] == "9.0"
+        assert got["e1"]["first_seen"] == "2026-10-01", "other sites' rows untouched"
+
+        # A per-card check of A at PSA 10 that finds nothing on eBay replaces eBay's row only.
+        _write(run / "listings.csv", ingest.LIVE_COLS, [])
+        ingest.ingest_live(run, [{"asset_id": "A", "listings_checked_at": now}], store)
+        urls = {r["url"] for r in ingest.read_csv(store / "live_listings.csv")}
+        assert urls == {"alt-a1", "alt-a2", "alt-c1"}, urls
+
+        # metrics: the Alt auction and BIN fill A's columns like any other site's
+        live = metrics.load_live(store)
+        cols = metrics.live_cols(now, live[("A", "10.0")])
+        assert cols["live_auction_count"] == 1 and cols["next_auction_source"] == "Alt", cols
+        assert cols["lowest_bin_price"] and float(cols["lowest_bin_price"]) == 450 and cols["lowest_bin_source"] == "Alt", cols
+
+
 if __name__ == "__main__":
     test_ingest_live_keeps_snapshots_and_ages_bins()
     test_ingest_live_replaces_per_grade()
@@ -323,4 +370,5 @@ if __name__ == "__main__":
     test_metrics_listing_age_cols()
     test_ingest_listings_only()
     test_scraper_listings_only()
+    test_ingest_alt_listings()
     print("all live-listing checks passed")

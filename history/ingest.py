@@ -70,6 +70,20 @@ Store layout (all plain CSV, all append/merge-friendly so git diffs stay small):
                                   (--listings-only, 2026-10-03) replaces rows the
                                   same way and moves the refreshed cards' check
                                   times forward in their newest daily row.
+                                  Rows with source "Alt" (2026-10-06) are alt.xyz's
+                                  OWN auctions and fixed-price listings, which the
+                                  per-card answer above never includes. They come
+                                  from one bulk pull of every card at once
+                                  (alt_scraper.py --alt-listings ->
+                                  alt_listings.csv; the nightly and every listings
+                                  refresh) and are replaced all together by the
+                                  next complete pull: every running Alt auction,
+                                  plus the cheapest Alt fixed-price listing per
+                                  asset and grade. The per-card replacement leaves
+                                  them alone, and a run without a pull keeps the
+                                  last one (auction end / BIN age rules still apply).
+                                  A nightly folds <run>/alt_listings.csv when it is
+                                  there; a refresh passes --alt-listings FILE.
 
 Standard library only, like the scraper.
 """
@@ -105,6 +119,7 @@ BIN_MAX_AGE_DAYS = 7   # a Buy It Now row survives this long without alt.xyz sho
 # grade -> the cards.csv column with the UTC time of the run's believable live-listings check at that
 # grade (blank = not asked, or the request failed); live rows are replaced per (asset, grade)
 LIVE_CHECK_COLS = {"10.0": "listings_checked_at", "9.0": "psa9_listings_checked_at"}
+ALT_SOURCE = "Alt"   # source of the rows from alt.xyz's own auctions / marketplace (ingest_alt)
 
 DATE_RX = re.compile(r"\d{4}-\d{2}-\d{2}")
 
@@ -204,6 +219,8 @@ def ingest(run_dir, day, store=HERE):
           f"{stats['sales_month_files_rewritten']} month files rewritten")
 
     live = ingest_live(run_dir, cards, store, day)
+    if (run_dir / "alt_listings.csv").exists():
+        live.update(ingest_alt(run_dir / "alt_listings.csv", store, day))
     return {"assets": len(assets), "new_assets": new_assets, "daily_rows": len(daily), **stats, **live}
 
 
@@ -383,7 +400,8 @@ def ingest_live(run_dir, cards, store, day=""):
     stored = read_csv(live_path)
     # When each listing we already hold was first recorded, so a re-seen listing keeps its age.
     seen = {(r["asset_id"], norm_grade(r["grade"]), r["url"]): r.get("first_seen", "") for r in stored}
-    kept = [r for r in stored if (r["asset_id"], norm_grade(r["grade"])) not in checked]
+    # Alt's own listings never come in a per-card answer: they are replaced by ingest_alt only.
+    kept = [r for r in stored if r["source"] == ALT_SOURCE or (r["asset_id"], norm_grade(r["grade"])) not in checked]
     fresh = []
     for rows in incoming.values():
         fresh += [r for r in rows if r["listing_type"] == "AUCTION"]
@@ -420,6 +438,39 @@ def ingest_live(run_dir, cards, store, day=""):
           f"({n_auc} auctions, {len(rows) - n_auc} cheapest-BIN), {pruned} ended auctions pruned, "
           f"{aged} BIN(s) unseen for {BIN_MAX_AGE_DAYS}+ days dropped")
     return {"live_assets_checked": n_assets, "live_checks": by_grade, "live_rows": len(rows), "bins_aged_out": aged}
+
+
+def ingest_alt(path, store, day=""):
+    """Replace every source "Alt" row of history/live_listings.csv with this complete pull of
+    alt.xyz's own listings (alt_scraper.py --alt-listings; the file is only written when the
+    pull read the whole index). Keeps every running auction and the cheapest fixed-price
+    listing per asset and grade, like ingest_live; first_seen carries over by (asset, grade, url)."""
+    live_path = store / "live_listings.csv"
+    stored = read_csv(live_path)
+    seen = {(r["asset_id"], norm_grade(r["grade"]), r["url"]): r.get("first_seen", "")
+            for r in stored if r["source"] == ALT_SOURCE}
+    other = [r for r in stored if r["source"] != ALT_SOURCE]
+    incoming = read_csv(Path(path))
+    fresh = [r for r in incoming if r["listing_type"] == "AUCTION"]
+    cheapest = {}
+    for r in incoming:
+        if r["listing_type"] != "AUCTION" and to_float(r["buy_it_now_price"]):
+            key = (r["asset_id"], norm_grade(r["grade"]))
+            if key not in cheapest or to_float(r["buy_it_now_price"]) < to_float(cheapest[key]["buy_it_now_price"]):
+                cheapest[key] = r
+    fresh += cheapest.values()
+    for r in fresh:
+        r["grade"] = norm_grade(r["grade"])
+        r["first_seen"] = seen.get((r["asset_id"], r["grade"], r["url"])) or day
+    gone = len(seen) - sum(1 for r in fresh if (r["asset_id"], r["grade"], r["url"]) in seen)
+    rows = other + [{c: r.get(c, "") for c in LIVE_COLS} for r in fresh]
+    rows.sort(key=lambda r: (r["asset_id"], r["grade"], r["listing_type"], r["end_date"] or "", r["url"] or ""))
+    write_csv_atomic(live_path, LIVE_COLS, rows)
+    n_auc = sum(1 for r in fresh if r["listing_type"] == "AUCTION")
+    print(f"  live_listings.csv: alt.xyz's own listings replaced: {n_auc} auctions + {len(fresh) - n_auc} cheapest "
+          f"fixed-price on {len({r['asset_id'] for r in fresh})} assets ({len(incoming)} in the pull; "
+          f"{len(seen) - gone} kept their first_seen, {gone} earlier Alt row(s) gone)")
+    return {"alt_rows": len(fresh), "alt_auctions": n_auc}
 
 
 def ingest_listings_only(run_dir, day, store=HERE):
@@ -466,13 +517,21 @@ def ingest_listings_only(run_dir, day, store=HERE):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("run_dir", help="folder holding cards.csv and sales.csv from one scrape")
+    ap.add_argument("run_dir", nargs="?", help="folder holding cards.csv and sales.csv from one scrape")
     ap.add_argument("--date", help="run date YYYY-MM-DD (default: taken from the folder name)")
     ap.add_argument("--store", default=str(HERE), help="history store directory (default: this folder)")
     ap.add_argument("--listings-only", action="store_true",
                     help="the run is a listings refresh (alt_scraper.py --listings-only): update live_listings.csv "
                          "and the check times only, no daily rows, no sales")
+    ap.add_argument("--alt-listings", metavar="FILE",
+                    help="an alt_listings.csv (alt_scraper.py --alt-listings): replace alt.xyz's own listings in "
+                         "live_listings.csv with it. On its own (no run_dir) that is all it does; needs --date")
     args = ap.parse_args()
+    if not args.run_dir:
+        if not (args.alt_listings and args.date):
+            ap.error("give a run_dir, or --alt-listings FILE with --date")
+        ingest_alt(args.alt_listings, Path(args.store), args.date)
+        return
     day = args.date
     if not day:
         m = DATE_RX.search(Path(args.run_dir).resolve().name)
@@ -483,6 +542,8 @@ def main():
         ingest_listings_only(args.run_dir, day, Path(args.store))
     else:
         ingest(args.run_dir, day, Path(args.store))
+    if args.alt_listings:
+        ingest_alt(args.alt_listings, Path(args.store), day)
 
 
 if __name__ == "__main__":

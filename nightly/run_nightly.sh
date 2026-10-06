@@ -122,6 +122,11 @@ echo "=== scrape done $(date '+%F %T'): $ROWS rows in $OUT/cards.csv ==="
 
 if [ -n "${NIGHTLY_SKIP_HISTORY:-}" ]; then exit 0; fi
 
+echo "--- alt.xyz's own auctions + marketplace (one bulk pull, all cards) ---"
+# -> $OUT/alt_listings.csv, which ingest folds in (and commit_results.sh's re-derive again). A failed
+# pull writes no file, so the last good Alt rows stand; the run goes on.
+$PY alt_scraper.py --alt-listings --out "$OUT" || echo "alt listings: pull failed, kept the previous Alt rows"
+
 echo "--- 4/8 ingest into history/ ---"
 $PY history/ingest.py "$OUT" --date "$DAY"
 

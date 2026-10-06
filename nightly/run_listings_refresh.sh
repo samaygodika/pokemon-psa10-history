@@ -12,6 +12,8 @@
 # Steps: 1. nightly/refresh_scope.py -> snapshots/refresh/<stamp>/refresh_psa{10,9}.{txt,json}
 #        2. alt_scraper.py --listings-only, once per grade (one request per card, no pops, no sales)
 #        3. history/ingest.py --listings-only, once per grade (live_listings.csv + check times in daily/)
+#        3b. alt_scraper.py --alt-listings + ingest.py --alt-listings: alt.xyz's OWN auctions and
+#           fixed-price listings, every card at once (~25 search pages, 2026-10-06)
 #        4. history/metrics.py (latest/cards.csv, series, recent_sales, clean_sales, summary.json;
 #           only the listing columns can change) — coverage/flags/tcgplayer are not touched
 #        5. commit + push, re-deriving on top of origin/main if a push is rejected (same idea as
@@ -46,6 +48,13 @@ scrape_and_ingest() {
     echo "--- ingest PSA $g ---"
     $PY history/ingest.py "$OUT/psa$g" --date "$DAY" --listings-only
   done
+  echo "--- alt.xyz's own auctions + marketplace (one bulk pull, all cards) ---"
+  rm -f "$OUT/alt_listings.csv"
+  if $PY alt_scraper.py --alt-listings --out "$OUT"; then
+    $PY history/ingest.py --alt-listings "$OUT/alt_listings.csv" --date "$DAY"
+  else
+    echo "alt listings: pull failed, kept the previous Alt rows"
+  fi
   echo "--- rebuild latest/ ---"
   $PY history/metrics.py
 }
@@ -74,6 +83,7 @@ for attempt in 1 2 3; do
   for g in 10 9; do
     [ -f "$OUT/psa$g/cards.csv" ] && $PY history/ingest.py "$OUT/psa$g" --date "$DAY" --listings-only
   done
+  [ -f "$OUT/alt_listings.csv" ] && $PY history/ingest.py --alt-listings "$OUT/alt_listings.csv" --date "$DAY"
   $PY history/metrics.py
 done
 echo "could not push after 3 attempts" >&2

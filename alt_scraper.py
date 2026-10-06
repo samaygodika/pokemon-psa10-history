@@ -16,6 +16,7 @@ Usage
   python3 alt_scraper.py --list charizard --min-pop 100   # ...only cards with 100+ graded copies
   python3 alt_scraper.py --skip-unchanged-sales history/daily/2026-09-25.csv cards.txt
                                                    # don't refetch sales that cannot have changed since that run
+  python3 alt_scraper.py --alt-listings --out DIR  # Alt's own auctions + marketplace -> DIR/alt_listings.csv
 
 Cards with zero copies at the chosen grade (e.g. no PSA 10 exists) are skipped, so every row
 in cards.csv is a card you can actually buy in that grade. --keep-empty writes them anyway.
@@ -34,6 +35,10 @@ Outputs (written next to this script unless --out is given):
                    Collect / CardHobby via alt.xyz): Buy It Now price, or auction end time,
                    bid count and current bid. With --also-listings, also at each --also-grade
                    (the grade column tells them apart)
+  alt_listings.csv (--alt-listings) every live listing on alt.xyz's OWN auction and fixed-price
+                   marketplace at PSA 10 and 9, all Pokemon cards at once, same columns as
+                   listings.csv with source "Alt". listings.csv never has these: alt.xyz's
+                   per-card live-listings answer only mirrors other sites
 
 Login (optional): alt.xyz's pages ask for a free account since 2026-10-02. To scrape as that
 account, put its stytch_session cookie value in ALT_SESSION_TOKEN or ~/.alt_session (README, 'Login').
@@ -652,6 +657,114 @@ def get_search_config():
     return _search_cfg
 
 
+# Alt's own listings (2026-10-06). The per-card live-listings answer (fetch_live_listings) only
+# mirrors other sites (eBay, Fanatics Collect, CardHobby, Goldin, Pristine): not one of the 45k
+# rows in history/live_listings.csv was alt.xyz's own. Its own weekly auctions ("Liquid
+# Auctions", alt.xyz/liquid-auctions) and fixed-price marketplace (alt.xyz/browse/fixed-price)
+# live in a second Typesense index the site searches with a key from the same SearchServiceConfig
+# call (universalSearch). One document per listing: assetId = the feed's asset_id, gradeKey
+# ("PSA-10"), listingType (AUCTION / FIXED_PRICE / EXTERNAL_FIXED_PRICE = the mirrored eBay BINs
+# we already have), price (high bid, or the opening bid while bidCount is 0; the asking price for
+# FIXED_PRICE), bidCount, expiresAtEpoch (999999999999 on a fixed-price listing). The listing
+# page is alt.xyz/itm/<id> for both kinds (checked 2026-10-06: Skyridge Gengar H9 auction
+# $300,000 / 13 bids and a Paldean Fates Mew ex at $3,100 read the same on the page).
+Q_UNIVERSAL_SEARCH_CONFIG = """
+query SearchServiceConfig {
+  serviceConfig { search { universalSearch {
+    clientConfig { nodes { host port protocol } apiKey }
+    collectionName expiresAt
+  } } }
+}
+"""
+_universal_cfg = None
+ALT_PAGE_SIZE = 250
+
+
+def get_universal_search_config(force=False):
+    global _universal_cfg
+    if not force and _universal_cfg and _universal_cfg.get("expiresAt", 0) - 60 > time.time():
+        return _universal_cfg
+    d = gql("SearchServiceConfig", Q_UNIVERSAL_SEARCH_CONFIG, {})
+    _universal_cfg = d["serviceConfig"]["search"]["universalSearch"]
+    return _universal_cfg
+
+
+def _universal_page(filter_by, page):
+    """One page of the listing index, the way the site asks for it (preset "recommended":
+    the index takes no query_by of ours). A refused key is re-minted once."""
+    body = json.dumps({"searches": [{"q": "", "preset": "recommended", "filter_by": filter_by,
+                                     "per_page": ALT_PAGE_SIZE, "page": page}]}).encode()
+    for force in (False, True):
+        cfg = get_universal_search_config(force)
+        node = cfg["clientConfig"]["nodes"][0]
+        url = (f"{node['protocol']}://{node['host']}:{node['port']}/multi_search?"
+               + urllib.parse.urlencode({"collection": cfg["collectionName"],
+                                         "x-typesense-api-key": cfg["clientConfig"]["apiKey"]}))
+        req = urllib.request.Request(url, data=body, method="POST", headers={
+            "content-type": "application/json", "user-agent": HEADERS["user-agent"], "origin": "https://alt.xyz"})
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                res = json.loads(r.read())["results"][0]
+        except urllib.error.HTTPError as e:
+            if e.code == 401 and not force:
+                continue
+            raise
+        if "error" in res:
+            raise RuntimeError(f"alt.xyz listing index: {res['error']}")
+        time.sleep(DELAY_SECONDS)
+        return res
+    raise RuntimeError("alt.xyz listing index refused a fresh key")
+
+
+def fetch_alt_listings(company="PSA", grades=("10.0", "9.0"), category="POKEMON_CARDS"):
+    """Every live listing on alt.xyz's own auctions and fixed-price marketplace for this
+    company at these grades, as listings.csv rows (LIVE_COLS, source "Alt"). All or nothing:
+    raises if a page fails or the pages don't add up to the index's count, so a partial pull
+    never reads as "these listings ended"."""
+    now = int(time.time())
+    keys = ",".join(f"{company}-{g.rstrip('0').rstrip('.')}" for g in grades)   # "10.0" -> PSA-10
+    checked_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    # Same filters as the site's own pages: an auction still running, a fixed-price listing
+    # still shown (showResult) and not expired.
+    filters = [f"category:={category}&&auctionHouse:[Alt]&&listingType:[AUCTION]&&gradeKey:[{keys}]"
+               f"&&showResult:true&&hasAuctionEnded:false&&expiresAtEpoch:>{now}",
+               f"category:={category}&&auctionHouse:[Alt]&&listingType:[FIXED_PRICE]&&gradeKey:[{keys}]"
+               f"&&showResult:true&&expiresAtEpoch:>{now}"]
+    rows = []
+    for filter_by in filters:
+        docs, page, found = {}, 1, None
+        while True:
+            res = _universal_page(filter_by, page)
+            found = res.get("found", 0)
+            for h in res.get("hits", []):
+                docs[h["document"]["id"]] = h["document"]
+            if page * ALT_PAGE_SIZE >= found or not res.get("hits"):
+                break
+            page += 1
+        # Listings start and end while we page; a few either way is churn, more is a broken pull.
+        if abs(len(docs) - found) > max(5, found // 100):
+            raise RuntimeError(f"alt.xyz listing index: {len(docs)} listings read, index says {found}")
+        for d in docs.values():
+            auction = d.get("listingType") == "AUCTION"
+            end = (datetime.fromtimestamp(d["expiresAtEpoch"], timezone.utc).isoformat()
+                   if auction and d.get("expiresAtEpoch") else "")
+            rows.append({
+                "asset_id": d.get("assetId"),
+                "grading_company": d.get("gradingCompany") or company,
+                "grade": normalise_grade(d.get("grade")),
+                "listing_type": "AUCTION" if auction else "BUY_IT_NOW",
+                "source": "Alt",
+                "current_bid": d.get("price") if auction else "",
+                "bid_count": d.get("bidCount") if auction else "",
+                "end_date": end,
+                "buy_it_now_price": "" if auction else d.get("price"),
+                "url": f"https://alt.xyz/itm/{d['id']}",
+                "alt_listing_id": d["id"],
+                "checked_at": checked_at,
+            })
+    return [r for r in rows if r["asset_id"]]
+
+
 def search_assets(text, limit=10, category="POKEMON_CARDS"):
     """Return matching asset documents (id, name, year, brand, cardNumber, pop, ...)."""
     cfg = get_search_config()
@@ -856,6 +969,10 @@ def main():
                          "the card's identity and the check time in the column for that grade (listings_checked_at "
                          "for PSA 10, psa9_listings_checked_at for PSA 9) and nothing else; ingest it with "
                          "history/ingest.py --listings-only. Not combinable with --also-grade")
+    ap.add_argument("--alt-listings", action="store_true",
+                    help="write every live listing on alt.xyz's own auctions and fixed-price marketplace (Pokemon, "
+                         "--company at grades 10 and 9) to OUT/alt_listings.csv and exit: ~40 search pages for all "
+                         "cards at once. Fold it in with history/ingest.py --alt-listings OUT/alt_listings.csv")
     ap.add_argument("--category", default="POKEMON_CARDS", help="search category filter, or ALL. Default POKEMON_CARDS")
     ap.add_argument("--loose", action="store_true", help="with --list: also keep cards that only mention TEXT in the set name")
     ap.add_argument("--min-pop", type=int, default=0, metavar="N",
@@ -898,6 +1015,20 @@ def main():
         write_sidecar(path, docs)
         print(f"\n{len(docs)} cards -> {path}  (+ {sidecar_path(path).name} with card details)"
               f"\nScrape them with:  python3 alt_scraper.py {path.name}")
+        return
+    if args.alt_listings:
+        out = Path(args.out)
+        out.mkdir(parents=True, exist_ok=True)
+        rows = fetch_alt_listings(args.company.upper(), category=args.category.upper())
+        tmp = out / "alt_listings.csv.tmp"
+        with open(tmp, "w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=LIVE_COLS)
+            w.writeheader()
+            w.writerows(rows)
+        tmp.replace(out / "alt_listings.csv")     # the file only exists when the pull was complete
+        n_auc = sum(1 for r in rows if r["listing_type"] == "AUCTION")
+        print(f"alt.xyz's own listings: {n_auc} auctions + {len(rows) - n_auc} fixed-price on "
+              f"{len({r['asset_id'] for r in rows})} cards -> {out / 'alt_listings.csv'}")
         return
     if not args.inputs:
         ap.error("give at least one URL / ID / file, or use --find")
