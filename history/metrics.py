@@ -154,6 +154,12 @@ times with its own clock.
                          (NIGHTLY_ALSO_LISTINGS=1), so all blank until then;
                          once on, blank still = never checked at PSA 9, and a
                          count of 0 = checked, nothing running.
+  alt.xyz's own listings (source "Alt", 2026-10-06): its weekly auctions and
+  fixed-price marketplace, from one bulk pull of every card (ingest.py
+  ingest_alt), counted in the columns above like any other site. A card with
+  no per-card check at a grade but with Alt listings there takes the Alt
+  pull's time as its check time (live_check_time), so its counts then cover
+  Alt only; a card with neither stays blank.
 
 Listing age and suspect bids (2026-10-03), the last four columns of cards.csv
 (Sid: "Buy now / Live data is sometimes still inaccurate"). alt.xyz re-serves
@@ -624,6 +630,18 @@ def lowest_bin(listings):
     return min(bins, key=lambda r: to_float(r["buy_it_now_price"])) if bins else None
 
 
+def live_check_time(checked_at, listings):
+    """The check time the live columns are built on: the card's own per-card check, or, when
+    it has none but alt.xyz's own listings were seen for it (source "Alt", 2026-10-06), the
+    time of that bulk pull. So a card never checked at a grade still shows its Alt listings
+    (Sid: 252 PSA 9 cards), while a card with neither stays blank = unknown: the fallback
+    only applies when there is a listing, so it never manufactures a "checked, nothing listed"
+    zero. In that case the counts cover Alt only (the other sites were not asked)."""
+    if checked_at:
+        return checked_at
+    return max((r["checked_at"] for r in listings if r["source"] == "Alt" and r["checked_at"]), default="")
+
+
 def live_cols(checked_at, listings, prefix=""):
     """The live-listing columns for one card (see the module doc). prefix="psa9_" names the
     PSA 9 set (PSA9_LIVE_COLS): same rules, fed the card's PSA 9 rows and PSA 9 check time."""
@@ -826,10 +844,12 @@ def build(store=HERE, out=LATEST):
         row.update(psa9_cols(aid, num, psa9_day.get(aid), sales9.get(aid, []), raw_sales9.get(aid, []), ref_now, today))
         if row["psa9_last_sale_price"]:
             filled["psa9_last_sale_price"] += 1
-        row.update(live_cols(checked_at["10.0"].get(aid), live.get((aid, "10.0"), [])))
-        row.update(live_cols(checked_at["9.0"].get(aid), live.get((aid, "9.0"), []), prefix="psa9_"))
-        row.update(listing_age_cols(checked_at["10.0"].get(aid), live.get((aid, "10.0"), []), ref_now))
-        row.update(listing_age_cols(checked_at["9.0"].get(aid), live.get((aid, "9.0"), []),
+        t10 = live_check_time(checked_at["10.0"].get(aid), live.get((aid, "10.0"), []))
+        t9 = live_check_time(checked_at["9.0"].get(aid), live.get((aid, "9.0"), []))
+        row.update(live_cols(t10, live.get((aid, "10.0"), [])))
+        row.update(live_cols(t9, live.get((aid, "9.0"), []), prefix="psa9_"))
+        row.update(listing_age_cols(t10, live.get((aid, "10.0"), []), ref_now))
+        row.update(listing_age_cols(t9, live.get((aid, "9.0"), []),
                                     to_float(row["psa9_median_last_3"]), prefix="psa9_"))
         for c in ("lowest_bin_first_seen", "psa9_lowest_bin_first_seen"):
             if row[c]:

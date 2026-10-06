@@ -361,6 +361,15 @@ def test_ingest_alt_listings():
         assert cols["live_auction_count"] == 1 and cols["next_auction_source"] == "Alt", cols
         assert cols["lowest_bin_price"] and float(cols["lowest_bin_price"]) == 450 and cols["lowest_bin_source"] == "Alt", cols
 
+        # No per-card check at PSA 9: C still shows its Alt BIN, on the Alt pull's time; a card
+        # with neither a check nor an Alt row stays blank (never a made-up "checked, nothing").
+        t = metrics.live_check_time("", live[("C", "9.0")])
+        assert t == now, t
+        c9 = metrics.live_cols(t, live[("C", "9.0")], prefix="psa9_")
+        assert c9["psa9_lowest_bin_source"] == "Alt" and c9["psa9_live_auction_count"] == 0, c9
+        assert metrics.live_check_time("", []) == ""
+        assert metrics.live_check_time("2026-10-05T10:00:00+00:00", live[("C", "9.0")]) == "2026-10-05T10:00:00+00:00"
+
 
 if __name__ == "__main__":
     test_ingest_live_keeps_snapshots_and_ages_bins()
