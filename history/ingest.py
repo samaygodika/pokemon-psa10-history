@@ -84,6 +84,12 @@ Store layout (all plain CSV, all append/merge-friendly so git diffs stay small):
                                   last one (auction end / BIN age rules still apply).
                                   A nightly folds <run>/alt_listings.csv when it is
                                   there; a refresh passes --alt-listings FILE.
+    history/ebay_checks.csv       what eBay said about each eBay Buy It Now it was
+                                  asked about (ebay_verify.py, 2026-10-06): live /
+                                  ended / gone and when. Dead listings are dropped
+                                  from live_listings.csv and skipped here when
+                                  alt.xyz re-serves them, so a card's next cheapest
+                                  BIN takes their place.
 
 Standard library only, like the scraper.
 """
@@ -402,12 +408,18 @@ def ingest_live(run_dir, cards, store, day=""):
     seen = {(r["asset_id"], norm_grade(r["grade"]), r["url"]): r.get("first_seen", "") for r in stored}
     # Alt's own listings never come in a per-card answer: they are replaced by ingest_alt only.
     kept = [r for r in stored if r["source"] == ALT_SOURCE or (r["asset_id"], norm_grade(r["grade"])) not in checked]
-    fresh = []
+    # eBay listings eBay itself says have ended (history/ebay_checks.csv, ebay_verify.py): alt.xyz
+    # keeps re-serving them, so they are skipped here and the next cheapest BIN can be the one kept.
+    from ebay_verify import dead_urls, item_id   # noqa: E402  (ebay_verify imports this module)
+    dead = dead_urls(store)
+    fresh, skipped_dead = [], 0
     for rows in incoming.values():
         fresh += [r for r in rows if r["listing_type"] == "AUCTION"]
         bins = [r for r in rows if r["listing_type"] != "AUCTION" and to_float(r["buy_it_now_price"])]
-        if bins:
-            fresh.append(min(bins, key=lambda r: to_float(r["buy_it_now_price"])))
+        live_bins = [r for r in bins if item_id(r["url"]) not in dead]
+        skipped_dead += len(bins) - len(live_bins)
+        if live_bins:
+            fresh.append(min(live_bins, key=lambda r: to_float(r["buy_it_now_price"])))
     for r in fresh:
         r["first_seen"] = seen.get((r["asset_id"], norm_grade(r["grade"]), r["url"])) or day
     # An auction whose end is before the newest check anywhere in this run has certainly
@@ -436,8 +448,9 @@ def ingest_live(run_dir, cards, store, day=""):
     at = ", ".join(f"{n} at PSA {g}" for g, n in by_grade.items() if n)
     print(f"  live_listings.csv: {n_assets} assets checked this run{f' ({at})' if at else ''}, {len(rows)} rows "
           f"({n_auc} auctions, {len(rows) - n_auc} cheapest-BIN), {pruned} ended auctions pruned, "
-          f"{aged} BIN(s) unseen for {BIN_MAX_AGE_DAYS}+ days dropped")
-    return {"live_assets_checked": n_assets, "live_checks": by_grade, "live_rows": len(rows), "bins_aged_out": aged}
+          f"{aged} BIN(s) unseen for {BIN_MAX_AGE_DAYS}+ days dropped, {skipped_dead} BIN(s) eBay says have ended skipped")
+    return {"live_assets_checked": n_assets, "live_checks": by_grade, "live_rows": len(rows), "bins_aged_out": aged,
+            "bins_ebay_dead_skipped": skipped_dead}
 
 
 def ingest_alt(path, store, day=""):

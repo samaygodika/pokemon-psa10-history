@@ -187,6 +187,17 @@ $2.6k Dragonite: a mislabeled lot, the same fault as mislabeled sales).
                        = the same two for the PSA 9 listing columns, judged
                          against psa9_median_last_3.
 
+eBay verification (2026-10-06), the last two columns of cards.csv. history/
+ebay_verify.py asks eBay's own Browse API, within its 5,000-a-day budget, whether
+the feed's eBay Buy It Nows are still live: the cards from 2013 or before first,
+oldest listings first, each re-asked every 7 days. Listings eBay says have ended are
+removed from history/live_listings.csv and never picked again, so lowest_bin_* then
+shows the card's next cheapest live BIN, or blank.
+  lowest_bin_verified_at, psa9_lowest_bin_verified_at
+                       = when eBay last confirmed the lowest_bin_url listing is
+                         live (UTC); blank = not an eBay listing, or not asked
+                         yet (not "dead": dead ones are gone from the row).
+
 Market cap inputs (2026-09-28), the last columns of cards.csv before chg_held_windows:
   price_chg_60d_pct, price_chg_180d_pct, volume_60d, volume_180d
                        = the price_chg / volume rules above for 60 and 180
@@ -268,6 +279,8 @@ LISTING_AGE_COLS = ["lowest_bin_first_seen", "next_auction_bid_suspect",
                     "psa9_lowest_bin_first_seen", "psa9_next_auction_bid_suspect"]
 SUSPECT_BID_MULT = OUTLIER_HIGH   # a bid above this x the clean reference is flagged, same band as a sale
 LIVE_CHECK_COLS = {"10.0": "listings_checked_at", "9.0": "psa9_listings_checked_at"}   # grade -> daily column with its check time
+# 2026-10-06, the very end of cards.csv: when eBay last confirmed the lowest BIN is still live
+EBAY_COLS = ["lowest_bin_verified_at", "psa9_lowest_bin_verified_at"]
 
 
 def d(s):
@@ -683,6 +696,24 @@ def listing_age_cols(checked_at, listings, ref, prefix=""):
     return {prefix + c: v for c, v in out.items()}
 
 
+def load_ebay_live(store):
+    """{eBay item id: when eBay last called it live} from history/ebay_checks.csv
+    (ebay_verify.py; absent before 2026-10-06). Dead listings are already out of
+    live_listings.csv, so only the live verdicts matter here."""
+    path = store / "ebay_checks.csv"
+    if not path.exists():
+        return {}
+    return {r["item_id"]: r["checked_at"] for r in read_csv(path) if r["status"] == "live"}
+
+
+def ebay_verified_at(row, ebay_live, prefix=""):
+    """lowest_bin_verified_at for one card and grade: when eBay last confirmed the listing in
+    lowest_bin_url is live; blank = not an eBay listing, or not asked yet."""
+    from ebay_verify import item_id   # noqa: E402
+    iid = item_id(row.get(prefix + "lowest_bin_url"))
+    return {prefix + "lowest_bin_verified_at": ebay_live.get(iid, "") if iid else ""}
+
+
 def write_recent(recent_dir, raw_sales, sales):
     recent_dir.mkdir(parents=True, exist_ok=True)
     for old_f in recent_dir.glob("*.csv"):
@@ -745,6 +776,7 @@ def build(store=HERE, out=LATEST):
     print(f"{len(assets)} assets, {len(days)} daily files ({days[0]}..{days[-1]}), {n_sales} PSA 10 sales, {n_sales9} PSA 9 sales")
 
     live = load_live(store)
+    ebay_live = load_ebay_live(store)
     # Newest numbers per asset, the first day each asset appears, and per grade the newest
     # successful live-listings check (a run whose check failed, or that never asked at that
     # grade, leaves the column blank).
@@ -849,6 +881,8 @@ def build(store=HERE, out=LATEST):
         row.update(live_cols(t10, live.get((aid, "10.0"), [])))
         row.update(live_cols(t9, live.get((aid, "9.0"), []), prefix="psa9_"))
         row.update(listing_age_cols(t10, live.get((aid, "10.0"), []), ref_now))
+        row.update(ebay_verified_at(row, ebay_live))
+        row.update(ebay_verified_at(row, ebay_live, prefix="psa9_"))
         row.update(listing_age_cols(t9, live.get((aid, "9.0"), []),
                                     to_float(row["psa9_median_last_3"]), prefix="psa9_"))
         for c in ("lowest_bin_first_seen", "psa9_lowest_bin_first_seen"):
@@ -861,7 +895,7 @@ def build(store=HERE, out=LATEST):
 
     out.mkdir(parents=True, exist_ok=True)
     with open(out / "cards.csv", "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=CARD_COLS + DERIVED_COLS + PSA9_COLS + LIVE_COLS + PSA9_LIVE_COLS + CAP_COLS + HELD_COLS + LISTING_AGE_COLS, extrasaction="ignore")
+        w = csv.DictWriter(f, fieldnames=CARD_COLS + DERIVED_COLS + PSA9_COLS + LIVE_COLS + PSA9_LIVE_COLS + CAP_COLS + HELD_COLS + LISTING_AGE_COLS + EBAY_COLS, extrasaction="ignore")
         w.writeheader()
         w.writerows(rows)
 
@@ -919,6 +953,8 @@ def build(store=HERE, out=LATEST):
         "rows_listings_checked": sum(1 for r in rows if r["listings_checked_at"]),
         "rows_with_live_auction": sum(1 for r in rows if r["live_auction_count"]),
         "rows_with_bin_listing": sum(1 for r in rows if r["lowest_bin_price"]),
+        "rows_bin_ebay_verified": sum(1 for r in rows if r["lowest_bin_verified_at"]),          # 2026-10-06
+        "rows_psa9_bin_ebay_verified": sum(1 for r in rows if r["psa9_lowest_bin_verified_at"]),
         "rows_bin_first_seen_known": filled["lowest_bin_first_seen"],          # 2026-10-03
         "rows_next_auction_bid_suspect": filled["next_auction_bid_suspect"],
         "rows_psa9_bin_first_seen_known": filled["psa9_lowest_bin_first_seen"],

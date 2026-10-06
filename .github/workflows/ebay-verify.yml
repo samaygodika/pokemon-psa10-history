@@ -1,0 +1,43 @@
+# eBay verification of the feed's eBay Buy It Nows (2026-10-06): asks eBay's own Browse API
+# whether each listing is still live (alt.xyz re-serves ended ones for months) and drops the
+# dead ones. ~4,800 lookups of eBay's 5,000-a-day budget, which resets at 07:00 UTC. Shares
+# the `scrape` concurrency group with the nightly, weekly and listings-refresh runs, so it
+# queues behind them instead of committing on top of a half-finished run.
+name: ebay verify (Buy It Now listings still live?)
+on:
+  schedule:
+    - cron: "15 7 * * *"   # 07:15 UTC, just after eBay's daily quota reset
+  workflow_dispatch:
+    inputs:
+      budget:
+        description: "lookups this run (smoke test with a small number; empty = 4800 and commit)"
+        required: false
+        default: ""
+concurrency:
+  group: scrape
+  cancel-in-progress: false
+permissions:
+  contents: write
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: ask eBay + apply + rebuild latest/ + commit
+        env:
+          EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
+          EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
+          EBAY_BUDGET: ${{ inputs.budget || '4800' }}
+          NO_COMMIT: ${{ inputs.budget != '' && '1' || '' }}
+        run: nightly/run_ebay_verify.sh
+      - name: keep the raw run as a downloadable artifact (7 days)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ebay-verify-${{ github.run_id }}
+          path: snapshots/ebay
+          retention-days: 7

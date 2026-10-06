@@ -46,7 +46,8 @@ say", never 0:
 | `chg_held_windows` | the windows (`30d 60d 90d 180d 1y`, space-separated) whose `price_chg_*` figure rests on a held-back high sale, i.e. differs from the clean-only one; blank for most cards. For an "≈" next to that %. `mkt_cap_chg_30d_pct` follows the 30d one. (2026-10-01). |
 | `lowest_bin_first_seen` | the run day the feed first recorded the `lowest_bin_url` listing for this card (2026-10-03; earlier rows backfilled from the store's git history, so never before 2026-09-25). alt.xyz re-serves ended Buy It Nows for months and its record has no date or status, so this is the only age there is: the older, the likelier it has ended. Grey out or hide old ones. Blank = no BIN (or unknown). Only the cheapest BIN per card is stored, so a listing that stops being the cheapest and later is again starts its age over. |
 | `next_auction_bid_suspect` | `1` when `next_auction_bid` (high bid, or opening price at 0 bids) is above 6x `median_last_3`, the same band the sale filter uses: a mislabeled lot, or a re-pricing no sale has confirmed yet. Do not show such a bid as the card's price. `0` = judged and not out of line; blank = no auction, or no clean reference to judge by (then nothing is known). |
-| `psa9_lowest_bin_first_seen`, `psa9_next_auction_bid_suspect` | the same two for the PSA 9 listing columns, judged against `psa9_median_last_3`. The last columns of the file (2026-10-03). |
+| `psa9_lowest_bin_first_seen`, `psa9_next_auction_bid_suspect` | the same two for the PSA 9 listing columns, judged against `psa9_median_last_3`. (2026-10-03). |
+| `lowest_bin_verified_at`, `psa9_lowest_bin_verified_at` | when eBay itself last confirmed the `lowest_bin_url` listing is still live (UTC; see *eBay verification of Buy It Nows*). Blank = not an eBay listing, or not asked yet; never "dead": listings eBay says have ended are removed, so the BIN columns then show the card's next cheapest live listing, or nothing. The last columns of the file (2026-10-06). |
 | `cap_price_30d_ago`, `cap_price_60d_ago`, `cap_price_90d_ago`, `cap_price_180d_ago`, `cap_price_1y_ago` | `cap_price` as of that many days ago; blank = no clean sale yet by then. A group's market cap change over a window is Σ(`cap_price` × pop) / Σ(`cap_price_N_ago` × pop) − 1 over its cards that have both: a card that didn't sell counts as unchanged, and no card's % is weighted by its own jump. Pop is today's for every window until the daily files are that old. |
 
 `latest/series/<first two hex of asset_id>.csv` holds the weekly PSA 10 sale
@@ -289,8 +290,10 @@ with `alt_scraper.py --listings-only` (no pops, no sales) and `history/ingest.py
 daily row, nothing else in `history/daily/` touched), then rebuilds `latest/` and commits. So
 an auction that ended or was pulled early disappears from the pills within hours instead of a
 day, and `listings_checked_at` / `psa9_listings_checked_at` can be later than `scraped_at`. Buy
-It Nows are not re-checked here: alt.xyz re-serves ended ones anyway (see `lowest_bin_first_seen`).
+It Nows are not re-checked here: alt.xyz re-serves ended ones anyway (see `lowest_bin_first_seen`);
+eBay itself is asked about them once a day (see *eBay verification of Buy It Nows* below).
 
+### Why a 403
 
 On 2026-10-02 alt.xyz changed two things at once. Its card pages now ask for a free account
 before showing market data ("Sign up for free. Access all of the market data for this asset
@@ -305,6 +308,22 @@ now identifies itself honestly, and that is the whole fix.
 The scraping is done with alt.xyz's permission for Samay's school project (ask them for it
 in writing; their terms want written authorization for scripts). The scraper keeps the
 same pace as before and sends nothing the site itself does not send.
+
+### eBay verification of Buy It Nows
+
+alt.xyz re-serves ended eBay Buy It Nows for months, with no date or status on the record, so
+since 2026-10-06 `.github/workflows/ebay-verify.yml` asks eBay itself once a day (07:15 UTC,
+after eBay's quota reset): `nightly/run_ebay_verify.sh` runs `history/ebay_verify.py`, one
+Browse API lookup per listing (`getItemByLegacyId`, application token), about 4,800 of the
+keyset's 5,000 a day. Cards from 2013 or before first, oldest listings first; a listing eBay
+called live is asked again after 7 days. A listing eBay says has ended (a past `itemEndDate`,
+or 404 "not found") goes into `history/ebay_checks.csv` for good, is dropped from
+`history/live_listings.csv`, and `history/ingest.py` skips it whenever alt.xyz serves it again,
+so the card shows its next cheapest live BIN instead. Auctions are left to the listings
+refresh. Keys: repository secrets `EBAY_CLIENT_ID` / `EBAY_CLIENT_SECRET` (App ID / Cert ID of
+a production keyset; a new keyset stays disabled until the Marketplace Account Deletion
+opt-out is done in eBay's developer portal), or `~/.ebay_keys` locally. Without keys the
+step does nothing.
 
 ### Login (optional)
 
