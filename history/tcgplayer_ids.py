@@ -87,10 +87,12 @@ every TCGplayer English single no row is matched to.
                     name them ("1st Edition Holofoil|Unlimited Holofoil", "Holofoil|Reverse Holofoil",
                     "Normal"): PPT's printingsAvailable, which PokeSniper's 1st Edition / Unlimited and
                     Holo / Reverse Holo splits (and so its card ids) go by. Blank: no product, or
-                    TCGplayer lists no printing for it. TCGCSV lists a printing only while TCGplayer
-                    has price data for it, so a print run nobody sells raw can be missing even when
-                    alt.xyz has graded copies (Neo Destiny 1st Edition Shining Mewtwo; 362 products,
-                    2026-10-05): print_run on the linked rows shows those
+                    TCGplayer lists no printing for it. Two sources, unioned: TCGCSV's prices (a
+                    printing only while TCGplayer has price data for it) and, since 2026-10-06,
+                    TCGplayer's SKU list per product (history/tcgplayer_sku_printings.csv, from
+                    tcgplayer_skus.py), which also has the print runs nobody sells raw (Neo Destiny
+                    1st Edition Shining Mewtwo). A product the SKU cache hasn't reached yet has the
+                    TCGCSV list only
   card_type         Pokemon | Trainer | Energy, from TCGplayer's "Card Type" (a Pokemon's energy type,
                     "Fire", "Darkness Metal"; what the rest are, "Supporter", "Basic Energy", "Pokemon
                     Tool"...). Blank: no product, or nothing TCGplayer gives places it
@@ -105,6 +107,8 @@ cards carry it | manual: see MANUAL_SET_YEARS | multi_year: no one year fits), s
 Usage: python3 history/tcgplayer_ids.py [--fetch] [--tcgcsv DIR] [--out FILE] [--report FILE]
                                         [--catalog FILE] [--sets FILE]
   --fetch downloads the catalog and its printings (~440 requests, 0.3 s apart) into --tcgcsv first.
+  --skus-budget-min MIN then asks TCGplayer for the SKU printings of products the cache lacks
+  (tcgplayer_skus.py; the nightly gives it 15 minutes: new products only once the cache is full).
 """
 import argparse
 import csv
@@ -125,6 +129,7 @@ HERE = Path(__file__).resolve().parent.parent
 FEED = HERE / "latest" / "cards.csv"
 CHARACTERS = HERE / "latest" / "characters.csv"   # coverage.py's 469 species: tells Mew from Mewtwo
 OUT = HERE / "latest" / "tcgplayer_ids.csv"
+SKU_CACHE = HERE / "history" / "tcgplayer_sku_printings.csv"   # tcgplayer_skus.py: printings with no price too
 TCGCSV_DIR = HERE / "snapshots" / "tcgcsv"        # gitignored; the nightly uses snapshots/<day>/tcgcsv
 TCGCSV = "https://tcgcsv.com"
 EN, JP = 3, 85                                   # TCGplayer categories: Pokemon, Pokemon Japan
@@ -402,10 +407,22 @@ def japanese_set_names(src, english_groups):
     return out
 
 
+def load_sku_printings(path=None):
+    """{product_id: set of printings} from history/tcgplayer_sku_printings.csv (tcgplayer_skus.py,
+    2026-10-06): every printing TCGplayer has SKUs for, priced or not. Empty when absent."""
+    path = path or SKU_CACHE
+    if not path.exists():
+        return {}
+    with open(path, newline="", encoding="utf-8") as f:
+        return {int(r["product_id"]): set(filter(None, r["printings"].split("|")))
+                for r in csv.DictReader(f) if r["status"] == "ok"}
+
+
 def load_catalog(src=TCGCSV_DIR):
     # TCGplayer has no release date for 19 old sets (POP Series, Nintendo Promos...); the catalog
     # build stamps them with its own time, so a date within a day of the build means "undated"
     built = date.fromisoformat((src / "last-updated.txt").read_text()[:10])
+    sku_printings = load_sku_printings()
     groups = {g["groupId"]: g for g in json.loads((src / "groups.json").read_text())["results"]}
     by_number, by_bare, by_name = defaultdict(list), defaultdict(list), defaultdict(list)
     unnumbered = []
@@ -424,7 +441,9 @@ def load_catalog(src=TCGCSV_DIR):
             if number or (rarity and rarity != "Code Card"):   # sealed product has neither
                 p["group"] = g
                 p["number"] = number or ""
-                p["printings"] = "|".join(sorted(printings.get(p["productId"], ())))
+                # priced printings (TCGCSV) + every SKU printing, priced or not (the SKU cache)
+                p["printings"] = "|".join(sorted(printings.get(p["productId"], set())
+                                                 | sku_printings.get(p["productId"], set())))
                 p["card_type"] = card_type(p)
             if not number:
                 # a single TCGplayer gives no number (My First Battle, "V-UNION [Set of 4]", WC deck
@@ -781,7 +800,16 @@ if __name__ == "__main__":
     ap.add_argument("--report", type=Path)
     ap.add_argument("--catalog", type=Path, default=CATALOG)
     ap.add_argument("--sets", type=Path, default=SETS)
+    ap.add_argument("--skus-budget-min", type=float, metavar="MIN",
+                    help="before building, ask TCGplayer for the SKU printings of products not yet in "
+                         "history/tcgplayer_sku_printings.csv (tcgplayer_skus.py), for at most MIN minutes")
     a = ap.parse_args()
     if a.fetch:
         fetch(a.tcgcsv)
+    if a.skus_budget_min:
+        import tcgplayer_skus
+        try:
+            tcgplayer_skus.run(tcgplayer_skus.products(a.tcgcsv), budget_min=a.skus_budget_min)
+        except Exception as e:                 # never lose the night's catalog over printings
+            print(f"tcgplayer skus: skipped ({e}); printings use the cache as it is")
     build(a.feed, a.tcgcsv, a.out, a.report, catalog=a.catalog, sets=a.sets)

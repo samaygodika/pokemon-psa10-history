@@ -142,7 +142,9 @@ $PY history/flags.py
 echo "--- 8/8 TCGplayer ids + card images ---"
 # tcgcsv.com (TCGplayer's catalog, free, ~220 requests) into the snapshot, matched to latest/cards.csv.
 # If it's unreachable, yesterday's three files stay: the run doesn't fail over images.
-if ! $PY history/tcgplayer_ids.py --fetch --tcgcsv "$OUT/tcgcsv"; then
+# --skus-budget-min: TCGplayer's SKU printings for products new to history/tcgplayer_sku_printings.csv
+# (the catalog's printings column; one request per product, so capped at 15 minutes a night).
+if ! $PY history/tcgplayer_ids.py --fetch --tcgcsv "$OUT/tcgcsv" --skus-budget-min "${NIGHTLY_SKUS_BUDGET_MIN:-15}"; then
   echo "tcgplayer ids: catalog download or match failed, kept the previous tcgplayer_ids / card_catalog / tcgplayer_sets"
 fi
 echo "=== all done $(date '+%F %T') ==="

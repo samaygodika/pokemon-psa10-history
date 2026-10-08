@@ -35,7 +35,11 @@ for attempt in 1 2 3; do
   fi
   echo "--- push rejected (attempt $attempt): re-deriving on top of origin/main ---"
   git fetch -q origin
+  # Keep the SKU printings this run asked TCGplayer for (tcgplayer_skus.py) across the reset:
+  # merged into origin's copy, newest answer per product wins (origin may hold a bigger backfill).
+  cp history/tcgplayer_sku_printings.csv "$OUT/tcgplayer_sku_printings.csv" 2>/dev/null || true
   git reset -q --hard origin/main
+  [ -f "$OUT/tcgplayer_sku_printings.csv" ] && $PY history/tcgplayer_skus.py --merge "$OUT/tcgplayer_sku_printings.csv" || true
   $PY history/ingest.py "$OUT" --date "$DAY"
   $PY history/metrics.py
   $PY history/coverage.py
