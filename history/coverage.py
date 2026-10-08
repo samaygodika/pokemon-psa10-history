@@ -56,7 +56,9 @@ SUBJECTS = HERE / "nightly" / "subjects.txt"
 OUT = HERE / "latest" / "characters.csv"
 VINTAGE_CUTOFF = 2013
 
-FOREIGN = re.compile(r"\b(french|german|spanish|italian|ita|portuguese|dutch|korean|japanese|jpn|chinese|cantonese|mandarin|indonesian|russian|swedish|norwegian|thai|taiwan(ese)?|hong\s?kong)\b", re.I)
+# "japanese" also as alt.xyz misspells it (Japaese, Japaneese, Japanesse, Japanesea; 2026-10-08): a typo
+# let "Charizard Half Deck Japaese" through as English and the catalog linked it to Arceus Charizard.
+FOREIGN = re.compile(r"\b(french|german|spanish|italian|ita|portuguese|dutch|korean|japa(?:n?e+s+e+a?)|jpn|chinese|cantonese|mandarin|indonesian|russian|swedish|norwegian|thai|taiwan(ese)?|hong\s?kong)\b", re.I)
 NON_TCG = re.compile(r"sticker|topps|amada|bandai|carddass|merlin|action flipz|burger king|hanafuda|tv animation|movie edition|lenticular|bubble gum|topsun|viz video|pop-ups|\btv\b", re.I)
 
 VINTAGE_SPECIES = HERE / "nightly" / "vintage_species.txt"

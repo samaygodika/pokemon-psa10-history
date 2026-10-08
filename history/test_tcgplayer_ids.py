@@ -223,6 +223,21 @@ def test_not_english():
     print("not english ok")
 
 
+def test_english_tcg():
+    """coverage.english_tcg is the catalog's English filter: Japanese stays out however alt.xyz spells it."""
+    import coverage
+    row = lambda name: {"card_name": name, "set": "", "variety": ""}
+    for name in ("2009 Pokemon Charizard Half Deck Japaese 1st Edition Holo Charizard G #001",
+                 "2025 Pokemon Mega Symphonia Japaneese Art Rare Shedinja #072",
+                 "2016 Pokemon Japanesse Mythical and Legendary Dream Shine Collection 1st Edition Moltres #5",
+                 "1998 Pokemon Japanesea Red Green Gift Set Baby Pikachu #25",
+                 "1999 Pokemon Japanese Base Set Charizard #6"):
+        assert not coverage.english_tcg(row(name)), name
+    for name in ("1999 Pokemon Base Set Charizard #4", "2009 Pokemon Platinum Arceus Holo Charizard #1",
+                 "2000 Pokemon Neo Genesis 1st Edition Lugia #9"):
+        assert coverage.english_tcg(row(name)), name
+
+
 def build_fixture(d):
     """the made-up TCGplayer catalog + feed above, built into d; -> (ids, catalog, sets) paths"""
     d = Path(d)
@@ -260,3 +275,4 @@ if __name__ == "__main__":
     test_card_type()
     test_set_years()
     test_not_english()
+    test_english_tcg()
