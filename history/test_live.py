@@ -9,6 +9,7 @@ Plain asserts, no pytest (it isn't installed here)."""
 import csv
 import sys
 import tempfile
+from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -226,6 +227,24 @@ def test_metrics_listing_age_cols():
     print("listing age / suspect bid ok")
 
 
+def test_metrics_bin_suspect():
+    """lowest_bin_suspect: the cheapest BIN's ask against the grade's cap_price (2026-10-09)."""
+    assert metrics.BIN_SUSPECT_COLS == ["lowest_bin_suspect", "psa9_lowest_bin_suspect"]
+    # Sid's 10-09 example: Arceus LV.X DP53 PSA 9, Fanatics BIN $100,000 vs a $359 clean sale
+    assert metrics.bin_suspect({"psa9_lowest_bin_price": "100000"}, 359.0, "psa9_") == {"psa9_lowest_bin_suspect": 1}
+    assert metrics.bin_suspect({"lowest_bin_price": "95"}, 100.0) == {"lowest_bin_suspect": 0}
+    # exactly at the band is not above it
+    assert metrics.bin_suspect({"lowest_bin_price": str(100 * metrics.SUSPECT_BID_MULT)}, 100.0)["lowest_bin_suspect"] == 0
+    # no BIN, or no clean sale ever -> blank (unknown)
+    assert metrics.bin_suspect({"lowest_bin_price": ""}, 100.0)["lowest_bin_suspect"] == ""
+    assert metrics.bin_suspect({"lowest_bin_price": "700"}, None)["lowest_bin_suspect"] == ""
+    # cap_price, not the 6-month median: a card that last sold two years ago is still judged
+    today = date(2026, 10, 9)
+    old = [(date(2024, 10, 1), 359.0, "eBay")]
+    assert metrics.ref_price(old, today) is None and metrics.cap_price(old, today) == 359.0
+    print("suspect BIN ok")
+
+
 def test_ingest_listings_only():
     """A listings refresh replaces the checked grade's rows and moves the check time forward
     in the card's newest daily row; no daily row is added or replaced, sales untouched."""
@@ -377,6 +396,7 @@ if __name__ == "__main__":
     test_metrics_psa9_live_cols()
     test_ingest_live_first_seen()
     test_metrics_listing_age_cols()
+    test_metrics_bin_suspect()
     test_ingest_listings_only()
     test_scraper_listings_only()
     test_ingest_alt_listings()

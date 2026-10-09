@@ -198,6 +198,21 @@ shows the card's next cheapest live BIN, or blank.
                          live (UTC); blank = not an eBay listing, or not asked
                          yet (not "dead": dead ones are gone from the row).
 
+Suspect Buy It Nows (2026-10-09), the last two columns of cards.csv. A seller can list
+at any price: Fanatics Collect had the 2009 Arceus LV.X DP53 PSA 9 at $100,000 against
+a $359 last clean sale, eBay the DP Giratina LV.X DP38 PSA 9 at $249,999.99 against
+$3,500. Those are real, live listings (so the eBay check keeps them), not prices.
+  lowest_bin_suspect   = 1 when lowest_bin_price is above SUSPECT_BID_MULT x the
+                         card's cap_price (median_last_3, else the newest clean
+                         sale of any age: joke asks sit on cards that rarely
+                         sell, which have no sale in the median's window); 0 =
+                         judged and not out of line; blank = no BIN, or no clean
+                         sale ever to judge by. A 1 means "do not show this ask
+                         as what the card costs", not "fake listing".
+  psa9_lowest_bin_suspect
+                       = the same for psa9_lowest_bin_price, against the PSA 9
+                         clean sales.
+
 Market cap inputs (2026-09-28), the last columns of cards.csv before chg_held_windows:
   price_chg_60d_pct, price_chg_180d_pct, volume_60d, volume_180d
                        = the price_chg / volume rules above for 60 and 180
@@ -281,6 +296,8 @@ SUSPECT_BID_MULT = OUTLIER_HIGH   # a bid above this x the clean reference is fl
 LIVE_CHECK_COLS = {"10.0": "listings_checked_at", "9.0": "psa9_listings_checked_at"}   # grade -> daily column with its check time
 # 2026-10-06, the very end of cards.csv: when eBay last confirmed the lowest BIN is still live
 EBAY_COLS = ["lowest_bin_verified_at", "psa9_lowest_bin_verified_at"]
+# 2026-10-09, the very end of cards.csv: whether the lowest BIN's ask is out of line with the card's price
+BIN_SUSPECT_COLS = ["lowest_bin_suspect", "psa9_lowest_bin_suspect"]
 
 
 def d(s):
@@ -696,6 +713,14 @@ def listing_age_cols(checked_at, listings, ref, prefix=""):
     return {prefix + c: v for c, v in out.items()}
 
 
+def bin_suspect(row, ref, prefix=""):
+    """lowest_bin_suspect for one card and grade (see the module doc): the lowest BIN's ask
+    against `ref` (cap_price at that grade, None = no clean sale ever)."""
+    price = to_float(row[prefix + "lowest_bin_price"])
+    v = "" if price is None or not ref else (1 if price > SUSPECT_BID_MULT * ref else 0)
+    return {prefix + "lowest_bin_suspect": v}
+
+
 def load_ebay_live(store):
     """{eBay item id: when eBay last called it live} from history/ebay_checks.csv
     (ebay_verify.py; absent before 2026-10-06). Dead listings are already out of
@@ -888,14 +913,16 @@ def build(store=HERE, out=LATEST):
         for c in ("lowest_bin_first_seen", "psa9_lowest_bin_first_seen"):
             if row[c]:
                 filled[c] += 1
-        for c in ("next_auction_bid_suspect", "psa9_next_auction_bid_suspect"):
+        row.update(bin_suspect(row, to_float(row["cap_price"])))
+        row.update(bin_suspect(row, cap_price(sales9.get(aid, []), today), prefix="psa9_"))
+        for c in ("next_auction_bid_suspect", "psa9_next_auction_bid_suspect") + tuple(BIN_SUSPECT_COLS):
             if row[c] == 1:
                 filled[c] += 1
         rows.append(row)
 
     out.mkdir(parents=True, exist_ok=True)
     with open(out / "cards.csv", "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=CARD_COLS + DERIVED_COLS + PSA9_COLS + LIVE_COLS + PSA9_LIVE_COLS + CAP_COLS + HELD_COLS + LISTING_AGE_COLS + EBAY_COLS, extrasaction="ignore")
+        w = csv.DictWriter(f, fieldnames=CARD_COLS + DERIVED_COLS + PSA9_COLS + LIVE_COLS + PSA9_LIVE_COLS + CAP_COLS + HELD_COLS + LISTING_AGE_COLS + EBAY_COLS + BIN_SUSPECT_COLS, extrasaction="ignore")
         w.writeheader()
         w.writerows(rows)
 
@@ -955,6 +982,8 @@ def build(store=HERE, out=LATEST):
         "rows_with_bin_listing": sum(1 for r in rows if r["lowest_bin_price"]),
         "rows_bin_ebay_verified": sum(1 for r in rows if r["lowest_bin_verified_at"]),          # 2026-10-06
         "rows_psa9_bin_ebay_verified": sum(1 for r in rows if r["psa9_lowest_bin_verified_at"]),
+        "rows_bin_suspect": filled["lowest_bin_suspect"],          # 2026-10-09
+        "rows_psa9_bin_suspect": filled["psa9_lowest_bin_suspect"],
         "rows_bin_first_seen_known": filled["lowest_bin_first_seen"],          # 2026-10-03
         "rows_next_auction_bid_suspect": filled["next_auction_bid_suspect"],
         "rows_psa9_bin_first_seen_known": filled["psa9_lowest_bin_first_seen"],
