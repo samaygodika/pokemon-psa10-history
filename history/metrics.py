@@ -198,7 +198,7 @@ shows the card's next cheapest live BIN, or blank.
                          live (UTC); blank = not an eBay listing, or not asked
                          yet (not "dead": dead ones are gone from the row).
 
-Suspect Buy It Nows (2026-10-09), the last two columns of cards.csv. A seller can list
+Suspect Buy It Nows (2026-10-09), the last four columns of cards.csv. A seller can list
 at any price: Fanatics Collect had the 2009 Arceus LV.X DP53 PSA 9 at $100,000 against
 a $359 last clean sale, eBay the DP Giratina LV.X DP38 PSA 9 at $249,999.99 against
 $3,500. Those are real, live listings (so the eBay check keeps them), not prices.
@@ -212,6 +212,19 @@ $3,500. Those are real, live listings (so the eBay check keeps them), not prices
   psa9_lowest_bin_suspect
                        = the same for psa9_lowest_bin_price, against the PSA 9
                          clean sales.
+  lowest_bin_ref_date, psa9_lowest_bin_ref_date (2026-10-10)
+                       = the date of the clean sale the matching flag was judged
+                         against: the newest clean sale at that grade on or
+                         before the data date, i.e. the newest of the three
+                         behind median_last_3, or the any-age fallback itself
+                         (for PSA 10 this is clean_last_sale_date). Filled
+                         exactly when the flag is 0 or 1, blank when it is
+                         blank. Sid: on a rarely traded card that sale can be
+                         old (the Arceus LV.X DP53 PSA 9 flag rests on a
+                         2025-05-01 sale), so the app can show or discount a
+                         flag by the age of what it rests on. A date, not a day
+                         count: Sid's server syncs every 6 h and a count would
+                         drift between syncs.
 
 Market cap inputs (2026-09-28), the last columns of cards.csv before chg_held_windows:
   price_chg_60d_pct, price_chg_180d_pct, volume_60d, volume_180d
@@ -298,6 +311,8 @@ LIVE_CHECK_COLS = {"10.0": "listings_checked_at", "9.0": "psa9_listings_checked_
 EBAY_COLS = ["lowest_bin_verified_at", "psa9_lowest_bin_verified_at"]
 # 2026-10-09, the very end of cards.csv: whether the lowest BIN's ask is out of line with the card's price
 BIN_SUSPECT_COLS = ["lowest_bin_suspect", "psa9_lowest_bin_suspect"]
+# 2026-10-10, the very end of cards.csv: the date of the clean sale each lowest_bin_suspect was judged against
+BIN_REF_DATE_COLS = ["lowest_bin_ref_date", "psa9_lowest_bin_ref_date"]
 
 
 def d(s):
@@ -557,6 +572,14 @@ def cap_price(sales, at):
     return before[-1] if before else None
 
 
+def cap_price_date(sales, at):
+    """The date of the clean sale cap_price rests on at `at`: the newest clean sale on
+    or before `at`, which is the newest of ref_price's up-to-3 when there is one and
+    the any-age fallback itself otherwise. None before its first clean sale."""
+    before = [sd for (sd, _, _) in sales if sd <= at]
+    return before[-1] if before else None
+
+
 def count_in(sales, start, end):
     return sum(1 for (sd, _, _) in sales if start < sd <= end)
 
@@ -719,6 +742,16 @@ def bin_suspect(row, ref, prefix=""):
     price = to_float(row[prefix + "lowest_bin_price"])
     v = "" if price is None or not ref else (1 if price > SUSPECT_BID_MULT * ref else 0)
     return {prefix + "lowest_bin_suspect": v}
+
+
+def bin_ref_date(row, sales, today, prefix=""):
+    """lowest_bin_ref_date for one card and grade (see the module doc): the date of the
+    clean sale the row's lowest_bin_suspect was judged against (cap_price_date), filled
+    exactly when that flag is 0 or 1 and blank when the flag is blank. Needs
+    bin_suspect applied to `row` first."""
+    judged = row[prefix + "lowest_bin_suspect"] != ""
+    ref_date = cap_price_date(sales, today) if judged else None
+    return {prefix + "lowest_bin_ref_date": ref_date.isoformat() if ref_date else ""}
 
 
 def load_ebay_live(store):
@@ -915,6 +948,8 @@ def build(store=HERE, out=LATEST):
                 filled[c] += 1
         row.update(bin_suspect(row, to_float(row["cap_price"])))
         row.update(bin_suspect(row, cap_price(sales9.get(aid, []), today), prefix="psa9_"))
+        row.update(bin_ref_date(row, s, today))                                    # 2026-10-10
+        row.update(bin_ref_date(row, sales9.get(aid, []), today, prefix="psa9_"))
         for c in ("next_auction_bid_suspect", "psa9_next_auction_bid_suspect") + tuple(BIN_SUSPECT_COLS):
             if row[c] == 1:
                 filled[c] += 1
@@ -922,7 +957,7 @@ def build(store=HERE, out=LATEST):
 
     out.mkdir(parents=True, exist_ok=True)
     with open(out / "cards.csv", "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=CARD_COLS + DERIVED_COLS + PSA9_COLS + LIVE_COLS + PSA9_LIVE_COLS + CAP_COLS + HELD_COLS + LISTING_AGE_COLS + EBAY_COLS + BIN_SUSPECT_COLS, extrasaction="ignore")
+        w = csv.DictWriter(f, fieldnames=CARD_COLS + DERIVED_COLS + PSA9_COLS + LIVE_COLS + PSA9_LIVE_COLS + CAP_COLS + HELD_COLS + LISTING_AGE_COLS + EBAY_COLS + BIN_SUSPECT_COLS + BIN_REF_DATE_COLS, extrasaction="ignore")
         w.writeheader()
         w.writerows(rows)
 

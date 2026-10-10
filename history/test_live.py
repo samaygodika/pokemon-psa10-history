@@ -245,6 +245,33 @@ def test_metrics_bin_suspect():
     print("suspect BIN ok")
 
 
+def test_metrics_bin_ref_date():
+    """lowest_bin_ref_date: the date of the clean sale the suspect flag was judged against (2026-10-10)."""
+    assert metrics.BIN_REF_DATE_COLS == ["lowest_bin_ref_date", "psa9_lowest_bin_ref_date"]
+    today = date(2026, 10, 9)
+    sales = [(date(2026, 4, 20), 300.0, "eBay"), (date(2026, 7, 1), 320.0, "eBay"), (date(2026, 9, 30), 340.0, "eBay")]
+    # the newest of the three behind the median, not the median's own date
+    assert metrics.cap_price(sales, today) == 320.0 and metrics.cap_price_date(sales, today) == date(2026, 9, 30)
+
+    def judged(bin_price, s, prefix=""):
+        row = {prefix + "lowest_bin_price": bin_price}
+        row.update(metrics.bin_suspect(row, metrics.cap_price(s, today), prefix))
+        row.update(metrics.bin_ref_date(row, s, today, prefix))
+        return row[prefix + "lowest_bin_suspect"], row[prefix + "lowest_bin_ref_date"]
+    assert judged("5000", sales) == (1, "2026-09-30")    # flagged -> the date it was judged against
+    assert judged("350", sales) == (0, "2026-09-30")     # judged and fine -> still filled
+    assert judged("", sales) == ("", "")                 # no BIN -> blank
+    assert judged("700", []) == ("", "")                 # no clean sale ever -> blank
+    assert metrics.cap_price_date([], today) is None
+    # the any-age fallback: Sid's Arceus LV.X DP53 PSA 9, flagged against a sale older than LOOKBACK_DAYS
+    old = [(date(2025, 5, 1), 359.0, "eBay")]
+    assert metrics.ref_price(old, today) is None
+    assert judged("100000", old, "psa9_") == (1, "2025-05-01")
+    # a sale dated after the data date is not what the flag rests on
+    assert metrics.cap_price_date(sales + [(date(2026, 10, 12), 900.0, "eBay")], today) == date(2026, 9, 30)
+    print("suspect BIN ref date ok")
+
+
 def test_ingest_listings_only():
     """A listings refresh replaces the checked grade's rows and moves the check time forward
     in the card's newest daily row; no daily row is added or replaced, sales untouched."""
@@ -397,6 +424,7 @@ if __name__ == "__main__":
     test_ingest_live_first_seen()
     test_metrics_listing_age_cols()
     test_metrics_bin_suspect()
+    test_metrics_bin_ref_date()
     test_ingest_listings_only()
     test_scraper_listings_only()
     test_ingest_alt_listings()
