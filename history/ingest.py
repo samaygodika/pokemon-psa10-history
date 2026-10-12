@@ -90,6 +90,15 @@ Store layout (all plain CSV, all append/merge-friendly so git diffs stay small):
                                   from live_listings.csv and skipped here when
                                   alt.xyz re-serves them, so a card's next cheapest
                                   BIN takes their place.
+    history/fanatics_crossed_ids.csv
+                                  Fanatics Collect Buy Now listing ids alt.xyz attaches
+                                  to the wrong card (2026-10-10): the id and price are a
+                                  sports card's, mostly NBA autographs from one bulk
+                                  seller at $49.99-$80.99, on a Pokemon asset. Checked
+                                  against Fanatics' own index once, by hand-scale
+                                  requests; these ids are dropped from live_listings.csv
+                                  and skipped when alt.xyz re-serves them. One-off list:
+                                  a durable fix is alt.xyz's to make.
 
 Standard library only, like the scraper.
 """
@@ -385,6 +394,21 @@ def norm_grade(s):
         return s or ""
 
 
+FANATICS_RX = re.compile(r"fanaticscollect\.com/buy-now/([0-9a-f-]{36})")
+
+
+def fanatics_id(url):
+    """The Fanatics Collect Buy Now listing id in a URL, or None for any other listing."""
+    m = FANATICS_RX.search(url or "")
+    return m.group(1) if m else None
+
+
+def crossed_fanatics_ids(store):
+    """Fanatics Buy Now listing ids alt.xyz has attached to the wrong card (see the module doc)."""
+    path = store / "fanatics_crossed_ids.csv"
+    return {r["listing_id"] for r in read_csv(path)} if path.exists() else set()
+
+
 def ingest_live(run_dir, cards, store, day=""):
     """Fold the run's listings.csv into history/live_listings.csv (see the module doc).
     `day` is the run day written as first_seen on listings not recorded before."""
@@ -408,6 +432,10 @@ def ingest_live(run_dir, cards, store, day=""):
     seen = {(r["asset_id"], norm_grade(r["grade"]), r["url"]): r.get("first_seen", "") for r in stored}
     # Alt's own listings never come in a per-card answer: they are replaced by ingest_alt only.
     kept = [r for r in stored if r["source"] == ALT_SOURCE or (r["asset_id"], norm_grade(r["grade"])) not in checked]
+    # Fanatics Buy Nows alt.xyz pairs with the wrong card (history/fanatics_crossed_ids.csv): out of
+    # what we hold, and skipped below when re-served.
+    crossed = crossed_fanatics_ids(store)
+    kept, skipped_crossed = [r for r in kept if fanatics_id(r["url"]) not in crossed], sum(1 for r in kept if fanatics_id(r["url"]) in crossed)
     # eBay listings eBay itself says have ended (history/ebay_checks.csv, ebay_verify.py): alt.xyz
     # keeps re-serving them, so they are skipped here and the next cheapest BIN can be the one kept.
     from ebay_verify import dead_urls, item_id   # noqa: E402  (ebay_verify imports this module)
@@ -418,6 +446,8 @@ def ingest_live(run_dir, cards, store, day=""):
         bins = [r for r in rows if r["listing_type"] != "AUCTION" and to_float(r["buy_it_now_price"])]
         live_bins = [r for r in bins if item_id(r["url"]) not in dead]
         skipped_dead += len(bins) - len(live_bins)
+        live_bins, n = [r for r in live_bins if fanatics_id(r["url"]) not in crossed], len(live_bins)
+        skipped_crossed += n - len(live_bins)
         if live_bins:
             fresh.append(min(live_bins, key=lambda r: to_float(r["buy_it_now_price"])))
     for r in fresh:
@@ -448,9 +478,10 @@ def ingest_live(run_dir, cards, store, day=""):
     at = ", ".join(f"{n} at PSA {g}" for g, n in by_grade.items() if n)
     print(f"  live_listings.csv: {n_assets} assets checked this run{f' ({at})' if at else ''}, {len(rows)} rows "
           f"({n_auc} auctions, {len(rows) - n_auc} cheapest-BIN), {pruned} ended auctions pruned, "
-          f"{aged} BIN(s) unseen for {BIN_MAX_AGE_DAYS}+ days dropped, {skipped_dead} BIN(s) eBay says have ended skipped")
+          f"{aged} BIN(s) unseen for {BIN_MAX_AGE_DAYS}+ days dropped, {skipped_dead} BIN(s) eBay says have ended skipped, "
+          f"{skipped_crossed} crossed Fanatics BIN(s) dropped")
     return {"live_assets_checked": n_assets, "live_checks": by_grade, "live_rows": len(rows), "bins_aged_out": aged,
-            "bins_ebay_dead_skipped": skipped_dead}
+            "bins_ebay_dead_skipped": skipped_dead, "bins_fanatics_crossed": skipped_crossed}
 
 
 def ingest_alt(path, store, day=""):

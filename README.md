@@ -327,6 +327,19 @@ a production keyset; a new keyset stays disabled until the Marketplace Account D
 opt-out is done in eBay's developer portal), or `~/.ebay_keys` locally. Without keys the
 step does nothing.
 
+
+### Crossed Fanatics Collect links (2026-10-10)
+
+Some Fanatics Collect Buy Now rows alt.xyz serves for a Pokémon card carry another item's listing: the
+`fanaticscollect.com/buy-now/<id>` link and the price belong to a sports card (mostly NBA autographs from one
+bulk seller at $49.99–$80.99), not to the Pokémon card. 236 of the 1,346 Fanatics Buy Now ids the feed held on
+2026-10-10 resolved to a non-Pokémon item on Fanatics' own index. `history/fanatics_crossed_ids.csv` lists
+them (listing id, what the page really is, Fanatics' price and status, when checked); `history/ingest.py`
+drops those rows from `history/live_listings.csv` and skips them when alt.xyz re-serves them, so the card's
+next cheapest Buy It Now, or nothing, shows instead. The list is a one-off check, not a daily one: the feed
+does not read Fanatics Collect automatically (their Terms of Use require permission for that; asked
+2026-10-11), and the durable fix is alt.xyz's.
+
 ### Login (optional)
 
 Not needed for the scrape as of 2026-10-02, but supported so requests can go out the way

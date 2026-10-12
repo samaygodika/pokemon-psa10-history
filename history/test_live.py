@@ -272,6 +272,39 @@ def test_metrics_bin_ref_date():
     print("suspect BIN ref date ok")
 
 
+def test_ingest_drops_crossed_fanatics():
+    """history/fanatics_crossed_ids.csv (2026-10-10): a Fanatics Buy Now alt.xyz pairs with the wrong card
+    is dropped from the store and skipped when re-served, so the next cheapest BIN is the one kept."""
+    with tempfile.TemporaryDirectory() as d:
+        store, run = Path(d) / "store", Path(d) / "run"
+        store.mkdir(); run.mkdir()
+        bad = "https://www.fanaticscollect.com/buy-now/67c5acf8-b090-467d-863c-36790115f5e1"
+        good = "https://www.fanaticscollect.com/buy-now/b46e7aa3-3be1-41f6-8212-7d4b2f8b7139"
+        assert ingest.fanatics_id(bad) == "67c5acf8-b090-467d-863c-36790115f5e1"
+        assert ingest.fanatics_id(bad + "/2023-pokemon-gholdengo") == "67c5acf8-b090-467d-863c-36790115f5e1"
+        assert ingest.fanatics_id("https://www.ebay.com/itm/400000002") is None and ingest.fanatics_id("") is None
+        assert ingest.crossed_fanatics_ids(store) == set(), "no file -> nothing crossed"
+        _write(store / "fanatics_crossed_ids.csv", ["listing_id", "fanatics_title", "fanatics_category", "fanatics_price", "fanatics_status", "checked_at"],
+               [{"listing_id": "67c5acf8-b090-467d-863c-36790115f5e1", "fanatics_title": "2008-09 Fleer #162 C.J. Watson Signed Card AUTO PSA",
+                 "fanatics_category": "Sports Cards > Basketball", "fanatics_price": "49.99", "fanatics_status": "Live", "checked_at": "2026-10-10"}])
+        base = {"grading_company": "PSA", "grade": "10.0", "source": "Fanatics Collect", "current_bid": "", "bid_count": "",
+                "end_date": "", "listing_type": "BUY_IT_NOW"}
+        now, before = "2026-10-11T14:00:00+00:00", "2026-10-10T14:00:00+00:00"
+        _write(store / "live_listings.csv", ingest.LIVE_COLS, [
+            # A: not checked this run; its stored BIN is a crossed id -> dropped anyway
+            dict(base, asset_id="A", buy_it_now_price="49.99", url=bad, checked_at=before, first_seen="2026-10-01"),
+            dict(base, asset_id="C", buy_it_now_price="80", url=good, checked_at=before, first_seen="2026-10-01")])
+        # B: checked this run; alt.xyz re-serves the crossed $49.99 as cheapest -> the $70 one is kept
+        _write(run / "listings.csv", ingest.LIVE_COLS[:-1], [
+            dict(base, asset_id="B", buy_it_now_price="49.99", url=bad, checked_at=now),
+            dict(base, asset_id="B", buy_it_now_price="70", url=good, checked_at=now)])
+        out = ingest.ingest_live(run, [{"asset_id": "B", "listings_checked_at": now}], store, "2026-10-11")
+        kept = {(r["asset_id"], r["url"], r["buy_it_now_price"]) for r in ingest.read_csv(store / "live_listings.csv")}
+        assert kept == {("B", good, "70"), ("C", good, "80")}, kept
+        assert out["bins_fanatics_crossed"] == 2, out
+        print("crossed Fanatics BIN ok")
+
+
 def test_ingest_listings_only():
     """A listings refresh replaces the checked grade's rows and moves the check time forward
     in the card's newest daily row; no daily row is added or replaced, sales untouched."""
@@ -425,6 +458,7 @@ if __name__ == "__main__":
     test_metrics_listing_age_cols()
     test_metrics_bin_suspect()
     test_metrics_bin_ref_date()
+    test_ingest_drops_crossed_fanatics()
     test_ingest_listings_only()
     test_scraper_listings_only()
     test_ingest_alt_listings()
