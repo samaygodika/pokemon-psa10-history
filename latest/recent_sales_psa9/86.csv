@@ -439,7 +439,7 @@ asset_id,date,price,source,sale_type,status,outlier,url
 86dd8403-20b1-41a9-98b6-ceba2e80d42f,2026-05-29,37.95,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/127821088681
 86dd8403-20b1-41a9-98b6-ceba2e80d42f,2026-03-25,27,eBay,AUCTION,ok,0,https://www.ebay.com/itm/366287323049
 86dd8403-20b1-41a9-98b6-ceba2e80d42f,2026-03-21,21.99,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/317907481364
-86fd4a75-8cd6-4058-8d6f-f375455816c9,2026-10-05,180,eBay,BEST_OFFER,ok,1,https://www.ebay.com/itm/358627396824
+86fd4a75-8cd6-4058-8d6f-f375455816c9,2026-10-05,180,eBay,BEST_OFFER,RELISTED,0,https://www.ebay.com/itm/358627396824
 86fd4a75-8cd6-4058-8d6f-f375455816c9,2026-10-05,80,eBay,AUCTION,ok,0,https://www.ebay.com/itm/366692104874
 86fd4a75-8cd6-4058-8d6f-f375455816c9,2026-07-28,25,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/158102639398
 86fd4a75-8cd6-4058-8d6f-f375455816c9,2026-05-14,34.99,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/235313351079
@@ -459,7 +459,8 @@ asset_id,date,price,source,sale_type,status,outlier,url
 86412c80-30ed-4c43-905a-202ea41056a9,2025-06-03,32.05,eBay,AUCTION,ok,0,https://www.ebay.com/itm/365631062313
 86412c80-30ed-4c43-905a-202ea41056a9,2025-05-20,31,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/365190071991
 86412c80-30ed-4c43-905a-202ea41056a9,2025-05-04,10,eBay,AUCTION,ok,0,https://www.ebay.com/itm/236075009347
-86bff6ea-5a49-4874-b7e6-3279fe9fc66a,2026-10-11,62.64,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/117441593202
+86bff6ea-5a49-4874-b7e6-3279fe9fc66a,2026-10-11,65,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/298739038054
+86bff6ea-5a49-4874-b7e6-3279fe9fc66a,2026-10-11,56,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/117441593202
 86bff6ea-5a49-4874-b7e6-3279fe9fc66a,2026-10-11,45.41,eBay,AUCTION,ok,0,https://www.ebay.com/itm/117445376007
 86bff6ea-5a49-4874-b7e6-3279fe9fc66a,2026-10-09,55,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/398395474245
 86bff6ea-5a49-4874-b7e6-3279fe9fc66a,2026-10-07,59.99,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/336771151954
@@ -468,7 +469,6 @@ asset_id,date,price,source,sale_type,status,outlier,url
 86bff6ea-5a49-4874-b7e6-3279fe9fc66a,2026-09-30,60,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/137710763993
 86bff6ea-5a49-4874-b7e6-3279fe9fc66a,2026-09-28,59.95,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/318925659365
 86bff6ea-5a49-4874-b7e6-3279fe9fc66a,2026-09-28,36.25,eBay,AUCTION,ok,0,https://www.ebay.com/itm/158318357750
-86bff6ea-5a49-4874-b7e6-3279fe9fc66a,2026-09-25,66.99,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/168698623970
 86aa1b35-92e7-4625-9524-ad1ae65425d2,2023-06-04,33.73,eBay,AUCTION,ok,0,https://www.ebay.com/itm/Pokemon-Card-PSA-9-Mint-Magmortar-Secret-Wonders-2007-Reverse-Holo-31-132-/155577018396
 86aa1b35-92e7-4625-9524-ad1ae65425d2,2023-04-04,27.27,eBay,AUCTION,ok,0,https://www.ebay.com/itm/2007-Pokemon-Secret-Wonders-MAGMORTAR-Reverse-Holo-31-132-PSA-9-/185832153794
 865889b7-f626-4e59-8dc0-191b3c2ecd22,2023-06-07,15.5,eBay,AUCTION,ok,0,https://www.ebay.com/itm/2021-Pokemon-India-PCP-25th-Anniversary-010-Shining-Magikarp-Holo-PSA-9-MINT-/374729217326
@@ -552,6 +552,8 @@ asset_id,date,price,source,sale_type,status,outlier,url
 86d8ea0b-21c8-4b34-9b9e-c02f9f00b1cb,2024-07-07,10.89,eBay,AUCTION,ok,0,https://www.ebay.com/itm/PSA-9-Swablu-2005-Pokemon-Card-67-106-Emerald-/186502950646
 86f00d3f-7c86-4b09-b5c0-e440e960358b,2026-10-06,349,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/307218137563
 86f00d3f-7c86-4b09-b5c0-e440e960358b,2024-09-18,68.97,eBay,AUCTION,ok,0,https://www.ebay.com/itm/Pokemon-Suicune-Entei-Legend-PSA-9-Japanese-065-080-L2-Reviving-Legends-/405221681081
+86377cc8-8b71-46bd-8ef8-f95e39c2358a,2026-10-12,104.99,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/237116991970
+86377cc8-8b71-46bd-8ef8-f95e39c2358a,2026-10-11,125,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/168599339533
 86377cc8-8b71-46bd-8ef8-f95e39c2358a,2026-10-11,118.5,eBay,AUCTION,ok,0,https://www.ebay.com/itm/287622538413
 86377cc8-8b71-46bd-8ef8-f95e39c2358a,2026-10-11,102,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/278424292171
 86377cc8-8b71-46bd-8ef8-f95e39c2358a,2026-10-10,75,eBay,AUCTION,ok,0,https://www.ebay.com/itm/407264026986
@@ -560,13 +562,14 @@ asset_id,date,price,source,sale_type,status,outlier,url
 86377cc8-8b71-46bd-8ef8-f95e39c2358a,2026-10-08,104.99,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/366718563905
 86377cc8-8b71-46bd-8ef8-f95e39c2358a,2026-10-07,129.5,eBay,AUCTION,ok,0,https://www.ebay.com/itm/800740141942
 86377cc8-8b71-46bd-8ef8-f95e39c2358a,2026-10-06,95,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/960019397220
-86377cc8-8b71-46bd-8ef8-f95e39c2358a,2026-10-05,175,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/117162007250
-86377cc8-8b71-46bd-8ef8-f95e39c2358a,2026-10-05,174.99,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/307044307490
 8618930a-0bcf-409f-b8f9-eba01cfc2efe,2026-01-26,31.99,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/365699467408
 8618930a-0bcf-409f-b8f9-eba01cfc2efe,2024-10-07,21.09,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/2012-Pokemon-SIGILYPH-011-050-1-Edition-Holo-Japanese-PSA-9-/356118536458
 867560df-7f52-4158-84ea-ca002a236fd9,2026-05-15,175,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/227243780473
 867560df-7f52-4158-84ea-ca002a236fd9,2024-12-13,73.32,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/Carte-Pokemon-Spectrum-Haunter-29-102-PSA-9-CHINESE-Chinois-Ed-1-Set-Base-/256579893754
 867560df-7f52-4158-84ea-ca002a236fd9,2024-11-05,47.62,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/PSA-9-MINT-Haunter-1st-Edition-Base-Set-Chinese-29-102-Pokemon-Card-/326306619579
+86f4442b-7e2c-4c24-ba57-b9f88661f1dc,2026-03-31,150,PWCC Fixed Price,BEST_OFFER,ok,0,https://www.fanaticscollect.com/buy-now/550db004-8673-4eb9-8981-b8de173f4d5c
+86f4442b-7e2c-4c24-ba57-b9f88661f1dc,2025-06-07,59,eBay,AUCTION,ok,0,https://www.ebay.com/itm/306327866796
 8610b6fa-18a9-40de-9301-3346eabacefe,2025-07-03,12,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/376380883454
 869bda30-17ef-49ef-b072-a716a9016e88,2026-04-20,65,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/117108060470
 869a06b3-7c28-4ba1-a74a-a8ffb1bdc16b,2026-06-21,87.18,eBay,AUCTION,ok,0,https://www.ebay.com/itm/287381980198
+8633b8f6-43bd-4cc1-8f8e-3a046919f6b9,2026-10-10,37.42,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/237074634939
