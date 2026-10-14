@@ -3,8 +3,8 @@ asset_id,date,price,source,sale_type,status,outlier,url
 6c6b802f-215c-45eb-a1b2-b08854dea3cd,2026-10-08,7600,eBay,AUCTION,ok,0,https://www.ebay.com/itm/800741742494
 6c6b802f-215c-45eb-a1b2-b08854dea3cd,2026-10-08,7429,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/168545425152
 6c6b802f-215c-45eb-a1b2-b08854dea3cd,2026-10-08,6969.6,Alt,AUCTION,ok,0,https://alt.xyz/exchange/select-listing?ids=4da27131-9f63-486f-a129-8cfd8163f4d1
-6c6b802f-215c-45eb-a1b2-b08854dea3cd,2026-10-08,6945.6,Alt,AUCTION,PENDING,0,https://alt.xyz/exchange/select-listing?ids=c97cc60b-347c-4edd-910c-b02dd0a7e119
-6c6b802f-215c-45eb-a1b2-b08854dea3cd,2026-10-08,6681.6,Alt,AUCTION,PENDING,0,https://alt.xyz/exchange/select-listing?ids=65de2704-6a26-4caa-ba03-912769332a53
+6c6b802f-215c-45eb-a1b2-b08854dea3cd,2026-10-08,6945.6,Alt,AUCTION,PAYMENT_INITIATED,0,https://alt.xyz/exchange/select-listing?ids=c97cc60b-347c-4edd-910c-b02dd0a7e119
+6c6b802f-215c-45eb-a1b2-b08854dea3cd,2026-10-08,6681.6,Alt,AUCTION,PAYMENT_INITIATED,0,https://alt.xyz/exchange/select-listing?ids=65de2704-6a26-4caa-ba03-912769332a53
 6c6b802f-215c-45eb-a1b2-b08854dea3cd,2026-10-07,7824.99,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/318930040143
 6c6b802f-215c-45eb-a1b2-b08854dea3cd,2026-10-07,7700,eBay,AUCTION,ok,0,https://www.ebay.com/itm/800737117080
 6c6b802f-215c-45eb-a1b2-b08854dea3cd,2026-10-07,5375,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/366695765457
@@ -159,7 +159,7 @@ asset_id,date,price,source,sale_type,status,outlier,url
 6c07f2da-2fd4-4aa8-8d6b-3d9b2d32995f,2026-08-09,1975,eBay,AUCTION,ok,0,https://www.ebay.com/itm/287495390001
 6c07f2da-2fd4-4aa8-8d6b-3d9b2d32995f,2026-07-23,1549,eBay,AUCTION,ok,0,https://www.ebay.com/itm/298507759557
 6c07f2da-2fd4-4aa8-8d6b-3d9b2d32995f,2026-06-19,1524,eBay,AUCTION,ok,0,https://www.ebay.com/itm/306985058573
-6cd92820-08ee-4938-b7d0-bb201cec75d2,2026-10-08,1110,Alt,AUCTION,PENDING,0,https://alt.xyz/exchange/select-listing?ids=df9f3092-82ff-42aa-b8ae-c49a8bfbd0f6
+6cd92820-08ee-4938-b7d0-bb201cec75d2,2026-10-08,1110,Alt,AUCTION,ok,0,https://alt.xyz/exchange/select-listing?ids=df9f3092-82ff-42aa-b8ae-c49a8bfbd0f6
 6cd92820-08ee-4938-b7d0-bb201cec75d2,2026-10-04,1170,PWCC Weekly Auctions,AUCTION,ok,0,https://www.fanaticscollect.com/weekly/9efacf4a-a5c7-11f1-8b70-065d41047819
 6cd92820-08ee-4938-b7d0-bb201cec75d2,2026-09-29,1326,eBay,AUCTION,ok,0,https://www.ebay.com/itm/298696219839
 6cd92820-08ee-4938-b7d0-bb201cec75d2,2026-09-22,1225,eBay,AUCTION,ok,0,https://www.ebay.com/itm/307178860675
@@ -1033,6 +1033,7 @@ asset_id,date,price,source,sale_type,status,outlier,url
 6ca869bd-e260-4cf5-945b-fab6930fe767,2026-02-13,27,eBay,AUCTION,ok,0,https://www.ebay.com/itm/297985577686
 6ca869bd-e260-4cf5-945b-fab6930fe767,2026-02-11,31,eBay,AUCTION,ok,0,https://www.ebay.com/itm/277700229763
 6ca869bd-e260-4cf5-945b-fab6930fe767,2026-02-09,26,eBay,AUCTION,ok,0,https://www.ebay.com/itm/277695167539
+6ca5c9eb-0908-477c-868b-141bfc6fd248,2026-10-13,60,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/900011107625
 6ca5c9eb-0908-477c-868b-141bfc6fd248,2026-10-12,52,eBay,AUCTION,ok,0,https://www.ebay.com/itm/117444313152
 6ca5c9eb-0908-477c-868b-141bfc6fd248,2026-10-12,46,eBay,AUCTION,ok,0,https://www.ebay.com/itm/117446243380
 6ca5c9eb-0908-477c-868b-141bfc6fd248,2026-10-12,45,eBay,AUCTION,ok,0,https://www.ebay.com/itm/307212931179
@@ -1042,7 +1043,6 @@ asset_id,date,price,source,sale_type,status,outlier,url
 6ca5c9eb-0908-477c-868b-141bfc6fd248,2026-10-11,30,eBay,AUCTION,ok,0,https://www.ebay.com/itm/307212748801
 6ca5c9eb-0908-477c-868b-141bfc6fd248,2026-10-11,30,eBay,AUCTION,ok,0,https://www.ebay.com/itm/298731013258
 6ca5c9eb-0908-477c-868b-141bfc6fd248,2026-10-10,43,eBay,AUCTION,ok,0,https://www.ebay.com/itm/298708806726
-6ca5c9eb-0908-477c-868b-141bfc6fd248,2026-10-09,54,eBay,AUCTION,ok,0,https://www.ebay.com/itm/117442537489
 6ce845d4-6aaa-4060-9b8a-009ed61af814,2026-05-31,109.61,eBay,AUCTION,ok,0,https://www.ebay.com/itm/137324435462
 6ce845d4-6aaa-4060-9b8a-009ed61af814,2026-01-25,36.08,eBay,AUCTION,ok,0,https://www.ebay.com/itm/136947445737
 6ce845d4-6aaa-4060-9b8a-009ed61af814,2025-12-14,46.37,eBay,AUCTION,ok,0,https://www.ebay.com/itm/136797929987
