@@ -6,7 +6,13 @@
 name: nightly scrape (roster candidates + vintage checklist)
 on:
   schedule:
-    - cron: "0 7 * * *"   # 07:00 UTC = 03:00 ET, after the day's eBay sales settle
+    # Three slots, 01:17 / 02:17 / 03:17 UTC (6-8 PM Pacific): GitHub fires a cron anywhere from on
+    # time to ~9 h late (the old 07:00 UTC slot started 12:00-16:15 UTC in October 2026, so the feed
+    # landed at 8 AM-noon Pacific). The first slot that fires scrapes (~3-3.5 h); the others see its
+    # commit (nightly/already_ran.sh) and stop, so the day's data is on main by ~05:00-07:00 UTC
+    # (10 PM-midnight Pacific) and PokeSniper's 3 AM Pacific sync finds it. Off the hour on purpose
+    # (GitHub says the top of the hour is the busiest).
+    - cron: "17 1,2,3 * * *"
   workflow_dispatch:
     inputs:
       limit:
@@ -24,10 +30,18 @@ jobs:
     timeout-minutes: 340
     steps:
       - uses: actions/checkout@v4
+      - name: stop if an earlier cron slot already landed today's nightly
+        id: guard
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: nightly/already_ran.sh "nightly $(date -u +%F)" && echo "skip=1" >> "$GITHUB_OUTPUT" || true
       - uses: actions/setup-python@v5
+        if: steps.guard.outputs.skip != '1'
         with:
           python-version: "3.12"
       - name: scrape + ingest + rebuild latest/
+        if: steps.guard.outputs.skip != '1'
         env:
           ALT_SESSION_TOKEN: ${{ secrets.ALT_SESSION_TOKEN }}   # alt.xyz login (README, 'Login')
           NIGHTLY_WORKERS: "6"
@@ -38,12 +52,12 @@ jobs:
       # Re-derives on top of origin/main instead of rebasing if another run's
       # commit landed meanwhile (the generated files always conflict).
       - name: commit history/ and latest/
-        if: ${{ inputs.limit == '' }}
+        if: ${{ inputs.limit == '' && steps.guard.outputs.skip != '1' }}
         run: nightly/commit_results.sh
       # The raw run, so a failed commit can be re-ingested by hand
       # (python3 history/ingest.py <dir> --date <day>) instead of re-scraped.
       - name: keep the raw run as a downloadable artifact (7 days)
-        if: always()
+        if: always() && steps.guard.outputs.skip != '1'
         uses: actions/upload-artifact@v4
         with:
           name: snapshot-${{ github.run_id }}

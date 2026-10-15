@@ -2,11 +2,13 @@
 # whether each listing is still live (alt.xyz re-serves ended ones for months) and drops the
 # dead ones. ~4,800 lookups of eBay's 5,000-a-day budget, which resets at 07:00 UTC. Shares
 # the `scrape` concurrency group with the nightly, weekly and listings-refresh runs, so it
-# queues behind them instead of committing on top of a half-finished run.
+# queues behind them instead of committing on top of a half-finished run. GitHub keeps only one
+# *pending* run per group: a verify queued behind the nightly is cancelled when a listings
+# refresh queues up too (10-11 and 10-14), hence the second cron slot + nightly/already_ran.sh.
 name: ebay verify (Buy It Now listings still live?)
 on:
   schedule:
-    - cron: "15 7 * * *"   # 07:15 UTC, just after eBay's daily quota reset
+    - cron: "15 7,9 * * *"   # 07:15 UTC, just after eBay's daily quota reset; 09:15 = retry if that run was cancelled
   workflow_dispatch:
     inputs:
       budget:
@@ -24,10 +26,18 @@ jobs:
     timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
+      - name: stop if today's verify already landed (the 09:15 slot is only a retry)
+        id: guard
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: nightly/already_ran.sh "ebay verify $(date -u +%F)" && echo "skip=1" >> "$GITHUB_OUTPUT" || true
       - uses: actions/setup-python@v5
+        if: steps.guard.outputs.skip != '1'
         with:
           python-version: "3.12"
       - name: ask eBay + apply + rebuild latest/ + commit
+        if: steps.guard.outputs.skip != '1'
         env:
           EBAY_CLIENT_ID: ${{ secrets.EBAY_CLIENT_ID }}
           EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
@@ -35,7 +45,7 @@ jobs:
           NO_COMMIT: ${{ inputs.budget != '' && '1' || '' }}
         run: nightly/run_ebay_verify.sh
       - name: keep the raw run as a downloadable artifact (7 days)
-        if: always()
+        if: always() && steps.guard.outputs.skip != '1'
         uses: actions/upload-artifact@v4
         with:
           name: ebay-verify-${{ github.run_id }}

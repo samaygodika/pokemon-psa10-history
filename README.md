@@ -160,7 +160,10 @@ has to be configured there. For a local checkout instead, set `SAMAY_DATA_URL=`
 scope filter, scrape with two retry passes, then `history/ingest.py` and
 `history/metrics.py`. Two schedules, both in `.github/workflows/`:
 
-- **nightly** (07:00 UTC): the 101 Pokemon in `nightly/subjects.txt` at every year (~20k
+- **nightly** (cron slots 01:17, 02:17 and 03:17 UTC; the first that fires runs, the others stop
+  when `nightly/already_ran.sh` sees its commit, because GitHub fires a cron up to ~9 h late; the
+  data is on main by ~05:00-07:00 UTC, before PokeSniper's morning sync): the 101 Pokemon in
+  `nightly/subjects.txt` at every year (~20k
   cards: PokeSniper's 100 roster candidates plus Bulbasaur) plus the ~400 species in
   `nightly/vintage_species.txt` at 2013 or earlier (~13k cards, PokeSniper's Categories
   checklist), ~33k cards, ~2–3 h. Names match `subject` as whole words, with a hyphen
@@ -284,7 +287,7 @@ The script waits between requests and retries failed calls three times.
 ### Listings refresh between nightlies
 
 Since 2026-10-03 `.github/workflows/listings-refresh.yml` runs `nightly/run_listings_refresh.sh`
-three times a day (02:00, 08:00, 20:00 UTC; the nightly covers the afternoon). It re-checks the
+three times a day (10:00, 16:00, 22:00 UTC; the nightly covers the night). It re-checks the
 live listings of every card `latest/cards.csv` shows with a running auction, at the grade(s)
 that have one (`nightly/refresh_scope.py`, ~4k PSA 10 + ~3k PSA 9 cards, one request each),
 with `alt_scraper.py --listings-only` (no pops, no sales) and `history/ingest.py --listings-only`
@@ -315,7 +318,8 @@ same pace as before and sends nothing the site itself does not send.
 
 alt.xyz re-serves ended eBay Buy It Nows for months, with no date or status on the record, so
 since 2026-10-06 `.github/workflows/ebay-verify.yml` asks eBay itself once a day (07:15 UTC,
-after eBay's quota reset): `nightly/run_ebay_verify.sh` runs `history/ebay_verify.py`, one
+after eBay's quota reset; a 09:15 slot retries only if that run was cancelled while queued):
+`nightly/run_ebay_verify.sh` runs `history/ebay_verify.py`, one
 Browse API lookup per listing (`getItemByLegacyId`, application token), about 4,800 of the
 keyset's 5,000 a day. Cards from 2013 or before first, oldest listings first; a listing eBay
 called live is asked again after 7 days. A listing eBay says has ended (a past `itemEndDate`,
