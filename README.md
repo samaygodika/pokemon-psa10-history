@@ -154,6 +154,21 @@ URLs, checked at boot and every few hours; see its `SAMAY_DATA_URL`), so nothing
 has to be configured there. For a local checkout instead, set `SAMAY_DATA_URL=`
 (empty) and `SAMAY_DATA_DIR=/path/to/latest`.
 
+`latest/watchlist_listings.csv` (2026-10-15) is the **custom scrape for portfolio and
+favorites**: every live listing, not only the cheapest, for each card and grade on
+PokeSniper's `watchlist.csv` (favorites as PSA 10, holdings at their grade), one row per
+listing: `asset_id, grade` (10 or 9, as the watchlist writes it), `source` (`eBay` from eBay's
+own search; `Alt`, `Fanatics Collect`, `Goldin`, `CardHobby` from the feed's live listings;
+`eBay (alt mirror)` for an eBay listing alt.xyz mirrors that eBay's search did not return),
+`kind` (`auction` / `bin`), `price` (high bid or opening price for an auction, the ask for a
+bin, USD), `bid_count`, `ends` (auction end, UTC), `url`, `title` (eBay's; blank for the feed's
+own rows), `first_seen` (the first day the sweep saw that url), `checked_at` (this sweep, UTC).
+Sorted by card, grade, kind, price. `latest/watchlist_listings.summary.json` next to it says
+which card-grades were swept, which were not (budget, rate limit, unknown asset) and which
+rows were skipped: a card with no row *and* in `swept` had nothing live; a card in
+`not_swept` is unknown. Built by the daily eBay verify run when the watchlist secrets are set
+(see *Watchlist sweep* below); absent until then.
+
 ## Scheduled runs
 
 `nightly/run_nightly.sh` does everything: full index listing (~65k cards, ~25 min),
@@ -331,6 +346,40 @@ a production keyset; a new keyset stays disabled until the Marketplace Account D
 opt-out is done in eBay's developer portal), or `~/.ebay_keys` locally. Without keys the
 step does nothing.
 
+
+### Watchlist sweep (custom scrape for portfolio and favorites, 2026-10-15)
+
+The live columns above come from alt.xyz's mirror of other sites, and the mirror is partial
+(2026-10-14: Palkia G LV.X PSA 9 showed one eBay Buy It Now at $4,300 while eBay also had
+$3,299 and $4,097 copies; Plasma Storm Articuno EX PSA 10's one eBay listing was never
+mirrored). For the ~74 card-grades PokeSniper's users favorite or hold, `history/watchlist_listings.py`
+asks eBay's own search once a day and writes `latest/watchlist_listings.csv` (columns under
+*The data PokeSniper gets*). Per card and grade: two queries, "<subject> <number> PSA <grade>"
+and "<subject> <set> PSA <grade>" (eBay titles follow the PSA label, and each query finds
+listings the other misses), each run for fixed-price and for auction listings separately
+(an unfiltered search left out 12 of 13 running auctions), so 4 calls a card, ~306 a day,
+capped by `WATCHLIST_EBAY_BUDGET` (360); `nightly/run_ebay_verify.sh` runs the sweep first and
+gives the verify the rest of `EBAY_BUDGET`. A hit counts only when its title names PSA and
+exactly the wanted grade, every word of the card's subject, the number as a token (with the
+printed total when given), the printing (1st Edition / Reverse Holo / Shadowless present or
+absent as the card has it), some set evidence (number with total, promo prefix, Gold Star /
+LV.X / Prime / Shiny, or a set word), no other language, reprint (Celebrations, 25th
+anniversary, World Championships deck), lot, autograph, error or sealed product, and no year
+more than one off the card's. Anything less is refused, never guessed; what alt.xyz already
+mirrors for the card (Alt's own listings, Fanatics Collect, Goldin, CardHobby, and eBay rows
+the search did not return) is added from `history/live_listings.csv`. Fanatics Collect is
+read through alt.xyz's mirror here; a direct pull plugs in as another source once that runs.
+
+Input: PokeSniper's `watchlist.csv` (`asset_id, grade, kind, profiles`), read from
+`WATCHLIST_FILE` (a local path) or `WATCHLIST_URL` with `WATCHLIST_TOKEN` as a bearer token
+(a GitHub contents-API URL returns the raw file; nothing else of that repository is read).
+**Off in Actions until the repository secrets `WATCHLIST_URL` and `WATCHLIST_TOKEN` exist**
+(already wired in `.github/workflows/ebay-verify.yml`): either
+`https://api.github.com/repos/<owner>/<repo>/contents/watchlist.csv` plus a classic personal
+access token with the `repo` scope (a fine-grained token cannot reach another user's private
+repository), or a token-protected URL served by PokeSniper's own server plus its token.
+Locally: `WATCHLIST_FILE=watchlist.csv python3 history/watchlist_listings.py` (keys from
+`~/.ebay_keys`), or `--log hits.tsv` to see every eBay hit with its accept/refuse reason.
 
 ### Crossed Fanatics Collect links (2026-10-10)
 

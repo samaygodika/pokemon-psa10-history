@@ -4,11 +4,17 @@
 # .github/workflows/ebay-verify.yml just after eBay's quota reset (07:00 UTC); ~4,800 lookups,
 # ~20-30 min. See history/ebay_verify.py for which listings and what the answers mean.
 #
-#   nightly/run_ebay_verify.sh                         # check -> apply -> metrics -> commit
+#   nightly/run_ebay_verify.sh                         # [watchlist sweep ->] check -> apply -> metrics -> commit
 #   EBAY_BUDGET=50 NO_COMMIT=1 nightly/run_ebay_verify.sh   # smoke test: 50 lookups, no commit
 #
 # Env: EBAY_CLIENT_ID / EBAY_CLIENT_SECRET (or ~/.ebay_keys), EBAY_BUDGET (4800), EBAY_WORKERS (4),
 # NO_COMMIT. Without keys it does nothing and exits 0.
+#
+# Watchlist sweep (2026-10-15, history/watchlist_listings.py): runs first when WATCHLIST_FILE or
+# WATCHLIST_URL (+ WATCHLIST_TOKEN) is set, writes latest/watchlist_listings.csv (+ .summary.json)
+# and hands the verify what is left of EBAY_BUDGET after its own eBay calls (WATCHLIST_EBAY_BUDGET,
+# default 360, ~300 used), so the day stays under eBay's 5,000. Unset = no sweep, nothing changes.
+# A sweep failure is logged and the verify still runs.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 PY=${PYTHON:-python3}
@@ -19,16 +25,31 @@ LOG="$OUT/run.log"
 exec > >(tee -a "$LOG") 2>&1
 echo "=== ebay verify $STAMP started $(date -u '+%F %T') ==="
 
-$PY history/ebay_verify.py check --out "$OUT" --budget "${EBAY_BUDGET:-4800}" --workers "${EBAY_WORKERS:-4}"
-if [ ! -s "$OUT/ebay_results.csv" ]; then echo "=== no answers, nothing to apply ==="; exit 0; fi
-$PY history/ebay_verify.py apply "$OUT"
+VERIFY_BUDGET=${EBAY_BUDGET:-4800}
+SWEEP_NOTE=""
+if [ -n "${WATCHLIST_FILE:-}${WATCHLIST_URL:-}" ]; then
+  echo "--- watchlist sweep ---"
+  if $PY history/watchlist_listings.py --budget "${WATCHLIST_EBAY_BUDGET:-360}"; then
+    cp latest/watchlist_listings.csv latest/watchlist_listings.summary.json "$OUT/"   # survives the re-derive below
+    SWEEP_CALLS=$($PY -c 'import json;print(json.load(open("latest/watchlist_listings.summary.json"))["ebay_calls"])')
+    VERIFY_BUDGET=$(( VERIFY_BUDGET - SWEEP_CALLS )); [ "$VERIFY_BUDGET" -lt 0 ] && VERIFY_BUDGET=0
+    SWEEP_NOTE="; watchlist $(tail -n 20 "$LOG" | grep -m1 '^watchlist sweep:' | sed -E 's/^watchlist sweep: [0-9]+ watchlist row\(s\), //; s/;.*//')"
+    echo "watchlist sweep used $SWEEP_CALLS eBay call(s); verify budget now $VERIFY_BUDGET"
+  else
+    echo "watchlist sweep FAILED (exit $?), verify runs with the full budget"
+  fi
+fi
+
+$PY history/ebay_verify.py check --out "$OUT" --budget "$VERIFY_BUDGET" --workers "${EBAY_WORKERS:-4}"
+if [ ! -s "$OUT/ebay_results.csv" ] && [ ! -s "$OUT/watchlist_listings.csv" ]; then echo "=== no answers, nothing to apply ==="; exit 0; fi
+[ -s "$OUT/ebay_results.csv" ] && $PY history/ebay_verify.py apply "$OUT"
 echo "--- rebuild latest/ ---"
 $PY history/metrics.py
 if [ -n "${NO_COMMIT:-}" ]; then echo "=== done (no commit) $(date -u '+%F %T') ==="; exit 0; fi
 
 git config user.name "alt.xyz nightly"
 git config user.email "nightly@users.noreply.github.com"
-SUMMARY=$(tail -n 30 "$LOG" | grep -m1 '^ebay verify:' | sed 's/^ebay verify: //')
+SUMMARY=$(tail -n 30 "$LOG" | grep -m1 '^ebay verify:' | sed 's/^ebay verify: //')$SWEEP_NOTE
 for attempt in 1 2 3; do
   git add history latest
   if git commit -q -m "ebay verify $STAMP: $SUMMARY"; then
@@ -44,7 +65,8 @@ for attempt in 1 2 3; do
   git fetch -q origin
   git reset -q --hard origin/main
   # eBay's answers are this run's and still true: re-apply them to the newer store, no new lookups.
-  $PY history/ebay_verify.py apply "$OUT"
+  [ -s "$OUT/ebay_results.csv" ] && $PY history/ebay_verify.py apply "$OUT"
+  [ -s "$OUT/watchlist_listings.csv" ] && cp "$OUT/watchlist_listings.csv" "$OUT/watchlist_listings.summary.json" latest/
   $PY history/metrics.py
 done
 echo "could not push after 3 attempts" >&2

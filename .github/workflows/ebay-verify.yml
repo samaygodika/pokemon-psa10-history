@@ -43,6 +43,13 @@ jobs:
           EBAY_CLIENT_SECRET: ${{ secrets.EBAY_CLIENT_SECRET }}
           EBAY_BUDGET: ${{ inputs.budget || '4800' }}
           NO_COMMIT: ${{ inputs.budget != '' && '1' || '' }}
+          # Watchlist sweep (history/watchlist_listings.py): OFF until these two secrets exist. Either a
+          # GitHub contents-API URL for Sid's private watchlist.csv + a classic PAT with `repo` scope
+          # (a fine-grained token cannot reach another user's repo), or a token-protected URL on his
+          # server + its token. Leaves the verify ~300 fewer lookups on the days it runs.
+          WATCHLIST_URL: ${{ secrets.WATCHLIST_URL }}
+          WATCHLIST_TOKEN: ${{ secrets.WATCHLIST_TOKEN }}
+          WATCHLIST_EBAY_BUDGET: "360"
         run: nightly/run_ebay_verify.sh
       - name: keep the raw run as a downloadable artifact (7 days)
         if: always() && steps.guard.outputs.skip != '1'
