@@ -17,6 +17,7 @@ Usage
   python3 alt_scraper.py --skip-unchanged-sales history/daily/2026-09-25.csv cards.txt
                                                    # don't refetch sales that cannot have changed since that run
   python3 alt_scraper.py --alt-listings --out DIR  # Alt's own auctions + marketplace -> DIR/alt_listings.csv
+  python3 alt_scraper.py --fanatics-listings --out DIR   # Fanatics Collect's Buy Now marketplace -> DIR/fanatics_listings.csv
 
 Cards with zero copies at the chosen grade (e.g. no PSA 10 exists) are skipped, so every row
 in cards.csv is a card you can actually buy in that grade. --keep-empty writes them anyway.
@@ -39,6 +40,10 @@ Outputs (written next to this script unless --out is given):
                    marketplace at PSA 10 and 9, all Pokemon cards at once, same columns as
                    listings.csv with source "Alt". listings.csv never has these: alt.xyz's
                    per-card live-listings answer only mirrors other sites
+  fanatics_listings.csv (--fanatics-listings) every live Pokemon PSA 9 / PSA 10 Buy Now listing on
+                   Fanatics Collect, read from its own marketplace index with their permission
+                   (2026-10-15), matched to the feed's cards (history/fanatics_match.py); same
+                   columns plus the title, Fanatics' year / number / category and the match verdict
 
 Login (optional): alt.xyz's pages ask for a free account since 2026-10-02. To scrape as that
 account, put its stytch_session cookie value in ALT_SESSION_TOKEN or ~/.alt_session (README, 'Login').
@@ -765,6 +770,243 @@ def fetch_alt_listings(company="PSA", grades=("10.0", "9.0"), category="POKEMON_
     return [r for r in rows if r["asset_id"]]
 
 
+# --------------------------------------------------------------------------
+# Fanatics Collect's Buy Now marketplace, read directly (2026-10-15)
+# --------------------------------------------------------------------------
+# alt.xyz's per-card answer mirrors only about one Fanatics Collect Buy Now in six for the cards the
+# feed covers (handoff/2026-10-10-fanatics-buy-now-research.md), so a $100,000 Arceus LV.X PSA 9 the
+# app's users saw on Fanatics never reached the feed. Fanatics Collect gave written permission for
+# read-only automated access on the terms of handoff/2026-10-11-fanatics-permission-request.md,
+# which this code keeps to exactly: the public marketplace search (the same Algolia index the site's
+# own Buy Now page queries), Pokemon cards graded PSA 9 or 10 only, once a day, about 60-80 search
+# requests at >= 1 s spacing, this module's honest User-Agent, and only listing id, title, asking
+# price, grade, grader and the link kept (no images, seller details, sales history or cert numbers:
+# attributesToRetrieve asks for nothing else). FANATICS_BUDGET caps the requests; the pull is all
+# or nothing, so a budget cut or a failed page never reads as "those listings ended".
+#
+# How the site does it: POST app.fanaticscollect.com/graphql?webSearchKeyQuery mints a visitor an
+# Algolia secured key (search-only, public marketplace listings only, valid 10 minutes); the page
+# then queries index prod_item_state_v1 (application 3XT9C4X62I). One record per listing:
+# listingUuid (= the id in fanaticscollect.com/buy-now/<id>), title, currentPrice (USD), grade,
+# gradingService, year, cardNumber, brand, subCategory1 ("Trading Card Games > Pokemon (English)" /
+# (Japanese) / (Other Languages); multi-valued), status Live/Sold (sold listings stay in the index),
+# certifiedSeller, value (Fanatics' guide price). What the index does, measured on 2026-10-15/16, and
+# what it means for the pull: (1) it pages out at most ~2,400 hits per query, and consecutive pages
+# of one query are not a stable partition (149 of 2,399 hits came twice across three pages, so
+# others were missed); (2) a query the engine cuts short (processing past ~65 ms) comes back with
+# exhaustiveNbHits false and BOTH its hits and its nbHits are partial: the same query gave 901 hits
+# cut short and 987 exhaustive seconds apart, 532 / 570 / 589 (per category) for another; an
+# exhaustive answer under 1,000 hits is exact (sub-slices add up to their parent to the listing),
+# above 1,000 nbHits is only an estimate (1.5-3x the real count; the facet counts likewise); (3) the
+# sort replicas (prod_item_state_v1_price_asc, _recent_desc) leave out a few percent of live records,
+# the primary index has them all; (4) listedAt is not numeric-filterable, currentPrice is. Queries
+# with one category ran 50-62 ms and exhaustive where the three-category ones were cut, so every
+# slice is one grade x one category x a group of years (sized from one facet request per grade and
+# category), read as ONE page of 1,000 from the primary index and accepted only when short AND
+# exhaustive; a cut page is asked once more (that fixed it every time on 2026-10-16), then the slice
+# is split at its median price; a full page is split the same way. ~18k listings on 2026-10-16, so
+# the whole pull is ~45 requests.
+FANATICS_KEY_URL = "https://app.fanaticscollect.com/graphql?webSearchKeyQuery"
+FANATICS_KEY_QUERY = "query webSearchKeyQuery { collectSearchKeyV2 { key validUntil } }"
+FANATICS_SEARCH_URL = "https://3xt9c4x62i-dsn.algolia.net/1/indexes/*/queries"
+FANATICS_APP_ID = "3XT9C4X62I"
+FANATICS_INDEX = "prod_item_state_v1"
+FANATICS_PAGE = 1000
+FANATICS_DELAY = 1.0            # the permission request said >= 1 s apart
+FANATICS_SLICE_MAX = 1500       # listings (index estimate, 1.5-3x the real count) per grade x category x year-group slice
+FANATICS_CATEGORIES = ["Trading Card Games > Pokémon (English)", "Trading Card Games > Pokémon (Japanese)",
+                       "Trading Card Games > Pokémon (Other Languages)"]
+FANATICS_BASE_FILTERS = ["marketplace:FIXED", "status:Live", "marketplaceSource:bo", "gradingService:PSA"]
+# what we keep (listing id, title, price, grade, grader, link) plus the matcher's inputs; nothing else
+# is asked for, so a listing's cert number, images and seller never reach this machine
+FANATICS_FIELDS = ["listingUuid", "title", "currentPrice", "grade", "gradingService", "year", "cardNumber",
+                   "subCategory1", "certifiedSeller", "status", "value"]
+FANATICS_URL = "https://www.fanaticscollect.com/buy-now/{}"
+FANATICS_SOURCE = "Fanatics Collect"
+FANATICS_COLS = LIVE_COLS + ["title", "year", "card_number", "category", "seller", "guide_price", "match", "candidates"]
+_fanatics_key = None
+
+
+class FanaticsBudget(RuntimeError):
+    """The pull would need more requests than allowed; nothing is written."""
+
+
+class RequestBudget:
+    def __init__(self, limit):
+        self.limit, self.used = int(limit), 0
+
+    def spend(self, what):
+        if self.used >= self.limit:
+            raise FanaticsBudget(f"Fanatics Collect: request budget of {self.limit} used up before {what}")
+        self.used += 1
+
+
+def _fanatics_post(url, body, budget, what):
+    budget.spend(what)
+    req = urllib.request.Request(url, data=json.dumps(body).encode(), method="POST", headers={
+        "content-type": "application/json", "accept": "application/json",
+        "user-agent": HEADERS["user-agent"], "origin": "https://www.fanaticscollect.com"})
+    with urllib.request.urlopen(req, timeout=120) as r:
+        data = json.loads(r.read())
+    time.sleep(FANATICS_DELAY)
+    return data
+
+
+def fanatics_search_key(budget, force=False):
+    """The visitor search key the site mints itself (10 minutes), re-minted a minute before it runs out."""
+    global _fanatics_key
+    if not force and _fanatics_key and _fanatics_key["expires"] - 60 > time.time():
+        return _fanatics_key["key"]
+    d = _fanatics_post(FANATICS_KEY_URL, {"operationName": "webSearchKeyQuery", "variables": {},
+                                          "query": FANATICS_KEY_QUERY}, budget, "search key")
+    k = d["data"]["collectSearchKeyV2"]
+    until = datetime.fromisoformat(k["validUntil"].replace("Z", "+00:00")).timestamp()
+    _fanatics_key = {"key": k["key"], "expires": until}
+    return k["key"]
+
+
+def fanatics_query(request, budget, what="search"):
+    """One request to the marketplace index; a refused key is re-minted once."""
+    for force in (False, True):
+        key = fanatics_search_key(budget, force)
+        url = FANATICS_SEARCH_URL + "?" + urllib.parse.urlencode({"x-algolia-application-id": FANATICS_APP_ID,
+                                                                   "x-algolia-api-key": key})
+        try:
+            return _fanatics_post(url, {"requests": [dict({"indexName": FANATICS_INDEX, "query": ""}, **request)]},
+                                  budget, what)["results"][0]
+        except urllib.error.HTTPError as e:
+            body = e.read()[:500].decode("utf-8", "replace")
+            # 403 = the key is refused (expired or revoked); a 400 is a bad request unless it names the key
+            if not force and (e.code == 403 or (e.code == 400 and ("key" in body.lower() or "validuntil" in body.lower()))):
+                continue
+            raise RuntimeError(f"Fanatics Collect: HTTP {e.code} on {what}: {body}") from e
+    raise RuntimeError("Fanatics Collect: the index refused a fresh search key")
+
+
+def fanatics_filters(grade, years=None, cats=None):
+    ff = [[f"grade:{grade}"], [f"subCategory1:{c}" for c in (cats or FANATICS_CATEGORIES)]] + FANATICS_BASE_FILTERS
+    if years:
+        ff.insert(1, [f"year:{y}" for y in years])
+    return ff
+
+
+def exhaustive(res):
+    """Did the engine scan everything the query matches? (false = its hits and count are partial)"""
+    ex = res.get("exhaustive")
+    return bool(ex.get("nbHits", True)) if isinstance(ex, dict) else bool(res.get("exhaustiveNbHits", True))
+
+
+def fanatics_slices(budget, grades=(10, 9), slice_max=None):
+    """[(grade, category, [years]), ...] with each group's index estimate under slice_max (default
+    FANATICS_SLICE_MAX; one facet request per grade and category), plus the index's total estimate."""
+    slice_max = slice_max or FANATICS_SLICE_MAX
+    slices, estimate = [], 0
+    for g in grades:
+        for cat in FANATICS_CATEGORIES:
+            res = fanatics_query({"facetFilters": fanatics_filters(g, cats=[cat]), "facets": ["year"], "hitsPerPage": 0,
+                                  "maxValuesPerFacet": 200}, budget, f"year counts at PSA {g}, {cat}")
+            counts = {str(y): int(n) for y, n in (res.get("facets", {}).get("year") or {}).items()}
+            estimate += res.get("nbHits", 0)
+            group, size = [], 0
+            for y, n in sorted(counts.items(), key=lambda kv: -kv[1]):   # biggest years first, then fill up
+                if group and size + n > slice_max:
+                    slices.append((g, cat, group)); group, size = [], 0
+                group.append(y); size += n
+            if group:
+                slices.append((g, cat, group))
+    return slices, estimate
+
+
+def fanatics_slice_hits(grade, years, budget, out, lo=None, hi=None, cats=None, depth=0):
+    """Every listing of one slice (a grade, the categories cats, a group of years, optionally a price
+    band lo <= price < hi) into out, by listingUuid, from ONE page of 1,000 of the primary index: a
+    short, exhaustive page is the whole slice; a page the engine cut short is asked once more; a page
+    still cut, or full, means the slice is split at its median price and both halves are read again.
+    Returns the requests used."""
+    cats = cats or FANATICS_CATEGORIES
+    band = ([f"currentPrice >= {lo}"] if lo is not None else []) + ([f"currentPrice < {hi}"] if hi is not None else [])
+    label = (f"PSA {grade} {cats[0].split('(')[-1].rstrip(')') if len(cats) == 1 else 'all categories'} "
+             f"years {years[0]}..{years[-1]} ({len(years)}) {' '.join(band) or 'all prices'}")
+    req = {"facetFilters": fanatics_filters(grade, years, cats), "hitsPerPage": FANATICS_PAGE, "page": 0,
+           "attributesToRetrieve": FANATICS_FIELDS}
+    if band:
+        req["numericFilters"] = band
+    n_req, res = 0, None
+    for attempt in (1, 2):
+        res = fanatics_query(req, budget, label)
+        n_req += 1
+        if exhaustive(res) or len(res.get("hits", [])) >= FANATICS_PAGE:
+            break
+        print(f"  fanatics {label}: engine cut the scan short ({len(res.get('hits', []))} hits), asking again")
+    hits = [h for h in res.get("hits", []) if h.get("listingUuid")]
+    full, partial = len(hits) >= FANATICS_PAGE, not exhaustive(res)
+    print(f"  fanatics {label}: {len(hits)} hits{' (partial)' if partial else ''}{' -> split' if full or partial else ''} "
+          f"(index count {res.get('nbHits')}, {res.get('processingTimeMS')} ms)")
+    if not full and not partial:
+        out.update((h["listingUuid"], h) for h in hits)
+        return n_req
+    if depth > 12:
+        raise RuntimeError(f"Fanatics Collect: {label}: split {depth} times and still not a complete page")
+    prices = sorted(to_num(h.get("currentPrice")) for h in hits)
+    m = prices[len(prices) // 2]
+    if (lo is not None and m <= lo) or (hi is not None and m >= hi) or m <= prices[0]:
+        raise RuntimeError(f"Fanatics Collect: {len(hits)}+ {label} listings at ${m} in one slice; the paging cannot "
+                           "get past them (slice the years finer)")
+    return (n_req + fanatics_slice_hits(grade, years, budget, out, lo, m, cats, depth + 1)
+            + fanatics_slice_hits(grade, years, budget, out, m, hi, cats, depth + 1))
+
+
+def to_num(v):
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def fanatics_pull(budget, grades=(10, 9)):
+    """{listingUuid: index record} for every live Pokemon Buy Now listing at these PSA grades, plus
+    counters. All or nothing: raises on a failed page, a budget cut, or a count that makes no sense."""
+    budget = budget if isinstance(budget, RequestBudget) else RequestBudget(budget)
+    slices, estimate = fanatics_slices(budget, grades)
+    hits = {}
+    for g, cat, years in slices:
+        fanatics_slice_hits(g, years, budget, hits, cats=[cat])
+    # Every slice came back in one short, exhaustive page, so the pull is complete by construction;
+    # the index's own nbHits is only an estimate (1.5-3x the real count on 2026-10-15), so this last
+    # check is loose: it catches a filter or a field name that changed under us.
+    if estimate and len(hits) < estimate // 4:
+        raise RuntimeError(f"Fanatics Collect: {len(hits)} listings read, the index estimates {estimate}")
+    return hits, {"requests": budget.used, "slices": len(slices), "index_estimate": estimate}
+
+
+def fetch_fanatics_listings(budget, assets_csv=None, grades=(10, 9)):
+    """Every live Pokemon PSA 9 / PSA 10 Buy Now listing on Fanatics Collect as fanatics_listings.csv
+    rows (FANATICS_COLS = LIVE_COLS plus the title, Fanatics' year / card number / category and the
+    matcher's verdict), matched to the feed's asset ids by history/fanatics_match.py; a row whose
+    `match` is not "matched" has no asset_id and says why. Returns (rows, stats)."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent / "history"))
+    import fanatics_match                                  # noqa: E402
+    index = fanatics_match.load_assets(assets_csv or fanatics_match.ASSETS)
+    hits, stats = fanatics_pull(budget, grades)
+    checked_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    rows, reasons = [], {}
+    for uuid, h in hits.items():
+        aid, why, cands = fanatics_match.match(h, index)
+        reasons[why] = reasons.get(why, 0) + 1
+        rows.append({
+            "asset_id": aid, "grading_company": h.get("gradingService") or "PSA",
+            "grade": normalise_grade(h.get("grade")), "listing_type": "BUY_IT_NOW", "source": FANATICS_SOURCE,
+            "current_bid": "", "bid_count": "", "end_date": "", "buy_it_now_price": h.get("currentPrice"),
+            "url": FANATICS_URL.format(uuid), "alt_listing_id": "", "checked_at": checked_at,
+            "title": h.get("title") or "", "year": h.get("year") or "", "card_number": h.get("cardNumber") or "",
+            "category": "|".join(c.split("(")[-1].rstrip(")") for c in (h.get("subCategory1") or []) if "Pok" in c),
+            "seller": h.get("certifiedSeller") or "", "guide_price": h.get("value") if h.get("value") is not None else "",
+            "match": why, "candidates": " | ".join(cands[:6])})
+    rows.sort(key=lambda r: (r["match"] != "matched", r["asset_id"], r["grade"], r["url"]))
+    stats.update({"listings": len(rows), "by_reason": reasons})
+    return rows, stats
+
+
 def search_assets(text, limit=10, category="POKEMON_CARDS"):
     """Return matching asset documents (id, name, year, brand, cardNumber, pop, ...)."""
     cfg = get_search_config()
@@ -973,6 +1215,19 @@ def main():
                     help="write every live listing on alt.xyz's own auctions and fixed-price marketplace (Pokemon, "
                          "--company at grades 10 and 9) to OUT/alt_listings.csv and exit: ~40 search pages for all "
                          "cards at once. Fold it in with history/ingest.py --alt-listings OUT/alt_listings.csv")
+    ap.add_argument("--fanatics-listings", action="store_true",
+                    help="read Fanatics Collect's Buy Now marketplace directly (every live Pokemon PSA 9 / PSA 10 listing, "
+                         "~45 search requests, with their permission) to OUT/fanatics_listings.csv, matched to the "
+                         "feed's asset ids by history/fanatics_match.py, and exit. Fold it in with history/ingest.py "
+                         "--fanatics-listings OUT/fanatics_listings.csv")
+    ap.add_argument("--budget", type=int, default=int(os.environ.get("FANATICS_BUDGET") or 80), metavar="N",
+                    help="with --fanatics-listings: at most N requests to Fanatics Collect (default $FANATICS_BUDGET or 80); "
+                         "over it, nothing is written")
+    ap.add_argument("--assets", metavar="CSV", help="with --fanatics-listings: the card list to match against "
+                    "(default history/assets.csv)")
+    ap.add_argument("--fanatics-grades", default="10,9", metavar="G,G",
+                    help="with --fanatics-listings: the PSA grades to pull (default 10,9; a pull of one grade leaves the "
+                         "other grade's rows alone when ingested)")
     ap.add_argument("--category", default="POKEMON_CARDS", help="search category filter, or ALL. Default POKEMON_CARDS")
     ap.add_argument("--loose", action="store_true", help="with --list: also keep cards that only mention TEXT in the set name")
     ap.add_argument("--min-pop", type=int, default=0, metavar="N",
@@ -1029,6 +1284,24 @@ def main():
         n_auc = sum(1 for r in rows if r["listing_type"] == "AUCTION")
         print(f"alt.xyz's own listings: {n_auc} auctions + {len(rows) - n_auc} fixed-price on "
               f"{len({r['asset_id'] for r in rows})} cards -> {out / 'alt_listings.csv'}")
+        return
+    if args.fanatics_listings:
+        out = Path(args.out)
+        out.mkdir(parents=True, exist_ok=True)
+        grades = tuple(int(float(g)) for g in args.fanatics_grades.split(",") if g.strip())
+        rows, stats = fetch_fanatics_listings(args.budget, args.assets, grades)
+        tmp = out / "fanatics_listings.csv.tmp"
+        with open(tmp, "w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=FANATICS_COLS)
+            w.writeheader()
+            w.writerows(rows)
+        tmp.replace(out / "fanatics_listings.csv")     # the file only exists when the pull was complete
+        matched = [r for r in rows if r["match"] == "matched"]
+        print(f"Fanatics Collect Buy Now: {stats['listings']} live Pokemon PSA 9/10 listings read in {stats['requests']} "
+              f"requests ({stats['slices']} slices; index estimate {stats['index_estimate']}); "
+              f"{len(matched)} matched to {len({r['asset_id'] for r in matched})} cards, "
+              + ", ".join(f"{n} {why}" for why, n in sorted(stats['by_reason'].items()) if why != "matched")
+              + f" -> {out / 'fanatics_listings.csv'}")
         return
     if not args.inputs:
         ap.error("give at least one URL / ID / file, or use --find")

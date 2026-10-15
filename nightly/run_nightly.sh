@@ -21,7 +21,8 @@
 # Every dated snapshot is kept locally on purpose (cheap, and lets a bad ingest
 # be redone), prune old ones by hand if disk gets tight.
 #
-# Env knobs: NIGHTLY_SCOPE (top60 = the subjects lists | full), NIGHTLY_ALSO_GRADE (9 on the nightly scope,
+# Env knobs: NIGHTLY_FANATICS_BUDGET (max requests for the direct Fanatics Collect Buy Now pull; empty =
+# off), NIGHTLY_SCOPE (top60 = the subjects lists | full), NIGHTLY_ALSO_GRADE (9 on the nightly scope,
 # empty on full; "" turns it off), NIGHTLY_ALSO_LISTINGS (1 = also fetch the live listings at the
 # --also-grade grade, i.e. PSA 9 listings; default empty = off, and never on the full run, which
 # has no --also-grade), NIGHTLY_WORKERS (4), NIGHTLY_DELAY
@@ -126,6 +127,17 @@ echo "--- alt.xyz's own auctions + marketplace (one bulk pull, all cards) ---"
 # -> $OUT/alt_listings.csv, which ingest folds in (and commit_results.sh's re-derive again). A failed
 # pull writes no file, so the last good Alt rows stand; the run goes on.
 $PY alt_scraper.py --alt-listings --out "$OUT" || echo "alt listings: pull failed, kept the previous Alt rows"
+
+# Fanatics Collect's Buy Now marketplace, read directly with their permission (2026-10-15): every live
+# Pokemon PSA 9 / PSA 10 listing in ~45 search requests, matched to the feed's cards, -> $OUT/
+# fanatics_listings.csv, which ingest folds in (replacing every Fanatics Buy Now row, dropping Sold / gone
+# ones). Only when NIGHTLY_FANATICS_BUDGET (max requests; the permission said ~60-80 a day) is set; a
+# failed or over-budget pull writes no file, so the last good rows stand and the run goes on.
+if [ -n "${NIGHTLY_FANATICS_BUDGET:-}" ]; then
+  echo "--- Fanatics Collect's Buy Now marketplace (one bulk pull, all cards) ---"
+  $PY alt_scraper.py --fanatics-listings --budget "$NIGHTLY_FANATICS_BUDGET" --out "$OUT" \
+    || echo "fanatics listings: pull failed, kept the previous Fanatics rows"
+fi
 
 echo "--- 4/8 ingest into history/ ---"
 $PY history/ingest.py "$OUT" --date "$DAY"

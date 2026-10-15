@@ -159,7 +159,9 @@ times with its own clock.
   ingest_alt), counted in the columns above like any other site. A card with
   no per-card check at a grade but with Alt listings there takes the Alt
   pull's time as its check time (live_check_time), so its counts then cover
-  Alt only; a card with neither stays blank.
+  Alt only; a card with neither stays blank. Fanatics Collect's Buy Nows read
+  from its own marketplace (live_listings.csv via "fanatics", 2026-10-15,
+  ingest_fanatics) are treated the same way: source stays "Fanatics Collect".
 
 Listing age and suspect bids (2026-10-03), the last four columns of cards.csv
 (Sid: "Buy now / Live data is sometimes still inaccurate"). alt.xyz re-serves
@@ -685,14 +687,16 @@ def lowest_bin(listings):
 
 def live_check_time(checked_at, listings):
     """The check time the live columns are built on: the card's own per-card check, or, when
-    it has none but alt.xyz's own listings were seen for it (source "Alt", 2026-10-06), the
-    time of that bulk pull. So a card never checked at a grade still shows its Alt listings
-    (Sid: 252 PSA 9 cards), while a card with neither stays blank = unknown: the fallback
-    only applies when there is a listing, so it never manufactures a "checked, nothing listed"
-    zero. In that case the counts cover Alt only (the other sites were not asked)."""
+    it has none but a bulk pull saw a listing for it (alt.xyz's own listings, source "Alt",
+    2026-10-06; Fanatics Collect's marketplace, via "fanatics", 2026-10-15), the time of that
+    pull. So a card never checked at a grade still shows those listings (Sid: 252 PSA 9
+    cards), while a card with neither stays blank = unknown: the fallback only applies when
+    there is a listing, so it never manufactures a "checked, nothing listed" zero. In that
+    case the counts cover the bulk sources only (the other sites were not asked)."""
     if checked_at:
         return checked_at
-    return max((r["checked_at"] for r in listings if r["source"] == "Alt" and r["checked_at"]), default="")
+    return max((r["checked_at"] for r in listings if (r["source"] == "Alt" or r.get("via") == "fanatics") and r["checked_at"]),
+               default="")
 
 
 def live_cols(checked_at, listings, prefix=""):

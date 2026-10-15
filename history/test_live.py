@@ -186,7 +186,7 @@ def test_ingest_live_first_seen():
         ingest.ingest_live(run, cards, store, day="2026-10-04")
         fs = {r["url"]: r["first_seen"] for r in ingest.read_csv(store / "live_listings.csv")}
         assert fs == {"a-bin-cheaper": "2026-10-04", "b-bin": ""}, fs
-        assert "first_seen" in ingest.LIVE_COLS and ingest.LIVE_COLS[-1] == "first_seen"
+        assert "first_seen" in ingest.LIVE_COLS and ingest.LIVE_COLS[-2:] == ["first_seen", "via"]
         print("first_seen ok")
 
 
@@ -273,8 +273,9 @@ def test_metrics_bin_ref_date():
 
 
 def test_ingest_drops_crossed_fanatics():
-    """history/fanatics_crossed_ids.csv (2026-10-10): a Fanatics Buy Now alt.xyz pairs with the wrong card
-    is dropped from the store and skipped when re-served, so the next cheapest BIN is the one kept."""
+    """history/fanatics_checks.csv (2026-10-10, crossed ids; 2026-10-15 gone ones): a Fanatics Buy Now alt.xyz pairs
+    with the wrong card, or that Fanatics says is gone, is dropped from the store and skipped when re-served, so
+    the next cheapest BIN is the one kept."""
     with tempfile.TemporaryDirectory() as d:
         store, run = Path(d) / "store", Path(d) / "run"
         store.mkdir(); run.mkdir()
@@ -283,10 +284,12 @@ def test_ingest_drops_crossed_fanatics():
         assert ingest.fanatics_id(bad) == "67c5acf8-b090-467d-863c-36790115f5e1"
         assert ingest.fanatics_id(bad + "/2023-pokemon-gholdengo") == "67c5acf8-b090-467d-863c-36790115f5e1"
         assert ingest.fanatics_id("https://www.ebay.com/itm/400000002") is None and ingest.fanatics_id("") is None
-        assert ingest.crossed_fanatics_ids(store) == set(), "no file -> nothing crossed"
-        _write(store / "fanatics_crossed_ids.csv", ["listing_id", "fanatics_title", "fanatics_category", "fanatics_price", "fanatics_status", "checked_at"],
-               [{"listing_id": "67c5acf8-b090-467d-863c-36790115f5e1", "fanatics_title": "2008-09 Fleer #162 C.J. Watson Signed Card AUTO PSA",
-                 "fanatics_category": "Sports Cards > Basketball", "fanatics_price": "49.99", "fanatics_status": "Live", "checked_at": "2026-10-10"}])
+        assert ingest.dead_fanatics_ids(store) == set(), "no file -> nothing dead"
+        _write(store / "fanatics_checks.csv", ingest.CHECK_COLS,
+               [{"listing_id": "67c5acf8-b090-467d-863c-36790115f5e1", "status": "crossed", "fanatics_title": "2008-09 Fleer #162 C.J. Watson Signed Card AUTO PSA",
+                 "fanatics_price": "49.99", "checked_at": "2026-10-10"},
+                {"listing_id": "11111111-1111-4111-8111-111111111111", "status": "live", "checked_at": "2026-10-15"}])
+        assert ingest.dead_fanatics_ids(store) == {"67c5acf8-b090-467d-863c-36790115f5e1"}
         base = {"grading_company": "PSA", "grade": "10.0", "source": "Fanatics Collect", "current_bid": "", "bid_count": "",
                 "end_date": "", "listing_type": "BUY_IT_NOW"}
         now, before = "2026-10-11T14:00:00+00:00", "2026-10-10T14:00:00+00:00"
@@ -301,7 +304,7 @@ def test_ingest_drops_crossed_fanatics():
         out = ingest.ingest_live(run, [{"asset_id": "B", "listings_checked_at": now}], store, "2026-10-11")
         kept = {(r["asset_id"], r["url"], r["buy_it_now_price"]) for r in ingest.read_csv(store / "live_listings.csv")}
         assert kept == {("B", good, "70"), ("C", good, "80")}, kept
-        assert out["bins_fanatics_crossed"] == 2, out
+        assert out["bins_fanatics_dead"] == 2, out
         print("crossed Fanatics BIN ok")
 
 

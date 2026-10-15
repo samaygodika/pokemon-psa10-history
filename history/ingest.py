@@ -90,15 +90,29 @@ Store layout (all plain CSV, all append/merge-friendly so git diffs stay small):
                                   from live_listings.csv and skipped here when
                                   alt.xyz re-serves them, so a card's next cheapest
                                   BIN takes their place.
-    history/fanatics_crossed_ids.csv
-                                  Fanatics Collect Buy Now listing ids alt.xyz attaches
-                                  to the wrong card (2026-10-10): the id and price are a
-                                  sports card's, mostly NBA autographs from one bulk
-                                  seller at $49.99-$80.99, on a Pokemon asset. Checked
-                                  against Fanatics' own index once, by hand-scale
-                                  requests; these ids are dropped from live_listings.csv
-                                  and skipped when alt.xyz re-serves them. One-off list:
-                                  a durable fix is alt.xyz's to make.
+                                  Rows with via "fanatics" (2026-10-15) come straight from
+                                  Fanatics Collect's own Buy Now marketplace index
+                                  (alt_scraper.py --fanatics-listings -> fanatics_listings.csv,
+                                  with Fanatics' permission; the nightly), matched to the
+                                  feed's cards by fanatics_match.py: the cheapest Fanatics
+                                  Buy Now per asset and grade, replaced all together by the
+                                  next complete pull (ingest_fanatics). That pull is every
+                                  live Pokemon PSA 9 / PSA 10 Buy Now on Fanatics, so it
+                                  also settles alt.xyz's mirrored Fanatics Buy Now rows: one
+                                  whose listing is not in it (Sold, withdrawn, or not the
+                                  Pokemon card alt.xyz says) is dropped; one that is live but
+                                  the matcher could not place keeps alt.xyz's card with
+                                  Fanatics' current price and time; one the matcher placed
+                                  is replaced by the direct row (on the matched card).
+    history/fanatics_checks.csv   what Fanatics Collect's index said about each Fanatics
+                                  Buy Now listing alt.xyz served us (ingest_fanatics,
+                                  2026-10-15): gone (Sold or no longer listed as a Pokemon
+                                  PSA 9/10 Buy Now), live again, or crossed (the 236 ids of
+                                  2026-10-10 whose page is a sports card: alt.xyz's mirror
+                                  had attached another item's listing to a Pokemon card).
+                                  gone/crossed ids are skipped when alt.xyz re-serves them,
+                                  like eBay's dead ones; a pull that finds one live again
+                                  flips it back.
 
 Standard library only, like the scraper.
 """
@@ -126,10 +140,15 @@ DAILY_COLS = ["asset_id", "pop_at_grade", "company_total_pop", "index_total_pop"
 SALE_COLS = ["asset_id", "date", "price", "grading_company", "grade", "source", "sale_type", "url",
              "label", "subject_to_change", "skipped_reason", "alt_tx_id"]
 LIVE_COLS = ["asset_id", "grading_company", "grade", "listing_type", "source", "current_bid", "bid_count", "end_date",
-             "buy_it_now_price", "url", "checked_at", "first_seen"]
+             "buy_it_now_price", "url", "checked_at", "first_seen", "via"]
 # first_seen (2026-10-03) = the run day a listing (asset, grade, url) was first recorded here,
 # carried across runs while alt.xyz keeps showing it; blank = unknown (older rows were
 # backfilled from this file's git history, analysis/backfill_listing_first_seen.py)
+# via (2026-10-15) = where the row came from: blank = alt.xyz's per-card answer (or its own
+# listings, source "Alt"); "fanatics" = Fanatics Collect's own marketplace index (ingest_fanatics)
+VIA_FANATICS = "fanatics"
+CHECK_COLS = ["listing_id", "status", "asset_id", "fanatics_title", "fanatics_price", "checked_at"]   # fanatics_checks.csv
+DEAD_FANATICS = {"gone", "crossed"}
 BIN_MAX_AGE_DAYS = 7   # a Buy It Now row survives this long without alt.xyz showing it again
 # grade -> the cards.csv column with the UTC time of the run's believable live-listings check at that
 # grade (blank = not asked, or the request failed); live rows are replaced per (asset, grade)
@@ -236,6 +255,8 @@ def ingest(run_dir, day, store=HERE):
     live = ingest_live(run_dir, cards, store, day)
     if (run_dir / "alt_listings.csv").exists():
         live.update(ingest_alt(run_dir / "alt_listings.csv", store, day))
+    if (run_dir / "fanatics_listings.csv").exists():
+        live.update(ingest_fanatics(run_dir / "fanatics_listings.csv", store, day))
     return {"assets": len(assets), "new_assets": new_assets, "daily_rows": len(daily), **stats, **live}
 
 
@@ -403,10 +424,10 @@ def fanatics_id(url):
     return m.group(1) if m else None
 
 
-def crossed_fanatics_ids(store):
-    """Fanatics Buy Now listing ids alt.xyz has attached to the wrong card (see the module doc)."""
-    path = store / "fanatics_crossed_ids.csv"
-    return {r["listing_id"] for r in read_csv(path)} if path.exists() else set()
+def dead_fanatics_ids(store):
+    """Fanatics Buy Now listing ids Fanatics' own index says are gone, or that alt.xyz attached to the
+    wrong card (history/fanatics_checks.csv, see the module doc): skipped when alt.xyz re-serves them."""
+    return {r["listing_id"] for r in read_csv(store / "fanatics_checks.csv") if r.get("status") in DEAD_FANATICS}
 
 
 def ingest_live(run_dir, cards, store, day=""):
@@ -430,28 +451,36 @@ def ingest_live(run_dir, cards, store, day=""):
     stored = read_csv(live_path)
     # When each listing we already hold was first recorded, so a re-seen listing keeps its age.
     seen = {(r["asset_id"], norm_grade(r["grade"]), r["url"]): r.get("first_seen", "") for r in stored}
-    # Alt's own listings never come in a per-card answer: they are replaced by ingest_alt only.
-    kept = [r for r in stored if r["source"] == ALT_SOURCE or (r["asset_id"], norm_grade(r["grade"])) not in checked]
-    # Fanatics Buy Nows alt.xyz pairs with the wrong card (history/fanatics_crossed_ids.csv): out of
-    # what we hold, and skipped below when re-served.
-    crossed = crossed_fanatics_ids(store)
-    kept, skipped_crossed = [r for r in kept if fanatics_id(r["url"]) not in crossed], sum(1 for r in kept if fanatics_id(r["url"]) in crossed)
+    # Alt's own listings and the direct Fanatics rows never come in a per-card answer: they are
+    # replaced by ingest_alt / ingest_fanatics only.
+    kept = [r for r in stored if r["source"] == ALT_SOURCE or r.get("via") == VIA_FANATICS
+            or (r["asset_id"], norm_grade(r["grade"])) not in checked]
+    # Fanatics Buy Nows Fanatics' own index says are gone, or that alt.xyz pairs with the wrong card
+    # (history/fanatics_checks.csv): out of what we hold, and skipped below when re-served. A re-served
+    # listing we already hold straight from Fanatics (via "fanatics") is skipped too: that row has
+    # Fanatics' own price and card.
+    dead = dead_fanatics_ids(store)
+    direct = {fanatics_id(r["url"]) for r in stored if r.get("via") == VIA_FANATICS} - {None}
+    kept, skipped_dead = [r for r in kept if fanatics_id(r["url"]) not in dead], sum(1 for r in kept if fanatics_id(r["url"]) in dead)
     # eBay listings eBay itself says have ended (history/ebay_checks.csv, ebay_verify.py): alt.xyz
     # keeps re-serving them, so they are skipped here and the next cheapest BIN can be the one kept.
     from ebay_verify import dead_urls, item_id   # noqa: E402  (ebay_verify imports this module)
-    dead = dead_urls(store)
-    fresh, skipped_dead = [], 0
+    dead_ebay = dead_urls(store)
+    fresh, skipped_ebay, skipped_direct = [], 0, 0
     for rows in incoming.values():
         fresh += [r for r in rows if r["listing_type"] == "AUCTION"]
         bins = [r for r in rows if r["listing_type"] != "AUCTION" and to_float(r["buy_it_now_price"])]
-        live_bins = [r for r in bins if item_id(r["url"]) not in dead]
-        skipped_dead += len(bins) - len(live_bins)
-        live_bins, n = [r for r in live_bins if fanatics_id(r["url"]) not in crossed], len(live_bins)
-        skipped_crossed += n - len(live_bins)
+        live_bins = [r for r in bins if item_id(r["url"]) not in dead_ebay]
+        skipped_ebay += len(bins) - len(live_bins)
+        live_bins, n = [r for r in live_bins if fanatics_id(r["url"]) not in dead], len(live_bins)
+        skipped_dead += n - len(live_bins)
+        live_bins, n = [r for r in live_bins if fanatics_id(r["url"]) not in direct], len(live_bins)
+        skipped_direct += n - len(live_bins)
         if live_bins:
             fresh.append(min(live_bins, key=lambda r: to_float(r["buy_it_now_price"])))
     for r in fresh:
         r["first_seen"] = seen.get((r["asset_id"], norm_grade(r["grade"]), r["url"])) or day
+        r["via"] = ""
     # An auction whose end is before the newest check anywhere in this run has certainly
     # ended; the rows of assets this run didn't check are where such leftovers live.
     horizon = max(checked.values(), default="")
@@ -478,10 +507,10 @@ def ingest_live(run_dir, cards, store, day=""):
     at = ", ".join(f"{n} at PSA {g}" for g, n in by_grade.items() if n)
     print(f"  live_listings.csv: {n_assets} assets checked this run{f' ({at})' if at else ''}, {len(rows)} rows "
           f"({n_auc} auctions, {len(rows) - n_auc} cheapest-BIN), {pruned} ended auctions pruned, "
-          f"{aged} BIN(s) unseen for {BIN_MAX_AGE_DAYS}+ days dropped, {skipped_dead} BIN(s) eBay says have ended skipped, "
-          f"{skipped_crossed} crossed Fanatics BIN(s) dropped")
+          f"{aged} BIN(s) unseen for {BIN_MAX_AGE_DAYS}+ days dropped, {skipped_ebay} BIN(s) eBay says have ended skipped, "
+          f"{skipped_dead} Fanatics BIN(s) gone or crossed dropped, {skipped_direct} re-served Fanatics BIN(s) already held direct")
     return {"live_assets_checked": n_assets, "live_checks": by_grade, "live_rows": len(rows), "bins_aged_out": aged,
-            "bins_ebay_dead_skipped": skipped_dead, "bins_fanatics_crossed": skipped_crossed}
+            "bins_ebay_dead_skipped": skipped_ebay, "bins_fanatics_dead": skipped_dead, "bins_fanatics_direct_dup": skipped_direct}
 
 
 def ingest_alt(path, store, day=""):
@@ -515,6 +544,82 @@ def ingest_alt(path, store, day=""):
           f"fixed-price on {len({r['asset_id'] for r in fresh})} assets ({len(incoming)} in the pull; "
           f"{len(seen) - gone} kept their first_seen, {gone} earlier Alt row(s) gone)")
     return {"alt_rows": len(fresh), "alt_auctions": n_auc}
+
+
+def ingest_fanatics(path, store, day=""):
+    """Fold a complete pull of Fanatics Collect's Buy Now marketplace (alt_scraper.py --fanatics-listings
+    -> fanatics_listings.csv: every live Pokemon PSA 9 / PSA 10 listing, matched or not; the file is only
+    written when the pull was complete) into history/live_listings.csv, replacing every Fanatics Buy Now
+    row we hold (see the module doc):
+      - matched listings: the cheapest per asset and grade becomes a row with via "fanatics" (first_seen
+        carried by asset, grade, url); alt.xyz's mirrored row for the same listing goes, whatever card
+        alt.xyz had put it on;
+      - a mirrored row whose listing is live but unmatched keeps alt.xyz's card, with Fanatics' price and
+        check time;
+      - a mirrored or direct row whose listing is not in the pull (Sold, withdrawn, or not a Pokemon
+        PSA 9/10 Buy Now any more) is dropped and recorded as gone in fanatics_checks.csv, so ingest_live
+        skips it when alt.xyz serves it again; an id recorded gone/crossed that is live again is flipped."""
+    live_path = store / "live_listings.csv"
+    stored = read_csv(live_path)
+    pull = read_csv(Path(path))
+    live = {fanatics_id(r["url"]): r for r in pull if fanatics_id(r["url"])}
+    checked_at = max((r.get("checked_at") or "" for r in pull), default="") or day
+    grades = {norm_grade(r["grade"]) for r in pull}      # a pull of one grade leaves the other grade's rows alone
+    old = [r for r in stored if fanatics_id(r["url"]) and norm_grade(r["grade"]) in grades]
+    other = [r for r in stored if not (fanatics_id(r["url"]) and norm_grade(r["grade"]) in grades)]
+    seen = {(r["asset_id"], norm_grade(r["grade"]), r["url"]): r.get("first_seen", "") for r in old}
+    gone, mirror, reattributed, unmatched_direct = [], [], 0, 0
+    for r in old:
+        p = live.get(fanatics_id(r["url"]))
+        if p is None:
+            gone.append(r)
+        elif p["asset_id"]:                       # placed by the matcher: the direct row below stands for it
+            if p["asset_id"] != r["asset_id"] or norm_grade(p["grade"]) != norm_grade(r["grade"]):
+                reattributed += 1
+        elif r.get("via") == VIA_FANATICS:        # placed last time, not this time (the card list changed)
+            unmatched_direct += 1
+        else:                                     # alt.xyz's card, Fanatics' price and time
+            mirror.append(dict(r, buy_it_now_price=p["buy_it_now_price"], checked_at=p["checked_at"] or r["checked_at"]))
+    cheapest = {}
+    for p in pull:
+        if p.get("asset_id") and to_float(p.get("buy_it_now_price")):
+            key = (p["asset_id"], norm_grade(p["grade"]))
+            if key not in cheapest or to_float(p["buy_it_now_price"]) < to_float(cheapest[key]["buy_it_now_price"]):
+                cheapest[key] = p
+    direct = []
+    for p in cheapest.values():
+        row = {c: p.get(c, "") for c in LIVE_COLS}
+        row["grade"], row["via"] = norm_grade(p["grade"]), VIA_FANATICS
+        row["first_seen"] = seen.get((row["asset_id"], row["grade"], row["url"])) or day
+        direct.append(row)
+    rows = other + mirror + direct
+    rows.sort(key=lambda r: (r["asset_id"], r["grade"], r["listing_type"], r["end_date"] or "", r["url"] or ""))
+    write_csv_atomic(live_path, LIVE_COLS, rows)
+    # verdicts: gone ids (new or re-confirmed), and dead ids that are live again
+    checks_path = store / "fanatics_checks.csv"
+    checks = {r["listing_id"]: r for r in read_csv(checks_path)}
+    for r in gone:
+        fid = fanatics_id(r["url"])
+        prev = checks.get(fid, {})
+        checks[fid] = {"listing_id": fid, "status": "gone", "asset_id": r["asset_id"],
+                       "fanatics_title": prev.get("fanatics_title", ""), "fanatics_price": r["buy_it_now_price"],
+                       "checked_at": checked_at}
+    relisted = 0
+    for fid, c in checks.items():
+        if fid in live and c["status"] != "live":
+            relisted += 1
+            c.update(status="live", fanatics_title=live[fid].get("title", ""), fanatics_price=live[fid]["buy_it_now_price"],
+                     checked_at=checked_at)
+    write_csv_atomic(checks_path, CHECK_COLS, sorted(checks.values(), key=lambda c: c["listing_id"]))
+    n_matched = sum(1 for p in pull if p.get("asset_id"))
+    print(f"  live_listings.csv: Fanatics Collect's Buy Nows replaced: {len(pull)} live Pokemon PSA 9/10 listings in the pull, "
+          f"{n_matched} matched -> {len(direct)} cheapest direct row(s) on {len({r['asset_id'] for r in direct})} cards; "
+          f"of {len(old)} Fanatics Buy Now row(s) held before: {len(gone)} gone (Sold / withdrawn / not Pokemon PSA 9-10) dropped, "
+          f"{len(old) - len(gone) - len(mirror) - unmatched_direct} replaced by a direct row ({reattributed} on another card or grade), "
+          f"{len(mirror)} unmatched kept on alt.xyz's card with Fanatics' price, {unmatched_direct} direct row(s) no longer matched dropped; "
+          f"{relisted} dead id(s) live again")
+    return {"fanatics_pull": len(pull), "fanatics_matched": n_matched, "fanatics_rows": len(direct), "fanatics_gone": len(gone),
+            "fanatics_mirror_kept": len(mirror), "fanatics_reattributed": reattributed, "fanatics_relisted": relisted}
 
 
 def ingest_listings_only(run_dir, day, store=HERE):
@@ -570,11 +675,18 @@ def main():
     ap.add_argument("--alt-listings", metavar="FILE",
                     help="an alt_listings.csv (alt_scraper.py --alt-listings): replace alt.xyz's own listings in "
                          "live_listings.csv with it. On its own (no run_dir) that is all it does; needs --date")
+    ap.add_argument("--fanatics-listings", metavar="FILE",
+                    help="a fanatics_listings.csv (alt_scraper.py --fanatics-listings): replace the Fanatics Collect Buy Now "
+                         "rows in live_listings.csv with it and record gone listings. On its own (no run_dir) that is all "
+                         "it does; needs --date")
     args = ap.parse_args()
     if not args.run_dir:
-        if not (args.alt_listings and args.date):
-            ap.error("give a run_dir, or --alt-listings FILE with --date")
-        ingest_alt(args.alt_listings, Path(args.store), args.date)
+        if not ((args.alt_listings or args.fanatics_listings) and args.date):
+            ap.error("give a run_dir, or --alt-listings / --fanatics-listings FILE with --date")
+        if args.alt_listings:
+            ingest_alt(args.alt_listings, Path(args.store), args.date)
+        if args.fanatics_listings:
+            ingest_fanatics(args.fanatics_listings, Path(args.store), args.date)
         return
     day = args.date
     if not day:
@@ -588,6 +700,8 @@ def main():
         ingest(args.run_dir, day, Path(args.store))
     if args.alt_listings:
         ingest_alt(args.alt_listings, Path(args.store), day)
+    if args.fanatics_listings:
+        ingest_fanatics(args.fanatics_listings, Path(args.store), day)
 
 
 if __name__ == "__main__":

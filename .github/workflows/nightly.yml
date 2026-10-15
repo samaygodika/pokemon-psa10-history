@@ -48,6 +48,9 @@ jobs:
           NIGHTLY_DELAY: "0.05"
           NIGHTLY_LIMIT: ${{ inputs.limit }}
           NIGHTLY_SKIP_HISTORY: ${{ inputs.limit != '' && '1' || '' }}
+          # Fanatics Collect's Buy Now marketplace, read directly with their permission (2026-10-15):
+          # at most this many search requests a night (the pull needs ~45); empty = off
+          NIGHTLY_FANATICS_BUDGET: "80"
         run: nightly/run_nightly.sh
       # Re-derives on top of origin/main instead of rebasing if another run's
       # commit landed meanwhile (the generated files always conflict).
@@ -65,5 +68,6 @@ jobs:
             snapshots/*/cards.csv
             snapshots/*/sales.csv
             snapshots/*/listings.csv
+            snapshots/*/fanatics_listings.csv
             snapshots/*/run.log
           retention-days: 7

@@ -37,7 +37,7 @@ say", never 0:
 | `psa9_last_sale_price/date/source`, `psa9_clean_last_sale_price`, `psa9_last_sale_unconfirmed`, `psa9_median_last_3`, `psa9_volume_30d`, `psa9_price_chg_30d_pct`, `psa9_sales_total` | the PSA 10 definitions above applied to PSA 9 sales (same mirror rule and outlier filter). `psa9_sales_total` = 0 means collected and none sold. |
 | `psa9_to_psa10_ratio` | `psa9_median_last_3` / `median_last_3`. |
 | `listings_checked_at` | UTC time alt.xyz was last asked what is for sale right now at PSA 10 (from 2026-09-25: the nightly scope daily, everything else on the weekly full run). **Blank = never checked**, and then every live column below is blank too (unknown, not "nothing listed"). Whether a card has anything listed tracks its PSA 10 pop closely (pop 1000+: ~99% do; pop 26–100: ~60%; pop 1–2: ~10%; pop 0: ~1%), so a low-pop card with a check time and no listing is a real "nothing listed". (For one day, 2026-09-26, 14,828 of these were blanked by a mistaken "alt.xyz outage" rule in the scraper — the nightly scope is sorted by pop, so the falling listing rate through a run is the cards, not the endpoint. Reverted the same day.) Moved forward by the listings refresh between nightlies for cards with a running auction (2026-10-03). |
-| `live_auction_count`, `next_auction_end`, `next_auction_bid`, `next_auction_bid_count`, `next_auction_source`, `next_auction_url`, `last_auction_end` | the running PSA 10 auctions at that check, as alt.xyz mirrors them: eBay (~75%), Fanatics Collect including its weekly lots (the six-figure vintage auctions), CardHobby, Pristine Auction, a few Goldin; no Heritage. Since 2026-10-06 also **alt.xyz's own** weekly auctions and fixed-price marketplace (source `Alt`, link `alt.xyz/itm/<listing id>`; these come from one bulk pull of every card per nightly and per listings refresh, so they show on cards that have a check time). `next_*` = the one ending soonest; end times are UTC. **A snapshot, not live:** the app compares the end times with its own clock — while `last_auction_end` is in the future at least one auction may still be running. The bid is the high bid at the check, or the opening price while the bid count is 0; it is not a price for the card (bids jump in the final minutes). A listing can also be pulled early: a link may lead to eBay's "similar items" page. |
+| `live_auction_count`, `next_auction_end`, `next_auction_bid`, `next_auction_bid_count`, `next_auction_source`, `next_auction_url`, `last_auction_end` | the running PSA 10 auctions at that check, as alt.xyz mirrors them: eBay (~75%), Fanatics Collect including its weekly lots (the six-figure vintage auctions), CardHobby, Pristine Auction, a few Goldin; no Heritage. Since 2026-10-06 also **alt.xyz's own** weekly auctions and fixed-price marketplace (source `Alt`, link `alt.xyz/itm/<listing id>`; these come from one bulk pull of every card per nightly and per listings refresh, so they show on cards that have a check time). Since 2026-10-15 the Fanatics Collect Buy Nows come from Fanatics' own marketplace too (every live Pokémon PSA 9/10 listing, one bulk pull per nightly, see 'Fanatics Collect Buy Nows, read directly'), so `lowest_bin_*` sees all of them, not alt.xyz's partial mirror. `next_*` = the one ending soonest; end times are UTC. **A snapshot, not live:** the app compares the end times with its own clock — while `last_auction_end` is in the future at least one auction may still be running. The bid is the high bid at the check, or the opening price while the bid count is 0; it is not a price for the card (bids jump in the final minutes). A listing can also be pulled early: a link may lead to eBay's "similar items" page. |
 | `lowest_bin_price`, `lowest_bin_source`, `lowest_bin_url` | the cheapest PSA 10 Buy It Now listing at that check (PokeSniper's `lowestListingPrice`). It can sell or be pulled between checks, and alt.xyz itself keeps ended BINs in its feed for months and re-serves them on every check (one returned as live on 2026-09-25 had ended on June 16; the listing record has no date or status field to tell), so treat the link as "was listed at", not "is listed at". Ended *auctions* alt.xyz does drop within hours. A BIN alt.xyz has not shown again for 7 days is dropped (`history/ingest.py`). How long it has been listed: `lowest_bin_first_seen` below. |
 | `psa9_listings_checked_at` | the PSA 9 counterpart of `listings_checked_at`: UTC time of the last answer from alt.xyz about what is for sale at PSA 9 (set whenever that request succeeded, even with nothing listed; blank when it failed). **On from the 2026-09-26 nightly** (`NIGHTLY_ALSO_LISTINGS`, default 1; `--also-listings` in the scraper); blank in feeds built before that. Nightly scope only, like `psa9_scraped_date`; cards with zero PSA 9 copies are not asked and stay blank; blank = never checked at PSA 9, so every `psa9_live_*` / `psa9_lowest_bin_*` column below is blank too. |
 | `psa9_live_auction_count`, `psa9_next_auction_end`, `psa9_next_auction_bid`, `psa9_next_auction_bid_count`, `psa9_next_auction_source`, `psa9_next_auction_url`, `psa9_last_auction_end`, `psa9_lowest_bin_price`, `psa9_lowest_bin_source`, `psa9_lowest_bin_url` | the ten live columns above for PSA 9 listings: same meanings and caveats (a snapshot at `psa9_listings_checked_at`, not live; ended auctions pruned, a BIN dropped after 7 days unseen). On from the 2026-09-26 nightly. A count of 0 = checked, nothing running. |
@@ -381,17 +381,25 @@ repository), or a token-protected URL served by PokeSniper's own server plus its
 Locally: `WATCHLIST_FILE=watchlist.csv python3 history/watchlist_listings.py` (keys from
 `~/.ebay_keys`), or `--log hits.tsv` to see every eBay hit with its accept/refuse reason.
 
-### Crossed Fanatics Collect links (2026-10-10)
+### Fanatics Collect Buy Nows, read directly (2026-10-15)
 
-Some Fanatics Collect Buy Now rows alt.xyz serves for a Pokémon card carry another item's listing: the
-`fanaticscollect.com/buy-now/<id>` link and the price belong to a sports card (mostly NBA autographs from one
-bulk seller at $49.99–$80.99), not to the Pokémon card. 236 of the 1,346 Fanatics Buy Now ids the feed held on
-2026-10-10 resolved to a non-Pokémon item on Fanatics' own index. `history/fanatics_crossed_ids.csv` lists
-them (listing id, what the page really is, Fanatics' price and status, when checked); `history/ingest.py`
-drops those rows from `history/live_listings.csv` and skips them when alt.xyz re-serves them, so the card's
-next cheapest Buy It Now, or nothing, shows instead. The list is a one-off check, not a daily one: the feed
-does not read Fanatics Collect automatically (their Terms of Use require permission for that; asked
-2026-10-11), and the durable fix is alt.xyz's.
+alt.xyz mirrors only about one Fanatics Collect Buy Now in six for the cards the feed covers, and keeps
+serving ones that have sold. Since 2026-10-15 the nightly also reads Fanatics Collect's own Buy Now
+marketplace, with their written permission and on the terms asked for in
+`handoff/2026-10-11-fanatics-permission-request.md`: the public search the marketplace page itself makes,
+Pokémon cards graded PSA 9 or PSA 10 only, once a day, ~45 requests at >= 1 s apart under this
+project's User-Agent, keeping only listing id, title, asking price, grade, grader and the link
+(`alt_scraper.py --fanatics-listings`, budget `NIGHTLY_FANATICS_BUDGET`; empty = off). Each listing is
+matched to a feed card by `history/fanatics_match.py` on year + card number + the words of alt.xyz's
+subject, print run and set, refusing anything ambiguous (the verdict and candidates are in the run's
+`fanatics_listings.csv`). In `history/live_listings.csv` the matched listings are the cheapest Fanatics Buy
+Now per card and grade (`via` = `fanatics`), replaced whole by each pull and counted in `lowest_bin_*` like
+any other source (source stays `Fanatics Collect`). The pull also settles alt.xyz's mirrored Fanatics rows: a
+listing not in it (Sold, withdrawn, or not the Pokémon card alt.xyz said; the 236 "crossed" ids of
+2026-10-10 that pointed at sports cards among them) is dropped and recorded in `history/fanatics_checks.csv`,
+and `history/ingest.py` skips it when alt.xyz serves it again; a live listing the matcher could not place
+keeps alt.xyz's card with Fanatics' current price. Cards never checked per-card at a grade still show
+their direct Fanatics Buy Now (the pull's time is the check time, as for Alt's own listings).
 
 ### Login (optional)
 
