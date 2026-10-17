@@ -31,7 +31,7 @@ jobs:
         if: github.event_name == 'schedule'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: nightly/already_ran.sh "ebay verify $(date -u +%F)" && echo "skip=1" >> "$GITHUB_OUTPUT" || true
+        run: nightly/already_ran.sh "ebay verify $(date -u +%F)" "$(date -u +%FT07:00:00Z)" && echo "skip=1" >> "$GITHUB_OUTPUT" || true
       - uses: actions/setup-python@v5
         if: steps.guard.outputs.skip != '1'
         with:
