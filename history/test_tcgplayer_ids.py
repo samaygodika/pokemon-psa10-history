@@ -166,6 +166,11 @@ def test_catalog():
         # a single with no number is listed, never matched; sealed product and code cards aren't (2026-10-05)
         assert (only["91"]["how"], only["91"]["number"], only["91"]["name"]) == ("unnumbered", "", "Pikachu")
         assert "92" not in only and "93" not in only, "sealed deck / digital code card"
+        # printings_complete (2026-10-17), the last column: 0 with no SKU cache row (this fixture has none),
+        # blank for a row with no TCGplayer product; on TCGplayer-only rows too
+        assert list(rows[0].keys())[-1] == "printings_complete"
+        assert by_asset["bs1"]["printings_complete"] == "0" and only["81"]["printings_complete"] == "0"
+        assert by_asset["mw1"]["printings_complete"] == "" and by_asset["jp1"]["printings_complete"] == ""
     print("catalog ok")
 
 

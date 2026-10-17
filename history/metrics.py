@@ -88,6 +88,19 @@ PSA 9 (2026-09-22; the idea to test: PSA 9s lag a PSA 10 pump by weeks):
                          (same mirror rule, same outlier filter).
   psa9_to_psa10_ratio  = psa9_median_last_3 / median_last_3.
   latest/recent_sales_psa9/<xx>.csv = recent_sales/ for PSA 9, same columns.
+  psa9_price_chg_60d/90d/180d/1y_pct, psa9_volume_60d/90d/180d/1y, psa9_cap_price,
+  psa9_cap_price_30d/60d/90d/180d/1y_ago, psa9_chg_held_windows   (2026-10-17, the
+                         last columns of cards.csv)
+                       = the PSA 10 window columns (price_chg_*, volume_*, cap_price,
+                         cap_price_*_ago, chg_held_windows below) applied to the PSA
+                         9 sales by the same functions, so the app's PSA 9 view can
+                         show a 2-, 3-, 6- or 12-month window and a PSA 9 market
+                         cap instead of being stuck at one month on the PSA 10 cap.
+                         Blank under the same rule as the other psa9_* sale columns
+                         (not collected). psa9_price_chg_30d_pct counts the held-back
+                         high PSA 9 sales since the same date, like its PSA 10 twin
+                         (it was clean-only before; psa9_chg_held_windows says when
+                         the 30d figure rests on one).
 
 Full clean sale history (2026-09-29), for PokeSniper's lib/salesHistory.js
 (the Arbitrage pill's period-matched PSA 9 baseline), which until now read the
@@ -316,8 +329,14 @@ LIVE_CHECK_COLS = {"10.0": "listings_checked_at", "9.0": "psa9_listings_checked_
 EBAY_COLS = ["lowest_bin_verified_at", "psa9_lowest_bin_verified_at"]
 # 2026-10-09, the very end of cards.csv: whether the lowest BIN's ask is out of line with the card's price
 BIN_SUSPECT_COLS = ["lowest_bin_suspect", "psa9_lowest_bin_suspect"]
-# 2026-10-10, the very end of cards.csv: the date of the clean sale each lowest_bin_suspect was judged against
+# 2026-10-10: the date of the clean sale each lowest_bin_suspect was judged against
 BIN_REF_DATE_COLS = ["lowest_bin_ref_date", "psa9_lowest_bin_ref_date"]
+# 2026-10-17, the very end of cards.csv: the PSA 10 window columns for PSA 9 (see the module doc), built by the
+# same functions (change_since, count_in, cap_price) over the PSA 9 sales; psa9_volume_30d / psa9_price_chg_30d_pct
+# stay where they are in PSA9_COLS
+PSA9_WINDOW_COLS = ([f"psa9_price_chg_{w}_pct" for w in ("60d", "90d", "180d", "1y")]
+                    + [f"psa9_volume_{w}" for w in ("60d", "90d", "180d", "1y")]
+                    + ["psa9_cap_price"] + [f"psa9_cap_price_{w}_ago" for w in CAP_WINDOWS] + ["psa9_chg_held_windows"])
 
 
 def d(s):
@@ -623,12 +642,14 @@ def to_int(s):
         return None
 
 
-def psa9_cols(aid, num, scraped_day, s9, raw9, ref10, today):
-    """The PSA 9 columns for one card. pop_at_grade_9 comes with every run (it
-    is in the same pop response as PSA 10); the sale columns only exist for
-    cards some run scraped with --also-grade 9 (psa9_scraped_date), so blank
-    there means "not collected", while psa9_sales_total = 0 means none sold."""
-    out = {c: "" for c in PSA9_COLS}
+def psa9_cols(aid, num, scraped_day, s9, raw9, ref10, today, held9=None):
+    """The PSA 9 columns for one card (PSA9_COLS and PSA9_WINDOW_COLS). pop_at_grade_9
+    comes with every run (it is in the same pop response as PSA 10); the sale columns
+    only exist for cards some run scraped with --also-grade 9 (psa9_scraped_date), so
+    blank there means "not collected", while psa9_sales_total = 0 means none sold.
+    held9 = the PSA 9 sales the outlier filter still holds back on the high side: the
+    change columns count them, exactly as the PSA 10 ones do (change_since)."""
+    out = {c: "" for c in PSA9_COLS + PSA9_WINDOW_COLS}
     out["pop_at_grade_9"] = num.get("pop_at_grade_9", "")
     if not scraped_day and not raw9:
         return out
@@ -642,10 +663,23 @@ def psa9_cols(aid, num, scraped_day, s9, raw9, ref10, today):
     out["psa9_last_sale_unconfirmed"] = 1 if (newest and last and (newest[0], newest[1]) != (last[0], last[1]) and newest[0] >= last[0]) else 0
     ref9 = ref_price(s9, today)
     out["psa9_median_last_3"] = fmt(ref9)
-    start = today - timedelta(days=30)
-    vol = count_in(s9, start, today)
-    out["psa9_volume_30d"] = vol
-    out["psa9_price_chg_30d_pct"] = fmt(pct(ref9, ref_price(s9, start)) if vol > 0 else None)
+    # The window columns, by the PSA 10 functions over the PSA 9 sales (2026-10-17; before that
+    # only the 30-day pair existed, and it counted clean sales only). As for PSA 10, the change
+    # columns count the held-back HIGH sales and psa9_chg_held_windows names the windows that do;
+    # volume and every price level (psa9_median_last_3, psa9_cap_price*) are clean sales only.
+    counted = sorted(s9 + held9) if held9 else s9
+    held_windows = set()
+    for label, n in CAP_WINDOWS.items():
+        start = today - timedelta(days=n)
+        out[f"psa9_volume_{label}"] = count_in(s9, start, today)
+        chg, held = change_since(s9, counted, start, today)
+        out[f"psa9_price_chg_{label}_pct"] = fmt(chg)
+        if held:
+            held_windows.add(label)
+    out["psa9_chg_held_windows"] = " ".join(w for w in CAP_WINDOWS if w in held_windows)
+    out["psa9_cap_price"] = fmt(cap_price(s9, today))
+    for label, n in CAP_WINDOWS.items():
+        out[f"psa9_cap_price_{label}_ago"] = fmt(cap_price(s9, today - timedelta(days=n)))
     out["psa9_sales_total"] = len(s9)
     out["psa9_to_psa10_ratio"] = f"{ref9 / ref10:.4f}" if (ref9 and ref10) else ""
     return out
@@ -838,7 +872,7 @@ def build(store=HERE, out=LATEST):
     today = d(days[-1])
     by_grade = load_sales(store)
     sales, n_sales, outliers, raw_sales, held_high = by_grade["10.0"]
-    sales9, n_sales9, _, raw_sales9, _ = by_grade["9.0"]
+    sales9, n_sales9, _, raw_sales9, held_high9 = by_grade["9.0"]
     print(f"{len(assets)} assets, {len(days)} daily files ({days[0]}..{days[-1]}), {n_sales} PSA 10 sales, {n_sales9} PSA 9 sales")
 
     live = load_live(store)
@@ -939,9 +973,13 @@ def build(store=HERE, out=LATEST):
         row["sales_first_date"] = s[0][0].isoformat() if s else ""
         row["sales_total"] = len(s)
         row["history_days"] = (today - d(first_day[aid])).days
-        row.update(psa9_cols(aid, num, psa9_day.get(aid), sales9.get(aid, []), raw_sales9.get(aid, []), ref_now, today))
+        row.update(psa9_cols(aid, num, psa9_day.get(aid), sales9.get(aid, []), raw_sales9.get(aid, []), ref_now, today,
+                             held_high9.get(aid)))
         if row["psa9_last_sale_price"]:
             filled["psa9_last_sale_price"] += 1
+        for c in ("psa9_price_chg_30d_pct", "psa9_price_chg_1y_pct", "psa9_chg_held_windows"):
+            if row[c] != "":
+                filled[c] += 1
         t10 = live_check_time(checked_at["10.0"].get(aid), live.get((aid, "10.0"), []))
         t9 = live_check_time(checked_at["9.0"].get(aid), live.get((aid, "9.0"), []))
         row.update(live_cols(t10, live.get((aid, "10.0"), [])))
@@ -965,7 +1003,7 @@ def build(store=HERE, out=LATEST):
 
     out.mkdir(parents=True, exist_ok=True)
     with open(out / "cards.csv", "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=CARD_COLS + DERIVED_COLS + PSA9_COLS + LIVE_COLS + PSA9_LIVE_COLS + CAP_COLS + HELD_COLS + LISTING_AGE_COLS + EBAY_COLS + BIN_SUSPECT_COLS + BIN_REF_DATE_COLS, extrasaction="ignore")
+        w = csv.DictWriter(f, fieldnames=CARD_COLS + DERIVED_COLS + PSA9_COLS + LIVE_COLS + PSA9_LIVE_COLS + CAP_COLS + HELD_COLS + LISTING_AGE_COLS + EBAY_COLS + BIN_SUSPECT_COLS + BIN_REF_DATE_COLS + PSA9_WINDOW_COLS, extrasaction="ignore")
         w.writeheader()
         w.writerows(rows)
 
@@ -1021,6 +1059,7 @@ def build(store=HERE, out=LATEST):
         "rows_with_psa9_last_sale": filled["psa9_last_sale_price"],
         "rows_unconfirmed_last_sale": sum(1 for r in rows if r["last_sale_unconfirmed"] == 1),
         "rows_chg_counts_held_high": filled["chg_held_windows"],
+        "rows_psa9_chg_counts_held_high": filled["psa9_chg_held_windows"],          # 2026-10-17
         "rows_listings_checked": sum(1 for r in rows if r["listings_checked_at"]),
         "rows_with_live_auction": sum(1 for r in rows if r["live_auction_count"]),
         "rows_with_bin_listing": sum(1 for r in rows if r["lowest_bin_price"]),
@@ -1035,7 +1074,8 @@ def build(store=HERE, out=LATEST):
         "rows_psa9_listings_checked": sum(1 for r in rows if r["psa9_listings_checked_at"]),
         "rows_with_psa9_live_auction": sum(1 for r in rows if r["psa9_live_auction_count"]),
         "rows_with_psa9_bin_listing": sum(1 for r in rows if r["psa9_lowest_bin_price"]),
-        "rows_with": {k: filled[k] for k in ("price_chg_30d_pct", "price_chg_90d_pct", "price_chg_1y_pct", "mkt_cap_chg_30d_pct")},
+        "rows_with": {k: filled[k] for k in ("price_chg_30d_pct", "price_chg_90d_pct", "price_chg_1y_pct", "mkt_cap_chg_30d_pct",
+                                             "psa9_price_chg_30d_pct", "psa9_price_chg_1y_pct")},
     }
     # The newest nightly's account of itself (history/last_run.json, from the run's run_stats.json via
     # history/ingest.py, 2026-10-17): scrape counts, listings checks failed, the Alt / Fanatics pulls and

@@ -96,6 +96,11 @@ every TCGplayer English single no row is matched to.
   card_type         Pokemon | Trainer | Energy, from TCGplayer's "Card Type" (a Pokemon's energy type,
                     "Fire", "Darkness Metal"; what the rest are, "Supporter", "Basic Energy", "Pokemon
                     Tool"...). Blank: no product, or nothing TCGplayer gives places it
+  printings_complete  1 when TCGplayer's own SKU list for the product has been read (the cache row's
+                    status is ok), so `printings` is as full as it gets; 0 when the product has only
+                    TCGCSV's priced printings so far (the SKU list not fetched yet, or TCGplayer answered
+                    404), so the list can still grow and an id PokeSniper keys on it can still split;
+                    blank for a row with no TCGplayer product. The last column (2026-10-17)
   The image is IMAGE_URL with the tcgplayer_id (no column: it is the same pattern on every row,
   and leaving it out keeps the file ~2.5 MB smaller); no tcgplayer_id, no image.
 
@@ -172,7 +177,7 @@ PROMO_PREFIX = re.compile(r"^(SWSH|SM|XY|BW|DP|HGSS|SVP|SV|MEP|ME)0*(\d+)$")
 CATALOG = HERE / "latest" / "card_catalog.csv"
 SETS = HERE / "latest" / "tcgplayer_sets.csv"
 CATALOG_COLS = ["asset_id", "tcgplayer_id", "status", "how", "name", "set", "set_source", "number", "rarity",
-                "year", "print_run", "printings", "card_type"]
+                "year", "print_run", "printings", "card_type", "printings_complete"]   # printings_complete last (2026-10-17)
 SETS_COLS = ["group_id", "name", "published", "year", "year_source", "span_from", "span_to", "linked_cards", "note"]
 # Rows alt.xyz files as English that aren't English TCG cards, read off the unmatched rows of the
 # 2026-10-01 feed (checked only on rows that matched nothing): Japanese sets alt.xyz doesn't label
@@ -418,11 +423,22 @@ def load_sku_printings(path=None):
                 for r in csv.DictReader(f) if r["status"] == "ok"}
 
 
+def load_sku_status(path=None):
+    """{product_id: status} for every product in history/tcgplayer_sku_printings.csv (ok | not_found),
+    asked or not; empty when the cache is absent."""
+    path = path or SKU_CACHE
+    if not path.exists():
+        return {}
+    with open(path, newline="", encoding="utf-8") as f:
+        return {int(r["product_id"]): r["status"] for r in csv.DictReader(f)}
+
+
 def load_catalog(src=TCGCSV_DIR):
     # TCGplayer has no release date for 19 old sets (POP Series, Nintendo Promos...); the catalog
     # build stamps them with its own time, so a date within a day of the build means "undated"
     built = date.fromisoformat((src / "last-updated.txt").read_text()[:10])
     sku_printings = load_sku_printings()
+    sku_status = load_sku_status()
     groups = {g["groupId"]: g for g in json.loads((src / "groups.json").read_text())["results"]}
     by_number, by_bare, by_name = defaultdict(list), defaultdict(list), defaultdict(list)
     unnumbered = []
@@ -445,6 +461,10 @@ def load_catalog(src=TCGCSV_DIR):
                 p["printings"] = "|".join(sorted(printings.get(p["productId"], set())
                                                  | sku_printings.get(p["productId"], set())))
                 p["card_type"] = card_type(p)
+                # 1 once TCGplayer's own SKU list for the product has been read (status ok), so the
+                # printings list is as full as it gets; 0 = TCGCSV's priced printings only so far (the
+                # list can still grow, and an id keyed on it can still split)
+                p["printings_complete"] = 1 if sku_status.get(p["productId"]) == "ok" else 0
             if not number:
                 # a single TCGplayer gives no number (My First Battle, "V-UNION [Set of 4]", WC deck
                 # energies, Corocoro Pikachu): catalog only, never matched to an alt.xyz row
@@ -766,7 +786,8 @@ def catalog_rows(rows, decided, cands, by_number, unnumbered, skip, voted_set, y
             matched.add(p["productId"])
             out.append({**base, "tcgplayer_id": p["productId"], "status": "linked", "how": how, "name": p["name"],
                         "set": p["group"]["name"], "set_source": "tcgplayer", "number": p["number"],
-                        "rarity": ext(p, "Rarity") or "", "printings": p["printings"], "card_type": p["card_type"]})
+                        "rarity": ext(p, "Rarity") or "", "printings": p["printings"], "card_type": p["card_type"],
+                        "printings_complete": p["printings_complete"]})
             continue
         cs = cands[r["asset_id"]]
         if skip(r) or not_english(r):
@@ -778,7 +799,7 @@ def catalog_rows(rows, decided, cands, by_number, unnumbered, skip, voted_set, y
         guess, source = (in_sets.pop(), "candidates") if len(in_sets) == 1 else (voted_set(r), "voted")
         out.append({**base, "tcgplayer_id": "", "status": status, "how": how, "name": r.get("subject") or "",
                     "set": guess, "set_source": source if guess else "", "number": r.get("card_number") or "",
-                    "rarity": "", "printings": "", "card_type": ""})
+                    "rarity": "", "printings": "", "card_type": "", "printings_complete": ""})
     for p in [p for ps in by_number.values() for p in ps] + unnumbered:
         if p["productId"] in matched:
             continue
@@ -786,7 +807,8 @@ def catalog_rows(rows, decided, cands, by_number, unnumbered, skip, voted_set, y
                     "how": "candidate_of_alt_row" if p["productId"] in maybe else "" if p["number"] else "unnumbered",
                     "name": p["name"], "set": p["group"]["name"], "set_source": "tcgplayer", "number": p["number"],
                     "rarity": ext(p, "Rarity") or "", "year": year_of.get(p["group"]["groupId"], ""),
-                    "print_run": "", "printings": p["printings"], "card_type": p["card_type"]})
+                    "print_run": "", "printings": p["printings"], "card_type": p["card_type"],
+                    "printings_complete": p["printings_complete"]})
     out.sort(key=lambda c: (c["asset_id"] == "", c["asset_id"], int(c["tcgplayer_id"] or 0)))
     return out
 

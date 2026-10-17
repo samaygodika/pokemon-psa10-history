@@ -59,6 +59,8 @@ def test_catalog_unions_sku_printings():
         got = {p["productId"]: p["printings"] for ps in by_number.values() for p in ps}
         assert got == {89167: "1st Edition Holofoil|Unlimited Holofoil",   # SKU list adds the unpriced run
                        89999: "Unlimited Holofoil"}, got                   # not in the cache yet: TCGCSV only
+        complete = {p["productId"]: p["printings_complete"] for ps in by_number.values() for p in ps}
+        assert complete == {89167: 1, 89999: 0}, complete                  # printings_complete (2026-10-17): SKU list read or not
 
 
 if __name__ == "__main__":

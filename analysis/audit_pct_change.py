@@ -37,8 +37,16 @@ Definitions audited (README, "The data PokeSniper gets"):
                    cap_price = cap_price(today), cap_price_Nd_ago = cap_price(today-N)
                    for N in 30d/60d/90d/180d/1y (2026-09-28).
   today            the date of the newest history/daily file.
+  psa9_*           (2026-10-17) the same definitions over the PSA 9 sales, for
+                   psa9_clean_last_sale_price, psa9_last_sale_unconfirmed,
+                   psa9_median_last_3, psa9_volume_30d/60d/90d/180d/1y,
+                   psa9_price_chg_30d/60d/90d/180d/1y_pct (held highs counted),
+                   psa9_cap_price, psa9_cap_price_*_ago and psa9_chg_held_windows;
+                   audited on the rows whose psa9_scraped_date is set or that have
+                   any PSA 9 sale on record, and expected blank on every other row
+                   (PSA 9 sales not collected).
 
-Usage: analysis/.venv/bin/python analysis/audit_pct_change.py [--show 20]
+Usage: analysis/.venv/bin/python analysis/audit_pct_change.py [--show 20] [--feed cards.csv]
 """
 import argparse
 import csv
@@ -74,16 +82,19 @@ def mirror_of(url):
     return host if host in MIRRORS else None
 
 
+GRADES = ("10.0", "9.0")
+
+
 def load_sales():
-    """asset_id -> list of (date, price, source, flagged) sorted by (date, price, source).
-    A PWCC lot recorded under both mirror hosts (same asset, date, price) is one
-    sale: per (asset, date, price) keep the host with more rows (fanaticscollect
-    on a tie) and drop the other's."""
-    rows = []
+    """grade -> asset_id -> list of (date, price, source, flagged, url) sorted by (date, price,
+    source, url), for PSA 10 and PSA 9. A PWCC lot recorded under both mirror hosts (same asset,
+    grade, date, price) is one sale: per (asset, date, price) keep the host with more rows
+    (fanaticscollect on a tie) and drop the other's."""
+    rows = {g: [] for g in GRADES}
     for p in sorted((STORE / "sales").glob("*.csv")):
         with open(p, newline="", encoding="utf-8") as f:
             for s in csv.DictReader(f):
-                if s["grading_company"] != "PSA" or s["grade"] != "10.0":
+                if s["grading_company"] != "PSA" or s["grade"] not in rows:
                     continue
                 try:
                     price = float(s["price"])
@@ -91,8 +102,12 @@ def load_sales():
                     continue
                 if price <= 0:
                     continue
-                rows.append((s["asset_id"], date.fromisoformat(s["date"][:10]), price, s["source"] or "",
-                             bool(s["skipped_reason"]), mirror_of(s["url"] or ""), s["url"] or ""))
+                rows[s["grade"]].append((s["asset_id"], date.fromisoformat(s["date"][:10]), price, s["source"] or "",
+                                         bool(s["skipped_reason"]), mirror_of(s["url"] or ""), s["url"] or ""))
+    return {g: _dedupe_mirrors(rows[g]) for g in GRADES}
+
+
+def _dedupe_mirrors(rows):
     per_host = defaultdict(lambda: {m: 0 for m in MIRRORS})
     for aid, sd, price, _, _, m, _ in rows:
         if m:
@@ -179,6 +194,46 @@ def num(s):
     return None if s in ("", None) else float(s)
 
 
+def derive(raw, today, windows):
+    """Every audited figure for one card and grade from its raw sales: the README definitions
+    over the clean sales (+ held highs for the change columns). Keys are the PSA 10 column
+    names; the caller prefixes psa9_ for the PSA 9 set."""
+    clean, dropped, highs = clean_sales(raw)
+    counted = sorted(clean + highs, key=lambda t: (t[0], t[1], t[2]))
+    mine = {}
+    last = clean[-1] if clean else None
+    mine["clean_last_sale_price"] = last[1] if last else None
+    mine["clean_last_sale_date"] = last[0].isoformat() if last else ""
+    mine["outliers_excluded"] = dropped
+    ok = [(sd, p) for sd, p, _, fl, _ in raw if not fl]
+    newest = max(ok) if ok else None
+    mine["last_sale_unconfirmed"] = 1 if (newest and last and newest != (last[0], last[1]) and newest[0] >= last[0]) else 0
+    ref_now = ref_price(clean, today)
+    mine["median_last_3"] = ref_now
+    held_in = []
+    for w, n in windows.items():
+        start = today - timedelta(days=n)
+        mine[f"volume_{w}"] = sum(1 for sd, _, _ in clean if start < sd <= today)
+        only_clean = pct(ref_now, ref_price(clean, start)) if mine[f"volume_{w}"] else None
+        with_held = (pct(ref_price(counted, today), ref_price(counted, start))
+                     if any(start < sd <= today for sd, _, _ in counted) else None)
+        mine[f"price_chg_{w}_pct"] = with_held
+        if with_held != only_clean:
+            held_in.append(n)
+    mine["chg_held_windows"] = " ".join(w for w, n in sorted(CAP_AGO.items(), key=lambda kv: kv[1]) if n in held_in)
+
+    def worth(at):
+        r = ref_price(clean, at)
+        if r is not None:
+            return r
+        upto = [p for sd, p, _ in clean if sd <= at]
+        return upto[-1] if upto else None
+    mine["cap_price"] = worth(today)
+    for w, n in CAP_AGO.items():
+        mine[f"cap_price_{w}_ago"] = worth(today - timedelta(days=n))
+    return mine, last
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--show", type=int, default=25, help="max mismatches to print per column")
@@ -189,58 +244,40 @@ def main():
     today = date.fromisoformat(days[-1])
     feed = {r["asset_id"]: r for r in csv.DictReader(open(args.feed, newline="", encoding="utf-8"))}
     sales = load_sales()
-    print(f"today = {today} (newest daily file); feed rows = {len(feed)}; assets with PSA 10 sales = {len(sales)}")
+    print(f"today = {today} (newest daily file); feed rows = {len(feed)}; assets with PSA 10 sales = {len(sales['10.0'])}, "
+          f"with PSA 9 sales = {len(sales['9.0'])}")
 
     cols = ["clean_last_sale_price", "clean_last_sale_date", "outliers_excluded", "last_sale_unconfirmed", "median_last_3"]
     cols += [f"volume_{w}" for w in WINDOWS] + [f"price_chg_{w}_pct" for w in WINDOWS]
     cols += [f"price_chg_{w}_pct" for w in CHG_ONLY] + [f"volume_{w}" for w in CHG_ONLY] + ["cap_price"] + [f"cap_price_{w}_ago" for w in CAP_AGO]
     cols += ["chg_held_windows"]
+    # the PSA 9 set (2026-10-17): the same figures over the PSA 9 sales, under the psa9_ prefix
+    psa9_cols = ["clean_last_sale_price", "last_sale_unconfirmed", "median_last_3"]
+    psa9_cols += [f"volume_{w}" for w in CAP_AGO] + [f"price_chg_{w}_pct" for w in CAP_AGO]
+    psa9_cols += ["cap_price"] + [f"cap_price_{w}_ago" for w in CAP_AGO] + ["chg_held_windows"]
+    cols += ["psa9_" + c for c in psa9_cols]
     mism = defaultdict(list)
     checked = defaultdict(int)
     future_dated = []
+    sales10, sales9 = sales["10.0"], sales["9.0"]
+    text_cols = {"clean_last_sale_date", "chg_held_windows", "psa9_chg_held_windows"}
 
     for aid, row in feed.items():
-        raw = sales.get(aid, [])
-        clean, dropped, highs = clean_sales(raw)
-        counted = sorted(clean + highs, key=lambda t: (t[0], t[1], t[2]))
-        mine = {}
-        last = clean[-1] if clean else None
-        mine["clean_last_sale_price"] = last[1] if last else None
-        mine["clean_last_sale_date"] = last[0].isoformat() if last else ""
-        mine["outliers_excluded"] = dropped
-        ok = [(sd, p) for sd, p, _, fl, _ in raw if not fl]
-        newest = max(ok) if ok else None
-        mine["last_sale_unconfirmed"] = 1 if (newest and last and newest != (last[0], last[1]) and newest[0] >= last[0]) else 0
-        ref_now = ref_price(clean, today)
-        mine["median_last_3"] = ref_now
-        held_in = []
-        for w, n in {**WINDOWS, **CHG_ONLY}.items():
-            start = today - timedelta(days=n)
-            mine[f"volume_{w}"] = sum(1 for sd, _, _ in clean if start < sd <= today)
-            only_clean = pct(ref_now, ref_price(clean, start)) if mine[f"volume_{w}"] else None
-            with_held = (pct(ref_price(counted, today), ref_price(counted, start))
-                         if any(start < sd <= today for sd, _, _ in counted) else None)
-            mine[f"price_chg_{w}_pct"] = with_held
-            if with_held != only_clean:
-                held_in.append(n)
-        mine["chg_held_windows"] = " ".join(w for w, n in sorted(CAP_AGO.items(), key=lambda kv: kv[1]) if n in held_in)
-
-        def worth(at):
-            r = ref_price(clean, at)
-            if r is not None:
-                return r
-            upto = [p for sd, p, _ in clean if sd <= at]
-            return upto[-1] if upto else None
-        mine["cap_price"] = worth(today)
-        for w, n in CAP_AGO.items():
-            mine[f"cap_price_{w}_ago"] = worth(today - timedelta(days=n))
+        mine, last = derive(sales10.get(aid, []), today, {**WINDOWS, **CHG_ONLY})
         if last and last[0] > today:
             future_dated.append((aid, last[0].isoformat()))
+        raw9 = sales9.get(aid, [])
+        if row.get("psa9_scraped_date") or raw9:
+            mine9, _ = derive(raw9, today, CAP_AGO)
+            mine.update({"psa9_" + c: mine9[c] for c in psa9_cols})
+        else:
+            # PSA 9 sales never collected for this card: every PSA 9 column must be blank
+            mine.update({"psa9_" + c: ("" if c == "chg_held_windows" else None) for c in psa9_cols})
 
         for c in cols:
             theirs, ours = row.get(c, ""), mine[c]
             checked[c] += 1
-            if c in ("clean_last_sale_date", "chg_held_windows"):
+            if c in text_cols:
                 same = theirs == ours
             else:
                 t = num(theirs)
@@ -249,9 +286,9 @@ def main():
                 mism[c].append((aid, row["card_name"], theirs, ours))
 
     print()
-    print(f"{'column':<24}{'checked':>9}{'mismatch':>10}")
+    print(f"{'column':<30}{'checked':>9}{'mismatch':>10}")
     for c in cols:
-        print(f"{c:<24}{checked[c]:>9}{len(mism[c]):>10}")
+        print(f"{c:<30}{checked[c]:>9}{len(mism[c]):>10}")
     if future_dated:
         print(f"\n{len(future_dated)} cards whose newest clean sale is dated after today ({today}); e.g. {future_dated[:5]}")
     for c in cols:

@@ -57,6 +57,7 @@ scrape_and_ingest() {
   fi
   echo "--- rebuild latest/ ---"
   $PY history/metrics.py
+  $PY history/manifest.py   # last: sha256 / rows of every latest/ file into summary.json "files" + shard manifests
 }
 
 scrape_and_ingest
@@ -85,6 +86,7 @@ for attempt in 1 2 3; do
   done
   [ -f "$OUT/alt_listings.csv" ] && $PY history/ingest.py --alt-listings "$OUT/alt_listings.csv" --date "$DAY"
   $PY history/metrics.py
+  $PY history/manifest.py   # last: sha256 / rows of every latest/ file into summary.json "files" + shard manifests
 done
 echo "could not push after 3 attempts" >&2
 exit 1

@@ -1,6 +1,6 @@
 {
   "data_date": "2026-10-18",
-  "generated_at": "2026-10-18T18:39:34",
+  "generated_at": "2026-10-18T20:38:36+00:00",
   "daily_files": 36,
   "first_daily": "2026-09-11",
   "assets": 68166,
@@ -15,6 +15,7 @@
   "rows_with_psa9_last_sale": 19205,
   "rows_unconfirmed_last_sale": 1352,
   "rows_chg_counts_held_high": 1410,
+  "rows_psa9_chg_counts_held_high": 499,
   "rows_listings_checked": 68159,
   "rows_with_live_auction": 7593,
   "rows_with_bin_listing": 17952,
@@ -33,6 +34,60 @@
     "price_chg_30d_pct": 15611,
     "price_chg_90d_pct": 19972,
     "price_chg_1y_pct": 19199,
-    "mkt_cap_chg_30d_pct": 15238
+    "mkt_cap_chg_30d_pct": 15238,
+    "psa9_price_chg_30d_pct": 9379,
+    "psa9_price_chg_1y_pct": 11062
+  },
+  "files": {
+    "cards.csv": {
+      "sha256": "942ed568d882b551fb35745062f2e3fa587465afaf486982cd4fadeac7e3bcf0",
+      "bytes": 42638746,
+      "rows": 68166
+    },
+    "characters.csv": {
+      "sha256": "7b8f9d1ae8f8ddde0fa89c0e7036e648792f8eacd7e1b2f825779c65628dc615",
+      "bytes": 48267,
+      "rows": 469
+    },
+    "card_catalog.csv": {
+      "sha256": "5f1e412c9767494ec5ad7c3ef6f82e0ee161cd7419bbf25f1a16cba20827ea14",
+      "bytes": 6051832,
+      "rows": 41619
+    },
+    "tcgplayer_sets.csv": {
+      "sha256": "1b395ae09ca7a3978c263228c00264d0e29cf2084e4a9bae677f700839778ef9",
+      "bytes": 14781,
+      "rows": 220
+    },
+    "tcgplayer_ids.csv": {
+      "sha256": "92a062f1c96d8960b58008a4c68f02d8cdeb3913d01fb425a5427e917e6e4031",
+      "bytes": 4490949,
+      "rows": 27023
+    },
+    "watchlist_listings.csv": {
+      "sha256": "abcf35f429249c5bc5760286861c2d86b6ad075515ca275de47e959e00c0aa71",
+      "bytes": 39051,
+      "rows": 189
+    },
+    "series/manifest.json": {
+      "sha256": "a430d8fa2a18bbf887bf03ac1e1f3372af7685c28207acd95dd12684d4caf5f3",
+      "bytes": 33908,
+      "entries": 256
+    },
+    "recent_sales/manifest.json": {
+      "sha256": "bb0db97d942e822fb9395e0f29936e22843309267d3ae9226ca16a069eb35bf2",
+      "bytes": 33825,
+      "entries": 256
+    },
+    "recent_sales_psa9/manifest.json": {
+      "sha256": "78e2a5bfc03d521f179deea514b8da521cf7c5402a86129fe706179e645285e2",
+      "bytes": 33414,
+      "entries": 256
+    },
+    "clean_sales/manifest.json": {
+      "sha256": "be1d7d0cd6aeb2b0aad686d6728276fb14ccfd51a8ffaaaca802cdba1146ff5e",
+      "bytes": 12938,
+      "entries": 93
+    }
   }
 }

@@ -213,7 +213,7 @@ def test_mirror_rows():
         ("Alt", "auction", "1024", "0", "2026-10-30T01:02:00+00:00"),
         ("Fanatics Collect", "bin", "9999", "", ""),
         (wl.MIRROR_EBAY, "auction", "1025", "10", "2026-10-20T03:59:01+00:00")]
-    assert all(r["title"] == "" and r["checked_at"] == "stamp" for r in out)
+    assert all(r["title"] == "" and r["checked_at"] == "stamp" and r["verified"] == 0 for r in out)   # mirror rows: not live-checked
 
 
 def test_mirror_rows_offsets():
@@ -269,6 +269,7 @@ def test_sweep_end_to_end():
         assert by_url["https://www.ebay.com/itm/100000000001"]["first_seen"] == "2026-10-01"      # carried over
         assert by_url["https://www.ebay.com/itm/100000000002"]["first_seen"] == "2026-10-15"      # new today
         assert all(r["checked_at"] == "2026-10-15T20:00:00+00:00" for r in rows)
+        assert wl.OUT_COLS[-1] == "verified" and [r["verified"] for r in rows] == ["0", "1", "1", "0", "1"]   # eBay's search = 1, mirror = 0
         assert summary["rows"] == 5 and summary["ebay_calls"] == 8 and len(summary["swept"]) == 2 and summary["not_swept"] == []
         assert [s["why"] for s in summary["skipped"]] == ["unknown asset", "grade not 9 or 10"]
         assert json.loads(wl.summary_path(out).read_text())["ebay_calls"] == 8

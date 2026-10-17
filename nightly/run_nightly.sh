@@ -240,6 +240,7 @@ stage_assemble() {
   if ! $PY history/tcgplayer_ids.py --fetch --tcgcsv "$OUT/tcgcsv" --skus-budget-min "${NIGHTLY_SKUS_BUDGET_MIN:-15}"; then
     echo "tcgplayer ids: catalog download or match failed, kept the previous tcgplayer_ids / card_catalog / tcgplayer_sets"
   fi
+  $PY history/manifest.py   # last: sha256 / rows of every latest/ file into summary.json "files" + shard manifests
   echo "=== all done $(date '+%F %T') ==="
 }
 

@@ -47,6 +47,7 @@ if [ ! -s "$OUT/ebay_results.csv" ] && [ ! -s "$OUT/watchlist_listings.csv" ]; t
 [ -s "$OUT/ebay_results.csv" ] && $PY history/ebay_verify.py apply "$OUT"
 echo "--- rebuild latest/ ---"
 $PY history/metrics.py
+$PY history/manifest.py   # last: sha256 / rows of every latest/ file into summary.json "files" + shard manifests
 if [ -n "${NO_COMMIT:-}" ]; then echo "=== done (no commit) $(date -u '+%F %T') ==="; exit 0; fi
 
 git config user.name "alt.xyz nightly"
@@ -72,6 +73,7 @@ for attempt in 1 2 3; do
   [ -s "$OUT/ebay_results.csv" ] && $PY history/ebay_verify.py apply "$OUT"
   [ -s "$OUT/watchlist_listings.csv" ] && cp "$OUT/watchlist_listings.csv" "$OUT/watchlist_listings.summary.json" latest/
   $PY history/metrics.py
+  $PY history/manifest.py   # last: sha256 / rows of every latest/ file into summary.json "files" + shard manifests
 done
 echo "could not push after 3 attempts" >&2
 exit 1

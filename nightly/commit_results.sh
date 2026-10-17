@@ -47,6 +47,7 @@ for attempt in 1 2 3; do
   $PY history/coverage.py
   $PY history/flags.py            # appends this run's data_date rows; without it a rejected push lost that night's PSA 9 flag rows (until 2026-10-17)
   $PY history/tcgplayer_ids.py --tcgcsv "$OUT/tcgcsv" || true   # the run's catalog; origin's file if it has none
+  $PY history/manifest.py   # last: sha256 / rows of every latest/ file into summary.json "files" + shard manifests
 done
 echo "could not push after 3 attempts" >&2
 exit 1

@@ -40,6 +40,14 @@ scripts/lib/altSide.js reproduces the same definition.
   mkt_cap_chg_{..}_coverage_le2013
                             share of alt_market_cap_le2013_usd inside that figure
                             (cards with no clean sale by the window start are out)
+  rank_le2013               1..N by alt_market_cap_le2013_usd, largest first, ties
+                            broken by character name (2026-10-17): the roster rank
+                            PokeSniper's Sleeper / Arbitrage / Snipe gates used to
+                            take from a hand-pasted array recomputed by script
+                            (PokeSniper.jsx RANK arrays); the feed publishes the
+                            same figure every night. Every row has one, a 0 cap
+                            included (those sort last, by name).
+  rank_all_years            the same over alt_market_cap_usd (all years).
 
 The English / non-TCG filter is the one pokesniper-server/src/lib/samayData.js
 applies (same regexes), so "English rows" here is what the server can match.
@@ -64,8 +72,9 @@ NON_TCG = re.compile(r"sticker|topps|amada|bandai|carddass|merlin|action flipz|b
 VINTAGE_SPECIES = HERE / "nightly" / "vintage_species.txt"
 CAP_WINDOWS = ("30d", "60d", "90d", "180d", "1y")   # metrics.py CAP_WINDOWS
 CHG_COLS = [c for w in CAP_WINDOWS for c in (f"mkt_cap_chg_{w}_pct_le{VINTAGE_CUTOFF}", f"mkt_cap_chg_{w}_coverage_le{VINTAGE_CUTOFF}")]
+RANK_COLS = [f"rank_le{VINTAGE_CUTOFF}", "rank_all_years"]   # 2026-10-17, the last columns
 COLS = ["character", "alt_english_rows", "with_psa10_pop", "zero_psa10_pop", "no_psa_rows", "with_price",
-        "alt_market_cap_usd", f"alt_market_cap_le{VINTAGE_CUTOFF}_usd", "newest_scrape"] + CHG_COLS
+        "alt_market_cap_usd", f"alt_market_cap_le{VINTAGE_CUTOFF}_usd", "newest_scrape"] + CHG_COLS + RANK_COLS
 
 
 def english_tcg(row):
@@ -87,6 +96,14 @@ def num(s):
         return float(s)
     except (TypeError, ValueError):
         return None
+
+
+def rank(table):
+    """rank_le2013 and rank_all_years in place: 1..N by the cap, largest first, ties by name.
+    Sorts copies, so the table's own order (and the file's row order) is untouched."""
+    for col, cap in zip(RANK_COLS, (f"alt_market_cap_le{VINTAGE_CUTOFF}_usd", "alt_market_cap_usd")):
+        for i, t in enumerate(sorted(table, key=lambda t: (-t[cap], t["character"])), 1):
+            t[col] = i
 
 
 def build(feed=FEED, subjects=SUBJECTS, out=OUT, extra=VINTAGE_SPECIES):
@@ -138,6 +155,7 @@ def build(feed=FEED, subjects=SUBJECTS, out=OUT, extra=VINTAGE_SPECIES):
             stat[f"mkt_cap_chg_{w}_pct_le{VINTAGE_CUTOFF}"] = round((now_in[w] / then_in[w] - 1) * 100, 2) if ok else ""
             stat[f"mkt_cap_chg_{w}_coverage_le{VINTAGE_CUTOFF}"] = round(now_in[w] / cap13, 3) if ok and cap13 else ""
         table.append({"character": name, **stat})
+    rank(table)
     table.sort(key=lambda t: -t["alt_market_cap_usd"])
     with open(out, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=COLS, lineterminator="\n")

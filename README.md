@@ -11,7 +11,7 @@ as its only PSA 10 price/population source. Python 3.8+ standard library only.
 alt_scraper.py        the scraper (one run = cards.csv + sales.csv + listings.csv)
 nightly/              scheduled run: index listing -> scope -> scrape -> ingest -> latest/
 history/              the store: assets.csv, daily/<date>.csv, sales/<month>.csv, live_listings.csv  (committed)
-latest/               what the server reads: cards.csv, series/<xx>.csv, recent_sales/<xx>.csv, clean_sales/<month>.csv, characters.csv, tcgplayer_ids.csv, card_catalog.csv, tcgplayer_sets.csv, summary.json  (committed)
+latest/               what the server reads: cards.csv, series/<xx>.csv, recent_sales/<xx>.csv, recent_sales_psa9/<xx>.csv, clean_sales/<month>.csv, characters.csv, tcgplayer_ids.csv, card_catalog.csv, tcgplayer_sets.csv, watchlist_listings.csv, summary.json (with the sha256 of each)  (committed)
 snapshots/            raw per-run output (gitignored, hundreds of MB)
 .github/workflows/    GitHub Actions cron: nightly roster candidates + vintage checklist, weekly full index
 ```
@@ -25,9 +25,12 @@ say", never 0:
 | column | meaning |
 |---|---|
 | `pop_at_grade`, `company_total_pop` | PSA 10 pop and all-PSA-grades pop from the card's population table. **Blank when alt.xyz has no PSA rows for the record** (CGC/BGS only); `0` when PSA rows exist and the 10 count is zero (since 2026-09-18 such cards are in the feed, with no sales, instead of being skipped). |
-| `index_total_pop`, `index_transaction_count` | alt.xyz search-index counts: graded copies across every company and grade, and recorded transactions. Present even when the pop columns are blank. |
+| `index_total_pop`, `index_transaction_count` | alt.xyz search-index counts. `index_total_pop`: graded copies across every company and grade, present even when the pop columns are blank (67,856 of 67,859 rows). `index_transaction_count`: the index's per-asset transaction counter, which alt.xyz fills for exactly one card (the 2023 Obsidian Flames Charizard ex, 1 row of 67,859 on 2026-10-17), so treat it as blank; it is kept because the skip-unchanged rule would use it if alt.xyz ever filled it. |
 | `last_sale_price/date/source` | alt.xyz's literal newest PSA 10 sale. |
+| `num_sales`, `avg_last_3_sales`, `highest_sale`, `lowest_sale` | the scraper's own PSA 10 sale summary at scrape time, over every sale alt.xyz returned for the card minus the ones alt.xyz itself flags (RELISTED / NOT_PAID / PENDING): how many, the mean price of the newest 3, the highest and the lowest price ever. Literal alt.xyz figures with no outlier filter and no mirror rule: a mislabeled $15 lot is a card's `lowest_sale`, a PWCC lot listed twice counts twice. For anything shown or ranked, use `sales_total`, `median_last_3`, the `clean_*` columns and `cap_price`, which are built from the clean sales. (Documented 2026-10-17; the columns have been there from the start.) |
 | `scraped_at` | when this card's row was fetched from alt.xyz. **UTC with offset (`2026-10-17T02:14:09+00:00`) from the 2026-10-17 nightly on**; rows written before that carry naive local time with no offset (UTC on GitHub Actions, Pacific on the laptop fallback) and sort before any new stamp as text. The listings refresh can move `listings_checked_at` past it (see *Listings refresh*). |
+| `alt_url`, `alt_public_url` | `alt_url` is the card's alt.xyz research page (`alt.xyz/research/<asset_id>`: pops and the full sale history; needs a free alt.xyz account since 2026-10-02). `alt_public_url` is the public page of one of the card's live external listings at the check (`alt.xyz/itm/<listing id>/external`, viewable without an account), blank when the card had no live listing then (filled on 19,031 of 67,859 rows on 2026-10-17); a listing page, so it can outlive the listing. |
+| `listing_source`, `listing_grade`, `listing_grading_company`, `listing_price`, `listing_url` | **Deprecated, always blank.** The scraper's original single-listing columns, superseded by `listings_checked_at` and the `live_auction_*` / `next_auction_*` / `lowest_bin_*` columns (2026-09-24); blank on every row of the published feed. Kept in the file for now so a parser that indexes by header keeps working; they will be removed in a later contract change announced on PR #1. Do not read them. |
 | `clean_last_sale_price/date/source`, `outliers_excluded`, `last_sale_unconfirmed` | the newest sale after holding back junk rows: a sale below 1/4x or above 6x the running median of the card's last 12 accepted sales (past year) is held back unless confirmed — two consecutive high sales confirm a jump, five consecutive low sales a drop, and repeat sales of one listing URL count once towards those (2026-09-28: one $15 eBay Buy It Now that sold ten times had reset Dragon Frontiers Gold Star Charizard's reference from $58k to $15, a +2,619,900% 90-day change). A card with fewer than 4 sales that year is measured against its last 12 sales of any age with a 1/10x–10x band instead (2026-09-21; before that such cards had no filter, which let a PSA 5 sold at $31 and a $122,000 Goldin lot for a signed Steve Jobs document into PSA 10 histories). A card with only 1 or 2 earlier sales is measured against those with the same 1/10x–10x band, and two distinct listings confirm a move either way (2026-09-28; before that it had no filter, and single lots such as a $78,000 PWCC sale of a $490 BW87 Leafeon promo or a $3.72M XY Mudkip became clean prices). After a confirmed move only sales from that move onward form the reference, and a sale within 2x of the last accepted one is never held (see `drop_outliers` in `history/metrics.py`); 0.18% of all sales. Before any of that, a PWCC Weekly Auctions lot that alt.xyz records under both fanaticscollect.com and pwccmarketplace.com (same card, date and price) counts once, here and in `recent_sales/` (2026-09-22; the copy used to confirm its own jump, e.g. one $204,000 Legendary Collection Articuno lot read as +1,260%). The volume columns and every price level are built from these clean sales; the change columns also count the held-back sales on the high side (see `price_chg_30d_pct`). The app shows the literal `last_sale_price` and marks it unconfirmed when `last_sale_unconfirmed` = 1 (the newest sale is one the filter is holding back). |
 | `price_chg_30d_pct`, `_90d_`, `_1y_` | median of the last 3 sales vs the same median as of 30/90/365 days earlier; blank unless both exist and at least one sale happened in the window. The sales are the clean ones **plus the ones the outlier filter still holds back on the HIGH side** (2026-10-01). Over the past year a held-back high newest sale was later shown real 81% of the time (90% on cards up to 2013; eBay 80%, major auction houses 86%) and a held-back low one 17% (4%), so highs count here and lows stay out. Without them the cards that had just moved dropped out of every category's median % (452 cards with a held-back sale in the last 30 days had a blank 30-day change). One held sale moves a card that trades often only part of the way, since the price is a median of 3; on a dormant card it counts in full. Prices and market caps (`median_last_3`, `cap_price*`, `clean_*`, `series/`, `clean_sales/`, `characters.csv`) still wait for a confirming sale. |
 | `volume_30d`, `_90d`, `_1y` | clean PSA 10 sales in the window. |
@@ -35,7 +38,7 @@ say", never 0:
 | `median_last_3`, `sales_first_date`, `sales_total`, `history_days` | how much history stands behind the row. |
 | `pop_at_grade_9` | PSA 9 pop, same blank-vs-0 rule as `pop_at_grade`. Every run. |
 | `psa9_scraped_date` | newest nightly that pulled this card's PSA 9 sales (nightly scope only, from 2026-09-23). **Blank = PSA 9 sales not collected**, and then every `psa9_*` sale column below is blank too. |
-| `psa9_last_sale_price/date/source`, `psa9_clean_last_sale_price`, `psa9_last_sale_unconfirmed`, `psa9_median_last_3`, `psa9_volume_30d`, `psa9_price_chg_30d_pct`, `psa9_sales_total` | the PSA 10 definitions above applied to PSA 9 sales (same mirror rule and outlier filter). `psa9_sales_total` = 0 means collected and none sold. |
+| `psa9_last_sale_price/date/source`, `psa9_clean_last_sale_price`, `psa9_last_sale_unconfirmed`, `psa9_median_last_3`, `psa9_volume_30d`, `psa9_price_chg_30d_pct`, `psa9_sales_total` | the PSA 10 definitions above applied to PSA 9 sales (same mirror rule and outlier filter). `psa9_sales_total` = 0 means collected and none sold. Since 2026-10-17 `psa9_price_chg_30d_pct` also counts the held-back high PSA 9 sales, exactly as `price_chg_30d_pct` has since 2026-10-01 (it counted clean sales only before; 272 rows moved on that day's feed, every one flagged `30d` in `psa9_chg_held_windows` below). |
 | `psa9_to_psa10_ratio` | `psa9_median_last_3` / `median_last_3`. |
 | `listings_checked_at` | UTC time alt.xyz was last asked what is for sale right now at PSA 10 (from 2026-09-25: the nightly scope daily, everything else on the weekly full run). **Blank = never checked**, and then every live column below is blank too (unknown, not "nothing listed"). Whether a card has anything listed tracks its PSA 10 pop closely (pop 1000+: ~99% do; pop 26–100: ~60%; pop 1–2: ~10%; pop 0: ~1%), so a low-pop card with a check time and no listing is a real "nothing listed". (For one day, 2026-09-26, 14,828 of these were blanked by a mistaken "alt.xyz outage" rule in the scraper — the nightly scope is sorted by pop, so the falling listing rate through a run is the cards, not the endpoint. Reverted the same day.) Moved forward by the listings refresh between nightlies for cards with a running auction (2026-10-03). |
 | `live_auction_count`, `next_auction_end`, `next_auction_bid`, `next_auction_bid_count`, `next_auction_source`, `next_auction_url`, `last_auction_end` | the running PSA 10 auctions at that check, as alt.xyz mirrors them: eBay (~75%), Fanatics Collect including its weekly lots (the six-figure vintage auctions), CardHobby, Pristine Auction, a few Goldin; no Heritage. Since 2026-10-06 also **alt.xyz's own** weekly auctions and fixed-price marketplace (source `Alt`, link `alt.xyz/itm/<listing id>`; these come from one bulk pull of every card per nightly and per listings refresh, so they show on cards that have a check time). Since 2026-10-15 the Fanatics Collect Buy Nows come from Fanatics' own marketplace too (every live Pokémon PSA 9/10 listing, one bulk pull per nightly, see 'Fanatics Collect Buy Nows, read directly'), so `lowest_bin_*` sees all of them, not alt.xyz's partial mirror. `next_*` = the one ending soonest; end times are UTC (alt.xyz reports CardHobby's in US Eastern, `-04:00`; since 2026-10-17 the scraper converts them and the feed compares ends as instants, so a CardHobby auction is no longer pruned or ordered up to 4 h off). **A snapshot, not live:** the app compares the end times with its own clock — while `last_auction_end` is in the future at least one auction may still be running. The bid is the high bid at the check, or the opening price while the bid count is 0; it is not a price for the card (bids jump in the final minutes). A listing can also be pulled early: a link may lead to eBay's "similar items" page. |
@@ -50,8 +53,9 @@ say", never 0:
 | `psa9_lowest_bin_first_seen`, `psa9_next_auction_bid_suspect` | the same two for the PSA 9 listing columns, judged against `psa9_median_last_3`. (2026-10-03). |
 | `lowest_bin_verified_at`, `psa9_lowest_bin_verified_at` | when eBay itself last confirmed the `lowest_bin_url` listing is still live (UTC; see *eBay verification of Buy It Nows*). Blank = not an eBay listing, or not asked yet; never "dead": listings eBay says have ended are removed, so the BIN columns then show the card's next cheapest live listing, or nothing. (2026-10-06). |
 | `lowest_bin_suspect`, `psa9_lowest_bin_suspect` | `1` when the cheapest Buy It Now (`lowest_bin_price`, `psa9_lowest_bin_price`) asks more than 6x the card's `cap_price` at that grade (`median_last_3`, else its newest clean sale of any age), the same band as `next_auction_bid_suspect`: a real listing at an asking price no sale backs (e.g. Arceus LV.X DP53 PSA 9 at $100,000 on Fanatics Collect vs a $359 last clean sale). Do not show such an ask as what the card costs. `0` = judged and not out of line; blank = no BIN, or no clean sale ever. (2026-10-09). |
-| `lowest_bin_ref_date`, `psa9_lowest_bin_ref_date` | the date of the clean sale the matching `lowest_bin_suspect` / `psa9_lowest_bin_suspect` flag was judged against: the newest clean sale at that grade on or before the data date (the newest of the three behind `median_last_3`, or the any-age fallback itself; for PSA 10 this equals `clean_last_sale_date`). On a rarely traded card that sale can be old (the Arceus LV.X DP53 PSA 9 flag rests on a 2025-05-01 sale), so show or discount a flag by the age of what it rests on. Filled exactly when the flag is `0` or `1`; blank when it is blank. A date rather than a day count, so it cannot drift between syncs. The last columns of the file (2026-10-10). |
+| `lowest_bin_ref_date`, `psa9_lowest_bin_ref_date` | the date of the clean sale the matching `lowest_bin_suspect` / `psa9_lowest_bin_suspect` flag was judged against: the newest clean sale at that grade on or before the data date (the newest of the three behind `median_last_3`, or the any-age fallback itself; for PSA 10 this equals `clean_last_sale_date`). On a rarely traded card that sale can be old (the Arceus LV.X DP53 PSA 9 flag rests on a 2025-05-01 sale), so show or discount a flag by the age of what it rests on. Filled exactly when the flag is `0` or `1`; blank when it is blank. A date rather than a day count, so it cannot drift between syncs. (2026-10-10) |
 | `cap_price_30d_ago`, `cap_price_60d_ago`, `cap_price_90d_ago`, `cap_price_180d_ago`, `cap_price_1y_ago` | `cap_price` as of that many days ago; blank = no clean sale yet by then. A group's market cap change over a window is Σ(`cap_price` × pop) / Σ(`cap_price_N_ago` × pop) − 1 over its cards that have both: a card that didn't sell counts as unchanged, and no card's % is weighted by its own jump. Pop is today's for every window until the daily files are that old. |
+| `psa9_price_chg_60d_pct`, `psa9_price_chg_90d_pct`, `psa9_price_chg_180d_pct`, `psa9_price_chg_1y_pct`, `psa9_volume_60d`, `psa9_volume_90d`, `psa9_volume_180d`, `psa9_volume_1y`, `psa9_cap_price`, `psa9_cap_price_30d_ago`, `psa9_cap_price_60d_ago`, `psa9_cap_price_90d_ago`, `psa9_cap_price_180d_ago`, `psa9_cap_price_1y_ago`, `psa9_chg_held_windows` | the PSA 10 window columns (`price_chg_*`, `volume_*`, `cap_price`, `cap_price_*_ago`, `chg_held_windows` above) applied to the PSA 9 sales by the same code, so the PSA 9 view can measure 2-, 3-, 6- and 12-month windows and a PSA 9 market cap (Σ `psa9_cap_price` × `pop_at_grade_9`, and its change by the Σ/Σ rule over `psa9_cap_price_N_ago`) instead of being stuck at one month on the PSA 10 cap. Same rules: the change columns count held-back high PSA 9 sales and `psa9_chg_held_windows` names the windows that rest on one; volume and every price level are clean sales only; `psa9_cap_price` = `psa9_median_last_3`, else the newest clean PSA 9 sale of any age. Blank under the same rule as the other `psa9_*` sale columns (`psa9_scraped_date` blank = PSA 9 sales not collected; a `psa9_volume_*` of 0 then means collected and none sold). The last columns of the file (2026-10-17). |
 
 `latest/series/<first two hex of asset_id>.csv` holds the weekly PSA 10 sale
 series per asset (`week_start, n_sales, median_price, low, high`) for charts;
@@ -60,7 +64,15 @@ the server's `GET /api/samay-data/series?ids=…` reads one shard per lookup.
 first, including sales alt.xyz flags (`status` = ok / RELISTED / NOT_PAID /
 PENDING …) and sales the filter is holding back (`outlier` = 1), with the sale
 URL — `GET /api/samay-data/recent-sales?ids=…` for the app's price dropdown.
-`latest/recent_sales_psa9/<xx>.csv` is the same for PSA 9 sales (same columns).
+`latest/recent_sales_psa9/<xx>.csv` is the same for PSA 9 sales: the same eight columns
+(`asset_id, date, price, source, sale_type, status, outlier, url`), each card's last 10 PSA 9
+sales newest first, only for cards whose PSA 9 sales have been collected (`psa9_scraped_date`),
+with `outlier` judged by the PSA 9 run of the same filter. Each of the three shard directories
+carries a `manifest.json` (2026-10-17) listing every shard with its `sha256`, `bytes` and
+`rows`, in the shape of `clean_sales/manifest.json` below (`{"columns": [...], "shards":
+{"00": {...}}}`, no timestamp): a reader can check a shard it downloaded, tell a failed or
+stale fetch from an empty shard, and refetch only the shards whose hash moved. The manifests'
+own hashes are in `summary.json` (`files`).
 
 `latest/clean_sales/<YYYY-MM>.csv` (2026-09-29) holds every clean PSA 10 and PSA 9
 sale of that month — the sales every column above is built from, after the mirror
@@ -81,6 +93,21 @@ exist only for the nightly scope (from 2026-09-23). alt.xyz's not-yet-final sale
 (`subject_to_change`, a few thousand, all in the current month) are included, as
 everywhere else in the feed.
 
+`latest/summary.json` is the sync check (PokeSniper's server fetches it hourly and downloads
+the rest only when `generated_at` moved) and the run's counts:
+
+| key | meaning |
+|---|---|
+| `data_date` | the newest daily file the feed was built from (the scrape day); "today" for every window column |
+| `generated_at` | when `history/metrics.py` wrote the feed: UTC with offset (`+00:00`) since 2026-10-17, naive local time before (PokeSniper compares it as a string); the only key that moves on a rebuild from the same history |
+| `last_run` | (2026-10-17) the newest nightly's account of itself, copied from its `run_stats.json` (cards asked / ok / failed / carried, listings checks failed, the Alt and Fanatics pulls, the gate verdict; see *What a run says about itself*). Absent until the first such nightly has landed |
+| `daily_files`, `first_daily` | how many daily snapshots stand behind the pop history, and the first one (2026-09-11) |
+| `assets`, `psa10_sales`, `psa9_sales`, `outliers_excluded` | rows in `cards.csv`; PSA 10 and PSA 9 sales in the store after alt.xyz's own flags (before the feed's outlier filter); PSA 10 sales the filter holds back |
+| `series_rows`, `recent_sales_rows`, `psa9_recent_sales_rows`, `clean_sales_months`, `clean_sales` | rows in `series/`, `recent_sales/`, `recent_sales_psa9/`; months and sales in `clean_sales/` |
+| `rows_*` | how many `cards.csv` rows have a value in the named column (`rows_listings_checked`, `rows_with_live_auction`, `rows_with_bin_listing`, `rows_bin_ebay_verified`, `rows_bin_suspect`, `rows_bin_first_seen_known`, `rows_next_auction_bid_suspect`, their `psa9_` twins, `rows_unconfirmed_last_sale`, `rows_with_psa9_last_sale`); `rows_chg_counts_held_high` and `rows_psa9_chg_counts_held_high` = rows whose `chg_held_windows` / `psa9_chg_held_windows` is set |
+| `rows_with` | the same for `price_chg_30d_pct`, `price_chg_90d_pct`, `price_chg_1y_pct`, `mkt_cap_chg_30d_pct`, `psa9_price_chg_30d_pct`, `psa9_price_chg_1y_pct` |
+| `files` | (2026-10-17) `{path: {"sha256", "bytes", "rows"}}` for `cards.csv`, `characters.csv`, `card_catalog.csv`, `tcgplayer_sets.csv`, `tcgplayer_ids.csv` and, once the watchlist sweep has produced it, `watchlist_listings.csv` (`rows` = data rows, the header not counted), plus `{"sha256", "bytes", "entries"}` for `series/manifest.json`, `recent_sales/manifest.json`, `recent_sales_psa9/manifest.json` and `clean_sales/manifest.json`. Written by `history/manifest.py`, the last step of every run that commits `latest/`. Why: raw GitHub caches each URL for ~5 minutes on its own clock, so a sync can read a new `summary.json` next to the previous run's `cards.csv` (or one old shard) and believe it is current until the next nightly; check each download's sha256 against this and fetch again on a mismatch. A `summary.json` without `files` (a hand rebuild with `metrics.py` alone) means "not checked", never "corrupt". |
+
 `latest/characters.csv` (from `history/coverage.py`) has one row per name in
 `nightly/subjects.txt` and `nightly/vintage_species.txt` (469 species): English
 rows in the feed, how many have a PSA 10 pop / a real zero / an unknown pop / a
@@ -89,7 +116,12 @@ all years and ≤ 2013), and for the ≤ 2013 rows the market cap change over
 30d / 60d / 90d / 180d / 1y (`mkt_cap_chg_<w>_pct_le2013`, the Σ/Σ rule above,
 with `mkt_cap_chg_<w>_coverage_le2013` = the share of the cap it covers),
 computed with no matcher so characters can be ranked against each other
-fairly. Until 2026-09-28 the cap used the literal `last_sale_price`, unconfirmed
+fairly. `rank_le2013` and `rank_all_years` (2026-10-17, the last two columns) are those
+rankings written out: 1..469 by `alt_market_cap_le2013_usd` and by `alt_market_cap_usd`,
+largest first, ties broken by name, every row ranked (a 0 cap sorts last). `rank_le2013` is
+the roster rank the app's Sleeper / Arbitrage / Snipe gates read from a hand-pasted array
+recomputed by script; read it from here instead, it is the same figure every night. Until
+2026-09-28 the cap used the literal `last_sale_price`, unconfirmed
 sales included (560 of them added $320M, 11% of the ≤ 2013 cap; Torchic and
 Mudkip sat at #11 and #13 on one held-back Gold Star sale each).
 
@@ -136,6 +168,7 @@ it is. The image of a row with a `tcgplayer_id` is
 | `print_run` | `1st Edition`, `Shadowless`, `Reverse Holo` or blank, from alt.xyz's name |
 | `printings` | every printing TCGplayer sells the product in, `\|`-separated, as TCGCSV's prices name them (`1st Edition Holofoil\|Unlimited Holofoil`, `Holofoil\|Reverse Holofoil`, `Normal`): the same list as PPT's `printingsAvailable`. Blank: no TCGplayer product, or TCGplayer lists no printing for it. Two sources, unioned: TCGCSV's prices (a printing only while it has price data) and, since 2026-10-08, TCGplayer's own SKU list per product (`history/tcgplayer_sku_printings.csv`, `history/tcgplayer_skus.py`), which also has print runs nobody sells raw (Neo Destiny 1st Edition Shining Mewtwo) and keeps a printing whose price data comes and goes. A product the SKU list hasn't reached yet (the newest sets, filled in over the next nights) has the TCGCSV list only (from 2026-10-05) |
 | `card_type` | `Pokemon`, `Trainer` or `Energy`, from TCGplayer's "Card Type" (a Pokémon's energy type, or Supporter / Item / Stadium / Tool / Basic Energy...). Blank: no TCGplayer product, or TCGplayer gives no type that places it (from 2026-10-05) |
+| `printings_complete` | `1` when TCGplayer's own SKU list for the product has been read (`history/tcgplayer_sku_printings.csv`, status ok), so `printings` is as full as it gets; `0` when the product has only TCGCSV's priced printings so far (the SKU list not fetched yet, or TCGplayer answered 404 for it), so the list can still grow and a card id keyed on it can still split or un-split; blank for a row with no TCGplayer product. On 2026-10-17 every row with a `tcgplayer_id` was `1` (the cache covers all 37,077); new products start at `0` and turn `1` within a few nights. The last column (2026-10-17) |
 
 On the 2026-10-01 feed: 40,749 rows: 26,566 linked, 1,784 alt.xyz-only (775 with PSA 10
 copies; 928 have no PSA rows on alt.xyz), 2,667 not English (40 of 40 checked by hand were
@@ -163,7 +196,11 @@ own search; `Alt`, `Fanatics Collect`, `Goldin`, `CardHobby` from the feed's liv
 `eBay (alt mirror)` for an eBay listing alt.xyz mirrors that eBay's search did not return),
 `kind` (`auction` / `bin`), `price` (high bid or opening price for an auction, the ask for a
 bin, USD), `bid_count`, `ends` (auction end, UTC), `url`, `title` (eBay's; blank for the feed's
-own rows), `first_seen` (the first day the sweep saw that url), `checked_at` (this sweep, UTC).
+own rows), `first_seen` (the first day the sweep saw that url), `checked_at` (this sweep, UTC), `verified`
+(2026-10-17, the last column: `1` = eBay's own search returned the listing on this sweep, so it
+was live at `checked_at`; `0` = a row copied from the feed's live-listings mirror, a snapshot
+from that card's last alt.xyz check, which can be hours or days older than `checked_at` and,
+for a Buy It Now, may have ended since; show those as "last seen", not "live").
 Sorted by card, grade, kind, price. `latest/watchlist_listings.summary.json` next to it says
 which card-grades were swept, which were not (budget, rate limit, unknown asset) and which
 rows were skipped: a card with no row *and* in `swept` had nothing live; a card in
@@ -195,7 +232,9 @@ schedules, both in `.github/workflows/`:
 - **weekly full** (Sunday): every graded Pokemon card (~65k), so the vintage species'
   modern printings and every other species stay fresh too.
 
-Each run commits `history/` and `latest/`. Run by hand:
+Each run ends with `history/manifest.py` (the sha256 of every `latest/` file into
+`summary.json`'s `files`, plus the shard manifests) and commits `history/` and `latest/`.
+Run by hand:
 
 ```bash
 nightly/run_nightly.sh                                    # nightly scope, ~2–3 h
@@ -207,6 +246,7 @@ python3 history/metrics.py                                # rebuild latest/ only
 python3 history/coverage.py                               # rebuild latest/characters.csv only
 python3 history/flags.py                                  # append tonight's PSA 9 buy-condition flags to history/
 python3 history/tcgplayer_ids.py --fetch                  # TCGplayer catalog -> latest/tcgplayer_ids.csv, card_catalog.csv, tcgplayer_sets.csv (~4 min)
+python3 history/manifest.py                               # last: summary.json "files" + series/recent_sales*/manifest.json (1 s)
 ```
 
 ### What a run says about itself (2026-10-17)

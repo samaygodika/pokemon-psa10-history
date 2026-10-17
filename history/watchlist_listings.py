@@ -57,7 +57,11 @@ Output latest/watchlist_listings.csv, one row per live listing, sorted by asset,
 price: asset_id, grade (as the watchlist writes it: 10 or 9), source, kind (auction / bin),
 price (high bid or opening price for an auction; the ask for a bin), bid_count, ends (auction
 end, UTC), url, title (eBay's; the feed's own listings have none), first_seen (the first day
-this sweep saw the url; carried over from the previous file), checked_at (this run, UTC). A
+this sweep saw the url; carried over from the previous file), checked_at (this run, UTC),
+verified (2026-10-17: 1 = eBay's own search returned this listing on this run, so it was live at
+checked_at; 0 = a row taken from the feed's live_listings.csv mirror, a snapshot from that
+card's last check that may be hours or days older than checked_at, so the app can tell the two
+apart). A
 card with no row was swept and had nothing live, unless the run summary lists it as not
 swept (budget, rate limit, unknown asset): absent = unknown, never "nothing listed".
 latest/watchlist_listings.summary.json next to it records calls, cards swept and skipped.
@@ -89,7 +93,8 @@ MAX_PAGES = 3              # per query; more than 600 hits means the query is to
 DEFAULT_BUDGET = 360       # eBay calls per run (~306 for 72 card-grades); the runner gives ebay_verify.py the rest of the day's 5,000
 KINDS = {"bin": "FIXED_PRICE", "auction": "AUCTION"}   # one search per buying option, see the module doc
 DEFAULT_OUT = ROOT / "latest" / "watchlist_listings.csv"
-OUT_COLS = ["asset_id", "grade", "source", "kind", "price", "bid_count", "ends", "url", "title", "first_seen", "checked_at"]
+OUT_COLS = ["asset_id", "grade", "source", "kind", "price", "bid_count", "ends", "url", "title", "first_seen", "checked_at",
+            "verified"]   # verified last (2026-10-17)
 GRADES = {"10": "10.0", "9": "9.0"}            # watchlist grade -> live_listings.csv grade
 MIRROR_EBAY = "eBay (alt mirror)"
 
@@ -306,7 +311,7 @@ def item_row(it, stamp):
             "bid_count": str(it.get("bidCount", "")) if auction else "",
             "ends": (it.get("itemEndDate") or "") if auction else "",
             "url": f"https://www.ebay.com/itm/{it.get('legacyItemId') or ''}", "title": it.get("title", ""),
-            "checked_at": stamp}
+            "checked_at": stamp, "verified": 1}
 
 
 def summary_path(out):
@@ -381,7 +386,7 @@ def mirror_rows(asset_id, grade, live_rows, ebay_ids, stamp, now_iso):
         rows.append({"source": source, "kind": "auction" if auction else "bin",
                      "price": (r.get("current_bid") or "") if auction else (r.get("buy_it_now_price") or ""),
                      "bid_count": (r.get("bid_count") or "") if auction else "", "ends": end if auction else "",
-                     "url": r["url"], "title": "", "checked_at": stamp})
+                     "url": r["url"], "title": "", "checked_at": stamp, "verified": 0})
     return rows
 
 
