@@ -1,37 +1,125 @@
 # Weekly scrape of EVERY graded Pokemon card alt.xyz indexes (~65k), so cards
 # outside the nightly scope (chase-checklist species, roster
 # candidates) still get refreshed. Same pipeline, NIGHTLY_SCOPE=full.
+#
+# Three jobs since 2026-10-17: the single job ran 332 and 338 min on the last two Sundays against
+# a 350 min timeout, and GitHub stops any job at 360. `scope` lists the index and deals it into
+# NIGHTLY_SHARDS slices, one `scrape` job per slice runs at the same time (the workers are split
+# between them: 3 x 2 = the 6 one job used, so alt.xyz sees the same request rate), `assemble`
+# merges, ingests, rebuilds latest/ and commits. Same shape as nightly.yml, without the cron guard
+# (one slot). A manual run with `limit` set is a smoke test: N cards, no history, no commit.
 name: weekly scrape (full index)
 on:
   schedule:
     - cron: "0 9 * * 0"   # Sunday 09:00 UTC, after that day's nightly run
   workflow_dispatch:
+    inputs:
+      limit:
+        description: "scrape only the first N cards (smoke test, no commit)"
+        required: false
+        default: ""
 concurrency:
   group: scrape
   cancel-in-progress: false
 permissions:
   contents: write
+env:
+  NIGHTLY_SCOPE: full
+  NIGHTLY_SHARDS: "3"     # scrape jobs running at once; keep NIGHTLY_WORKERS x this at 6
 jobs:
-  scrape:
+  scope:
     runs-on: ubuntu-latest
-    timeout-minutes: 350
+    timeout-minutes: 90
+    outputs:
+      day: ${{ steps.scope.outputs.day }}
+      out: ${{ steps.scope.outputs.out }}
+      shards: ${{ steps.scope.outputs.shards || '[0]' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: full scrape + ingest + rebuild latest/
+      - name: index listing, dealt into shards
+        id: scope
         env:
           ALT_SESSION_TOKEN: ${{ secrets.ALT_SESSION_TOKEN }}   # alt.xyz login (README, 'Login')
-          NIGHTLY_SCOPE: full
-          NIGHTLY_WORKERS: "6"
+          NIGHTLY_STAGE: scope
+          NIGHTLY_LIMIT: ${{ inputs.limit }}
+        run: nightly/run_nightly.sh
+      - name: hand the scope to the scrape jobs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scope
+          path: snapshots
+          retention-days: 7
+  scrape:
+    needs: scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false      # one shard dying must not cancel the others; assemble takes what arrived
+      matrix:
+        shard: ${{ fromJSON(needs.scope.outputs.shards) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: scope
+          path: snapshots
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: scrape shard ${{ matrix.shard }}
+        env:
+          ALT_SESSION_TOKEN: ${{ secrets.ALT_SESSION_TOKEN }}   # alt.xyz login (README, 'Login')
+          NIGHTLY_STAGE: scrape
+          NIGHTLY_SHARD: ${{ matrix.shard }}
+          NIGHTLY_DATE: ${{ needs.scope.outputs.day }}
+          NIGHTLY_WORKERS: "2"
           NIGHTLY_DELAY: "0"
+        run: nightly/run_nightly.sh
+      - name: hand this shard's files to the assemble job
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shard-${{ matrix.shard }}
+          path: ${{ needs.scope.outputs.out }}/shard-${{ matrix.shard }}
+          retention-days: 7
+  assemble:
+    needs: [scope, scrape]
+    # Runs even when a shard job failed or timed out: the other shards' cards are still the week's
+    # data (a card not in the run is simply not refreshed), and a shard that died mid-way still
+    # uploaded what it had. Not on a cancelled run.
+    if: ${{ !cancelled() && needs.scope.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: scope
+          path: snapshots
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: shard-*
+          path: ${{ needs.scope.outputs.out }}    # -> <out>/shard-<i>/cards.csv ..., next to each shard's scope.txt
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: merge the shards + Alt pull + ingest + rebuild latest/
+        env:
+          ALT_SESSION_TOKEN: ${{ secrets.ALT_SESSION_TOKEN }}   # alt.xyz login (README, 'Login')
+          NIGHTLY_STAGE: assemble
+          NIGHTLY_DATE: ${{ needs.scope.outputs.day }}
+          NIGHTLY_SKIP_HISTORY: ${{ inputs.limit != '' && '1' || '' }}
         run: nightly/run_nightly.sh
       # Re-derives on top of origin/main instead of rebasing if another run's
       # commit landed meanwhile: on 2026-09-20 the nightly's push landed seconds
       # before this job's checkout and the rebase conflicted on every generated
       # file, losing the run.
       - name: commit history/ and latest/
+        if: inputs.limit == ''
         env:
           COMMIT_PREFIX: weekly full
         run: nightly/commit_results.sh
@@ -46,5 +134,6 @@ jobs:
             snapshots/*/cards.csv
             snapshots/*/sales.csv
             snapshots/*/listings.csv
+            snapshots/*/alt_listings.csv
             snapshots/*/run.log
           retention-days: 7

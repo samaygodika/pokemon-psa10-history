@@ -37,7 +37,7 @@ say", never 0:
 | `psa9_last_sale_price/date/source`, `psa9_clean_last_sale_price`, `psa9_last_sale_unconfirmed`, `psa9_median_last_3`, `psa9_volume_30d`, `psa9_price_chg_30d_pct`, `psa9_sales_total` | the PSA 10 definitions above applied to PSA 9 sales (same mirror rule and outlier filter). `psa9_sales_total` = 0 means collected and none sold. |
 | `psa9_to_psa10_ratio` | `psa9_median_last_3` / `median_last_3`. |
 | `listings_checked_at` | UTC time alt.xyz was last asked what is for sale right now at PSA 10 (from 2026-09-25: the nightly scope daily, everything else on the weekly full run). **Blank = never checked**, and then every live column below is blank too (unknown, not "nothing listed"). Whether a card has anything listed tracks its PSA 10 pop closely (pop 1000+: ~99% do; pop 26–100: ~60%; pop 1–2: ~10%; pop 0: ~1%), so a low-pop card with a check time and no listing is a real "nothing listed". (For one day, 2026-09-26, 14,828 of these were blanked by a mistaken "alt.xyz outage" rule in the scraper — the nightly scope is sorted by pop, so the falling listing rate through a run is the cards, not the endpoint. Reverted the same day.) Moved forward by the listings refresh between nightlies for cards with a running auction (2026-10-03). |
-| `live_auction_count`, `next_auction_end`, `next_auction_bid`, `next_auction_bid_count`, `next_auction_source`, `next_auction_url`, `last_auction_end` | the running PSA 10 auctions at that check, as alt.xyz mirrors them: eBay (~75%), Fanatics Collect including its weekly lots (the six-figure vintage auctions), CardHobby, Pristine Auction, a few Goldin; no Heritage. Since 2026-10-06 also **alt.xyz's own** weekly auctions and fixed-price marketplace (source `Alt`, link `alt.xyz/itm/<listing id>`; these come from one bulk pull of every card per nightly and per listings refresh, so they show on cards that have a check time). Since 2026-10-15 the Fanatics Collect Buy Nows come from Fanatics' own marketplace too (every live Pokémon PSA 9/10 listing, one bulk pull per nightly, see 'Fanatics Collect Buy Nows, read directly'), so `lowest_bin_*` sees all of them, not alt.xyz's partial mirror. `next_*` = the one ending soonest; end times are UTC. **A snapshot, not live:** the app compares the end times with its own clock — while `last_auction_end` is in the future at least one auction may still be running. The bid is the high bid at the check, or the opening price while the bid count is 0; it is not a price for the card (bids jump in the final minutes). A listing can also be pulled early: a link may lead to eBay's "similar items" page. |
+| `live_auction_count`, `next_auction_end`, `next_auction_bid`, `next_auction_bid_count`, `next_auction_source`, `next_auction_url`, `last_auction_end` | the running PSA 10 auctions at that check, as alt.xyz mirrors them: eBay (~75%), Fanatics Collect including its weekly lots (the six-figure vintage auctions), CardHobby, Pristine Auction, a few Goldin; no Heritage. Since 2026-10-06 also **alt.xyz's own** weekly auctions and fixed-price marketplace (source `Alt`, link `alt.xyz/itm/<listing id>`; these come from one bulk pull of every card per nightly and per listings refresh, so they show on cards that have a check time). Since 2026-10-15 the Fanatics Collect Buy Nows come from Fanatics' own marketplace too (every live Pokémon PSA 9/10 listing, one bulk pull per nightly, see 'Fanatics Collect Buy Nows, read directly'), so `lowest_bin_*` sees all of them, not alt.xyz's partial mirror. `next_*` = the one ending soonest; end times are UTC (alt.xyz reports CardHobby's in US Eastern, `-04:00`; since 2026-10-17 the scraper converts them and the feed compares ends as instants, so a CardHobby auction is no longer pruned or ordered up to 4 h off). **A snapshot, not live:** the app compares the end times with its own clock — while `last_auction_end` is in the future at least one auction may still be running. The bid is the high bid at the check, or the opening price while the bid count is 0; it is not a price for the card (bids jump in the final minutes). A listing can also be pulled early: a link may lead to eBay's "similar items" page. |
 | `lowest_bin_price`, `lowest_bin_source`, `lowest_bin_url` | the cheapest PSA 10 Buy It Now listing at that check (PokeSniper's `lowestListingPrice`). It can sell or be pulled between checks, and alt.xyz itself keeps ended BINs in its feed for months and re-serves them on every check (one returned as live on 2026-09-25 had ended on June 16; the listing record has no date or status field to tell), so treat the link as "was listed at", not "is listed at". Ended *auctions* alt.xyz does drop within hours. A BIN alt.xyz has not shown again for 7 days is dropped (`history/ingest.py`). How long it has been listed: `lowest_bin_first_seen` below. |
 | `psa9_listings_checked_at` | the PSA 9 counterpart of `listings_checked_at`: UTC time of the last answer from alt.xyz about what is for sale at PSA 9 (set whenever that request succeeded, even with nothing listed; blank when it failed). **On from the 2026-09-26 nightly** (`NIGHTLY_ALSO_LISTINGS`, default 1; `--also-listings` in the scraper); blank in feeds built before that. Nightly scope only, like `psa9_scraped_date`; cards with zero PSA 9 copies are not asked and stay blank; blank = never checked at PSA 9, so every `psa9_live_*` / `psa9_lowest_bin_*` column below is blank too. |
 | `psa9_live_auction_count`, `psa9_next_auction_end`, `psa9_next_auction_bid`, `psa9_next_auction_bid_count`, `psa9_next_auction_source`, `psa9_next_auction_url`, `psa9_last_auction_end`, `psa9_lowest_bin_price`, `psa9_lowest_bin_source`, `psa9_lowest_bin_url` | the ten live columns above for PSA 9 listings: same meanings and caveats (a snapshot at `psa9_listings_checked_at`, not live; ended auctions pruned, a BIN dropped after 7 days unseen). On from the 2026-09-26 nightly. A count of 0 = checked, nothing running. |
@@ -173,7 +173,15 @@ rows were skipped: a card with no row *and* in `swept` had nothing live; a card 
 
 `nightly/run_nightly.sh` does everything: full index listing (~65k cards, ~25 min),
 scope filter, scrape with two retry passes, then `history/ingest.py` and
-`history/metrics.py`. Two schedules, both in `.github/workflows/`:
+`history/metrics.py`. On GitHub Actions (since 2026-10-17) the same script runs in three jobs,
+because a job may run 6 h at most and one job doing everything took 177-256 min a night and
+332-338 min on Sundays: `scope` (index listing + scope, dealt round-robin into `NIGHTLY_SHARDS`
+slices by `nightly/shards.py`), one `scrape` job per slice at the same time (`NIGHTLY_STAGE=scrape`,
+`NIGHTLY_SHARD=<i>`; the 6 workers are split between them, 3 x 2 nightly and 2 x 3 weekly, so
+alt.xyz sees the same request rate as before), and `assemble` (merge the slices' `cards.csv` /
+`sales.csv` / `listings.csv`, Alt and Fanatics pulls, ingest, rebuild, commit). The files travel
+between jobs as artifacts (`scope`, `shard-<i>`, then the usual `snapshot-<run id>`). Two
+schedules, both in `.github/workflows/`:
 
 - **nightly** (cron slots 01:17, 02:17 and 03:17 UTC; the first that fires runs, the others stop
   when `nightly/already_ran.sh` sees its commit, because GitHub fires a cron up to ~9 h late; the
@@ -191,6 +199,7 @@ Each run commits `history/` and `latest/`. Run by hand:
 ```bash
 nightly/run_nightly.sh                                    # nightly scope, ~2–3 h
 NIGHTLY_SCOPE=full nightly/run_nightly.sh                 # everything, ~4 h
+NIGHTLY_SHARDS=3 NIGHTLY_SCOPE=full nightly/run_nightly.sh   # the same in 3 slices one after another (the Actions layout on one machine)
 NIGHTLY_LIMIT=15 NIGHTLY_DATE=smoke nightly/run_nightly.sh   # 15-card smoke test
 python3 history/ingest.py snapshots/2026-09-12            # (re)ingest one run
 python3 history/metrics.py                                # rebuild latest/ only
@@ -231,10 +240,14 @@ primary schedule.
 Env knobs: `NIGHTLY_SCOPE` (top60 = the subjects lists | full), `NIGHTLY_ALSO_GRADE` (9 on the
 nightly scope, empty on full), `NIGHTLY_ALSO_LISTINGS` (PSA 9 live listings too, needs an
 also-grade; on by default since 2026-09-26, 0 turns it off), `NIGHTLY_WORKERS` (4; the Actions
-workflows use 6), `NIGHTLY_DELAY` (0.25 s per worker; Actions uses 0.05), `NIGHTLY_LIMIT`,
-`NIGHTLY_DATE`, `NIGHTLY_SKIP_HISTORY=1`, `NIGHTLY_SKIP_UNCHANGED=1`.
+workflows use 6 in total, split over the scrape jobs), `NIGHTLY_DELAY` (0.25 s per worker; Actions
+uses 0.05), `NIGHTLY_LIMIT`, `NIGHTLY_DATE`, `NIGHTLY_SKIP_HISTORY=1`, `NIGHTLY_SKIP_UNCHANGED=1`,
+`NIGHTLY_STAGE` (`all` | `scope` | `scrape` | `assemble`: the Actions jobs above; `all` on a laptop),
+`NIGHTLY_SHARDS` (1; slices the scope is dealt into) and `NIGHTLY_SHARD` (the slice a `scrape` stage
+takes). All stages of one run must share a `NIGHTLY_DATE`.
 
-`NIGHTLY_SKIP_UNCHANGED=1` (off by default, never on the weekly full run) skips the two sale
+`NIGHTLY_SKIP_UNCHANGED=1` (off by default on a laptop, on in the nightly workflow since 2026-10-17,
+never on the weekly full run) skips the two sale
 requests for cards whose sales cannot have changed since the previous run, and carries that
 run's sale summary (`num_sales`, `last_sale_*`, `avg_last_3_sales`, `highest_sale`, `lowest_sale`)
 into the new daily row with `sales_fetched` = 0; pops and live listings are still fetched, and
@@ -302,7 +315,10 @@ The script waits between requests and retries failed calls three times.
 ### Listings refresh between nightlies
 
 Since 2026-10-03 `.github/workflows/listings-refresh.yml` runs `nightly/run_listings_refresh.sh`
-three times a day (10:00, 16:00, 22:00 UTC; the nightly covers the night). It re-checks the
+three times a day (10:00, 16:00, 22:00 UTC; the nightly covers the night; since 2026-10-17 each slot
+has a retry at :40 and `nightly/already_ran.sh` skips a slot when a refresh landed within the last 5 h,
+because GitHub keeps one pending run per concurrency group and a refresh queued behind a scrape used to be
+cancelled by the next queued run). It re-checks the
 live listings of every card `latest/cards.csv` shows with a running auction, at the grade(s)
 that have one (`nightly/refresh_scope.py`, ~4k PSA 10 + ~3k PSA 9 cards, one request each),
 with `alt_scraper.py --listings-only` (no pops, no sales) and `history/ingest.py --listings-only`

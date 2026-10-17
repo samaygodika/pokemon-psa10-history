@@ -370,8 +370,8 @@ def mirror_rows(asset_id, grade, live_rows, ebay_ids, stamp, now_iso):
         if r["asset_id"] != asset_id or r.get("grading_company", "PSA") != "PSA" or r["grade"] != GRADES[grade]:
             continue
         auction = r["listing_type"] == "AUCTION"
-        end = r.get("end_date") or ""
-        if auction and end and end <= now_iso:
+        end = ingest.utc_iso(r.get("end_date") or "")   # CardHobby ends may be stored as -04:00; compared as instants
+        if auction and ingest.when(end) and ingest.when(end) <= ingest.when(now_iso):
             continue
         source = r["source"]
         if source == "eBay":

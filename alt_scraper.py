@@ -498,10 +498,26 @@ def also_listings_col(grade):
     return f"psa{grade.rstrip('0').rstrip('.').replace('.', '_')}_listings_checked_at"
 
 
+def utc_iso(s):
+    """An ISO-8601 time as UTC with a "+00:00" offset and whole seconds (the same form as
+    history/ingest.py's utc_iso). alt.xyz gives CardHobby auction ends in US Eastern
+    ("2026-10-21T08:37:55-04:00") and every other house's in UTC; the feed compares and
+    publishes them as UTC. A naive time is taken as UTC; blank or unparseable passes through."""
+    if not s:
+        return s
+    try:
+        t = datetime.fromisoformat(str(s).strip().replace("Z", "+00:00"))
+    except ValueError:
+        return s
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=timezone.utc)
+    return t.astimezone(timezone.utc).isoformat(timespec="seconds")
+
+
 def live_rows(asset, listings, company, grade, checked_at):
     """One listings.csv row per live listing. listing_type is AUCTION when alt.xyz has auction
     info for it (current_bid = the high bid, or the opening price while bid_count is 0),
-    otherwise BUY_IT_NOW. end_date is UTC."""
+    otherwise BUY_IT_NOW. end_date is UTC (utc_iso: CardHobby's arrive in US Eastern)."""
     for lt in listings:
         a = lt.get("attributes") or {}
         auc = lt.get("auctionInfo") or {}
@@ -513,7 +529,7 @@ def live_rows(asset, listings, company, grade, checked_at):
             "source": lt.get("auctionHouse"),
             "current_bid": auc.get("highestBid"),
             "bid_count": auc.get("numBids"),
-            "end_date": auc.get("endDate"),
+            "end_date": utc_iso(auc.get("endDate")),
             "buy_it_now_price": lt.get("buyItNowPrice"),
             "url": a.get("itemDetailUrl"),
             "alt_listing_id": lt.get("id"),

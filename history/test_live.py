@@ -453,6 +453,98 @@ def test_ingest_alt_listings():
         assert metrics.live_check_time("2026-10-05T10:00:00+00:00", live[("C", "9.0")]) == "2026-10-05T10:00:00+00:00"
 
 
+def test_mixed_offsets():
+    """Auction end times with different UTC offsets (2026-10-17): alt.xyz gives CardHobby ends
+    in US Eastern (-04:00) and everything else in UTC; the feed must compare instants, store and
+    publish UTC. Before this, string compares pruned CardHobby auctions up to 4 h early and
+    picked the wrong next auction."""
+    import json
+    import subprocess
+    import alt_scraper as s   # noqa: E402
+    # the helpers: one UTC form, instants compare across offsets
+    assert ingest.utc_iso("2026-10-21T08:37:55-04:00") == "2026-10-21T12:37:55+00:00"
+    assert ingest.utc_iso("2026-10-19T02:30:00+00:00") == "2026-10-19T02:30:00+00:00"
+    assert ingest.utc_iso("2026-10-19T02:30:00Z") == "2026-10-19T02:30:00+00:00"
+    assert ingest.utc_iso("2026-10-19T02:30:00") == "2026-10-19T02:30:00+00:00", "naive = UTC"
+    assert ingest.utc_iso("") == "" and ingest.utc_iso("soon") == "soon" and ingest.when("") is None and ingest.when("soon") is None
+    assert ingest.when("2026-10-21T08:37:55-04:00") > ingest.when("2026-10-21T12:00:00+00:00"), "12:37Z is after 12:00Z"
+    assert s.utc_iso("2026-10-21T08:37:55-04:00") == "2026-10-21T12:37:55+00:00" and s.utc_iso(None) is None
+
+    # the scraper converts at the source
+    lt = {"id": "L1", "auctionHouse": "CardHobby", "buyItNowPrice": None,
+          "auctionInfo": {"endDate": "2026-10-21T08:37:55-04:00", "numBids": 2, "highestBid": 50},
+          "attributes": {"grade": "10.0", "gradingCompany": "PSA", "itemDetailUrl": "https://cardhobby/1"}}
+    row, = s.live_rows({"id": "A"}, [lt], "PSA", "10.0", "2026-10-17T01:00:00+00:00")
+    assert row["end_date"] == "2026-10-21T12:37:55+00:00" and row["listing_type"] == "AUCTION", row
+    lt["auctionInfo"]["endDate"] = "2026-10-21T12:37:55+00:00"
+    assert next(s.live_rows({"id": "A"}, [lt], "PSA", "10.0", ""))["end_date"] == "2026-10-21T12:37:55+00:00"
+
+    # ingest: a stored CardHobby auction ending 11:00 Eastern = 15:00Z is still running at the
+    # run's 14:00Z horizon (the string "11:00:00-04:00" < "14:00:00+00:00" used to prune it);
+    # one ending 09:00 Eastern = 13:00Z has ended. Stored rows come out as UTC.
+    with tempfile.TemporaryDirectory() as d:
+        store, run = Path(d) / "store", Path(d) / "run"
+        store.mkdir(); run.mkdir()
+        horizon = "2026-09-25T14:00:00+00:00"
+        base = {"grading_company": "PSA", "grade": "10.0", "source": "CardHobby", "current_bid": "20", "bid_count": "1",
+                "end_date": "", "buy_it_now_price": "", "url": "", "checked_at": "2026-09-24T10:00:00+00:00"}
+        _write(store / "live_listings.csv", ingest.LIVE_COLS, [
+            dict(base, asset_id="B", listing_type="AUCTION", end_date="2026-09-25T11:00:00-04:00", url="b-running"),
+            dict(base, asset_id="B", listing_type="AUCTION", end_date="2026-09-25T09:00:00-04:00", url="b-ended"),
+            dict(base, asset_id="B", listing_type="AUCTION", end_date="2026-09-25T14:30:00+00:00", url="b-utc"),
+        ])
+        cards = [{"asset_id": "C", "listings_checked_at": horizon}]
+        _write(run / "listings.csv", ingest.LIVE_COLS, [
+            dict(base, asset_id="C", listing_type="AUCTION", end_date="2026-09-26T01:00:00-04:00", url="c-east", checked_at=horizon),
+        ])
+        out = ingest.ingest_live(run, cards, store)
+        rows = {r["url"]: r for r in ingest.read_csv(store / "live_listings.csv")}
+        assert sorted(rows) == ["b-running", "b-utc", "c-east"], sorted(rows)
+        assert out["live_rows"] == 3
+        assert rows["b-running"]["end_date"] == "2026-09-25T15:00:00+00:00", rows["b-running"]
+        assert rows["c-east"]["end_date"] == "2026-09-26T05:00:00+00:00", rows["c-east"]
+        assert [r["url"] for r in ingest.read_csv(store / "live_listings.csv")] == ["b-utc", "b-running", "c-east"], \
+            "sorted by UTC end: 14:30Z before 15:00Z (as strings, 11:00-04:00 sorted first)"
+        # the one-off over an older store rewrites every cell and nothing else
+        _write(store / "live_listings.csv", ingest.LIVE_COLS, [
+            dict(base, asset_id="B", listing_type="AUCTION", end_date="2026-09-25T11:00:00-04:00", url="b-running"),
+            dict(base, asset_id="A", listing_type="BUY_IT_NOW", end_date="", buy_it_now_price="9", url="a-bin"),
+        ])
+        assert ingest.normalise_live(store) == 1
+        rows = ingest.read_csv(store / "live_listings.csv")
+        assert [(r["asset_id"], r["end_date"], r["buy_it_now_price"]) for r in rows] == [("A", "", "9"), ("B", "2026-09-25T15:00:00+00:00", "")], rows
+        assert ingest.normalise_live(store) == 0
+
+        # metrics: the next auction is the one ending first in real time, published as UTC
+        listings = [
+            {"listing_type": "AUCTION", "end_date": "2026-09-26T01:00:00-04:00", "current_bid": "5", "bid_count": "0",
+             "source": "CardHobby", "url": "u-east", "buy_it_now_price": ""},                       # 05:00Z
+            {"listing_type": "AUCTION", "end_date": "2026-09-26T03:00:00+00:00", "current_bid": "7", "bid_count": "1",
+             "source": "eBay", "url": "u-utc", "buy_it_now_price": ""},                             # 03:00Z: sooner
+        ]
+        assert [r["url"] for r in metrics.running_auctions(listings)] == ["u-utc", "u-east"]
+        cols = metrics.live_cols(horizon, listings)
+        assert cols["next_auction_url"] == "u-utc" and cols["next_auction_end"] == "2026-09-26T03:00:00+00:00", cols
+        assert cols["last_auction_end"] == "2026-09-26T05:00:00+00:00", cols
+
+        # refresh scope: soonest end first, across offsets
+        cards_csv = Path(d) / "cards.csv"
+        cols_needed = ["asset_id", "card_name", "year", "subject", "set", "variety", "card_number", "index_total_pop",
+                       "index_transaction_count", "live_auction_count", "next_auction_end", "psa9_live_auction_count",
+                       "psa9_next_auction_end"]
+        _write(cards_csv, cols_needed, [
+            {"asset_id": "east", "card_name": "E", "live_auction_count": "1", "next_auction_end": "2026-10-18T07:55:23-04:00"},   # 11:55Z
+            {"asset_id": "utc", "card_name": "U", "live_auction_count": "1", "next_auction_end": "2026-10-18T10:00:00+00:00"},    # sooner
+            {"asset_id": "none", "card_name": "N", "live_auction_count": "0"},
+        ])
+        subprocess.run([sys.executable, str(ROOT / "nightly" / "refresh_scope.py"), str(cards_csv), str(Path(d) / "scope")],
+                       check=True, capture_output=True)
+        picked = [l.split()[0] for l in (Path(d) / "scope" / "refresh_psa10.txt").read_text().splitlines() if l.startswith("asset:")]
+        assert picked == ["asset:utc", "asset:east"], picked
+        assert set(json.load(open(Path(d) / "scope" / "refresh_psa10.json"))) == {"utc", "east"}
+    print("mixed-offset end times ok")
+
+
 if __name__ == "__main__":
     test_ingest_live_keeps_snapshots_and_ages_bins()
     test_ingest_live_replaces_per_grade()
@@ -465,4 +557,5 @@ if __name__ == "__main__":
     test_ingest_listings_only()
     test_scraper_listings_only()
     test_ingest_alt_listings()
+    test_mixed_offsets()
     print("all live-listing checks passed")

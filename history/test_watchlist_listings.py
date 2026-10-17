@@ -216,6 +216,18 @@ def test_mirror_rows():
     assert all(r["title"] == "" and r["checked_at"] == "stamp" for r in out)
 
 
+def test_mirror_rows_offsets():
+    """A CardHobby auction stored with its -04:00 end: still running at 20:00Z when it ends
+    17:00 Eastern (21:00Z), gone when it ended 15:00 Eastern (19:00Z); `ends` is published as UTC."""
+    now = "2026-10-15T20:00:00+00:00"
+    rows = [
+        live("a1", "9.0", "AUCTION", "CardHobby", "https://www.cardhobby.com/1", "40", "2026-10-15T17:00:00-04:00", "2"),
+        live("a1", "9.0", "AUCTION", "CardHobby", "https://www.cardhobby.com/2", "30", "2026-10-15T15:00:00-04:00", "1"),
+    ]
+    out = wl.mirror_rows("a1", "9", rows, set(), "stamp", now)
+    assert [(r["url"][-1], r["ends"]) for r in out] == [("1", "2026-10-15T21:00:00+00:00")], out
+
+
 def _write(path, cols, rows):
     with open(path, "w", newline="") as f:
         w = csv.DictWriter(f, fieldnames=cols, extrasaction="ignore")

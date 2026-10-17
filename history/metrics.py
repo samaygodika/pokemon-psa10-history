@@ -261,6 +261,9 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlparse
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from ingest import utc_iso, when   # noqa: E402  (the store's UTC time form; CardHobby ends arrive as -04:00)
+
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
 LATEST = ROOT / "latest"
@@ -675,8 +678,9 @@ def to_float(s):
 
 
 def running_auctions(listings):
-    """The auction rows with an end time, soonest first."""
-    return sorted((r for r in listings if r["listing_type"] == "AUCTION" and r["end_date"]), key=lambda r: r["end_date"])
+    """The auction rows with an end time, soonest first (as instants: a stored end may still
+    carry CardHobby's -04:00 offset, see ingest.utc_iso)."""
+    return sorted((r for r in listings if r["listing_type"] == "AUCTION" and when(r["end_date"])), key=lambda r: when(r["end_date"]))
 
 
 def lowest_bin(listings):
@@ -710,12 +714,12 @@ def live_cols(checked_at, listings, prefix=""):
     out["live_auction_count"] = len(auctions)
     if auctions:
         nxt = auctions[0]
-        out["next_auction_end"] = nxt["end_date"]
+        out["next_auction_end"] = utc_iso(nxt["end_date"])     # UTC, whatever offset the store row carries
         out["next_auction_bid"] = fmt(to_float(nxt["current_bid"]))
         out["next_auction_bid_count"] = nxt["bid_count"]
         out["next_auction_source"] = nxt["source"]
         out["next_auction_url"] = nxt["url"]
-        out["last_auction_end"] = auctions[-1]["end_date"]
+        out["last_auction_end"] = utc_iso(auctions[-1]["end_date"])
     low = lowest_bin(listings)
     if low:
         out["lowest_bin_price"] = fmt(to_float(low["buy_it_now_price"]))

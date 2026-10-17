@@ -51,6 +51,11 @@ Store layout (all plain CSV, all append/merge-friendly so git diffs stay small):
                                   didn't check keep their older rows (a failed
                                   listings request leaves the check time blank,
                                   so the last good snapshot stands).
+                                  end_date and checked_at are UTC, "+00:00" (utc_iso;
+                                  alt.xyz gives CardHobby ends in US Eastern and the
+                                  scraper converts them since 2026-10-17, ingest
+                                  normalises what it writes, and auction ends are
+                                  compared as instants).
                                   Auctions that ended before the run's newest check
                                   are pruned; a Buy It Now not re-seen for
                                   BIN_MAX_AGE_DAYS is dropped. Note alt.xyz keeps
@@ -123,7 +128,7 @@ import re
 import sys
 import tempfile
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -418,6 +423,56 @@ def norm_grade(s):
 FANATICS_RX = re.compile(r"fanaticscollect\.com/buy-now/([0-9a-f-]{36})")
 
 
+def utc_iso(s):
+    """An ISO-8601 time as the store writes it: UTC, "+00:00", whole seconds. alt.xyz gives
+    CardHobby auction ends in US Eastern ("2026-10-21T08:37:55-04:00"; 834 of 22,218 auction
+    rows on 2026-10-17) and everything else in UTC, and the pipeline compared the strings, so
+    those auctions were pruned up to 4 h early and sorted wrong. A naive time is taken as UTC;
+    blank stays blank; a string that is not a time comes back unchanged."""
+    if not s:
+        return ""
+    try:
+        t = datetime.fromisoformat(s.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return s
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=timezone.utc)
+    return t.astimezone(timezone.utc).isoformat(timespec="seconds")
+
+
+def when(s):
+    """The instant an ISO-8601 string names, for comparing times that may carry different
+    offsets (None for blank or unparseable; a naive time is UTC)."""
+    if not s:
+        return None
+    try:
+        t = datetime.fromisoformat(s.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return t if t.tzinfo else t.replace(tzinfo=timezone.utc)
+
+
+def live_sorted(rows):
+    """live_listings.csv rows ready to write: every end_date in the store's UTC form (utc_iso),
+    in the file's order."""
+    for r in rows:
+        r["end_date"] = utc_iso(r.get("end_date") or "")
+    rows.sort(key=lambda r: (r["asset_id"], r["grade"], r["listing_type"], r["end_date"] or "", r["url"] or ""))
+    return rows
+
+
+def normalise_live(store):
+    """One pass over history/live_listings.csv rewriting every end_date as UTC (utc_iso); the
+    one-off for the rows stored before 2026-10-17. Every ingest does the same for what it
+    writes, so this is only needed once. Returns how many cells changed."""
+    live_path = Path(store) / "live_listings.csv"
+    rows = read_csv(live_path)
+    changed = sum(1 for r in rows if utc_iso(r.get("end_date") or "") != (r.get("end_date") or ""))
+    write_csv_atomic(live_path, LIVE_COLS, live_sorted(rows))
+    print(f"  live_listings.csv: {changed} end_date cell(s) rewritten as UTC in {len(rows)} rows")
+    return changed
+
+
 def fanatics_id(url):
     """The Fanatics Collect Buy Now listing id in a URL, or None for any other listing."""
     m = FANATICS_RX.search(url or "")
@@ -482,10 +537,12 @@ def ingest_live(run_dir, cards, store, day=""):
         r["first_seen"] = seen.get((r["asset_id"], norm_grade(r["grade"]), r["url"])) or day
         r["via"] = ""
     # An auction whose end is before the newest check anywhere in this run has certainly
-    # ended; the rows of assets this run didn't check are where such leftovers live.
+    # ended; the rows of assets this run didn't check are where such leftovers live. Compared
+    # as instants, not strings: CardHobby's ends arrive with a -04:00 offset (utc_iso).
     horizon = max(checked.values(), default="")
+    horizon_t = when(horizon)
     rows = [r for r in kept + fresh
-            if not (r["listing_type"] == "AUCTION" and r["end_date"] and r["end_date"] < horizon)]   # both UTC ISO, same format
+            if not (r["listing_type"] == "AUCTION" and horizon_t and when(r["end_date"]) and when(r["end_date"]) < horizon_t)]
     pruned = len(kept) + len(fresh) - len(rows)
     # A Buy It Now has no end date, and alt.xyz keeps one in its live feed long after it
     # sold or was pulled (a Kyogre Gold Star BIN returned as live on 2026-09-25 had ended
@@ -499,7 +556,7 @@ def ingest_live(run_dir, cards, store, day=""):
         before = len(rows)
         rows = [r for r in rows if r["listing_type"] == "AUCTION" or not r["checked_at"] or r["checked_at"] >= cutoff]
         aged = before - len(rows)
-    rows.sort(key=lambda r: (r["asset_id"], r["grade"], r["listing_type"], r["end_date"] or "", r["url"] or ""))
+    rows = live_sorted(rows)
     write_csv_atomic(live_path, LIVE_COLS, rows)
     n_auc = sum(1 for r in rows if r["listing_type"] == "AUCTION")
     n_assets = len({aid for aid, _ in checked})
@@ -537,7 +594,7 @@ def ingest_alt(path, store, day=""):
         r["first_seen"] = seen.get((r["asset_id"], r["grade"], r["url"])) or day
     gone = len(seen) - sum(1 for r in fresh if (r["asset_id"], r["grade"], r["url"]) in seen)
     rows = other + [{c: r.get(c, "") for c in LIVE_COLS} for r in fresh]
-    rows.sort(key=lambda r: (r["asset_id"], r["grade"], r["listing_type"], r["end_date"] or "", r["url"] or ""))
+    rows = live_sorted(rows)
     write_csv_atomic(live_path, LIVE_COLS, rows)
     n_auc = sum(1 for r in fresh if r["listing_type"] == "AUCTION")
     print(f"  live_listings.csv: alt.xyz's own listings replaced: {n_auc} auctions + {len(fresh) - n_auc} cheapest "
@@ -593,7 +650,7 @@ def ingest_fanatics(path, store, day=""):
         row["first_seen"] = seen.get((row["asset_id"], row["grade"], row["url"])) or day
         direct.append(row)
     rows = other + mirror + direct
-    rows.sort(key=lambda r: (r["asset_id"], r["grade"], r["listing_type"], r["end_date"] or "", r["url"] or ""))
+    rows = live_sorted(rows)
     write_csv_atomic(live_path, LIVE_COLS, rows)
     # verdicts: gone ids (new or re-confirmed), and dead ids that are live again
     checks_path = store / "fanatics_checks.csv"
@@ -679,7 +736,13 @@ def main():
                     help="a fanatics_listings.csv (alt_scraper.py --fanatics-listings): replace the Fanatics Collect Buy Now "
                          "rows in live_listings.csv with it and record gone listings. On its own (no run_dir) that is all "
                          "it does; needs --date")
+    ap.add_argument("--normalise-live", action="store_true",
+                    help="rewrite every end_date in live_listings.csv as UTC (+00:00) and exit: the one-off for rows "
+                         "stored before 2026-10-17, when CardHobby ends still carried -04:00")
     args = ap.parse_args()
+    if args.normalise_live:
+        normalise_live(Path(args.store))
+        return
     if not args.run_dir:
         if not ((args.alt_listings or args.fanatics_listings) and args.date):
             ap.error("give a run_dir, or --alt-listings / --fanatics-listings FILE with --date")

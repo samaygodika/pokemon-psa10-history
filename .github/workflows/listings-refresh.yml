@@ -2,11 +2,15 @@
 # feed shows with a running auction, so an auction that ended or was pulled early stops showing as
 # live within hours instead of up to a day. ~7k alt.xyz requests, ~30-40 min. Shares the
 # `scrape` concurrency group with the nightly and weekly runs, so it queues behind them rather
-# than committing on top of a half-finished run.
+# than committing on top of a half-finished run (it talks to alt.xyz, so it must never overlap a
+# scrape). GitHub keeps only one *pending* run per group, so a refresh queued behind a running
+# scrape is cancelled when another run of the group queues up (it ran ~2x/day instead of 3 in
+# October 2026); since 2026-10-17 each slot has a retry 40 min later, and nightly/already_ran.sh
+# skips a slot when a refresh landed on main within the last 5 hours (the slots are 6 h apart).
 name: listings refresh (cards with a running auction)
 on:
   schedule:
-    - cron: "0 10,16,22 * * *"   # 10:00, 16:00, 22:00 UTC (3 AM, 9 AM, 3 PM Pacific); the nightly covers ~01:00-07:00 UTC
+    - cron: "0,40 10,16,22 * * *"   # 10:00, 16:00, 22:00 UTC (3 AM, 9 AM, 3 PM Pacific), :40 = retry; the nightly covers ~01:00-07:00 UTC
   workflow_dispatch:
     inputs:
       limit:
@@ -24,10 +28,18 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
+      - name: stop if a refresh landed within the last 5 hours (the :40 slot is only a retry)
+        id: guard
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: nightly/already_ran.sh "listings refresh" "$(date -u -d '5 hours ago' +%FT%TZ)" && echo "skip=1" >> "$GITHUB_OUTPUT" || true
       - uses: actions/setup-python@v5
+        if: steps.guard.outputs.skip != '1'
         with:
           python-version: "3.12"
       - name: refresh listings + rebuild latest/ + commit
+        if: steps.guard.outputs.skip != '1'
         env:
           ALT_SESSION_TOKEN: ${{ secrets.ALT_SESSION_TOKEN }}   # alt.xyz login (README, 'Login')
           NIGHTLY_WORKERS: "6"
@@ -36,7 +48,7 @@ jobs:
           NO_COMMIT: ${{ inputs.limit != '' && '1' || '' }}
         run: nightly/run_listings_refresh.sh
       - name: keep the raw run as a downloadable artifact (7 days)
-        if: always()
+        if: always() && steps.guard.outputs.skip != '1'
         uses: actions/upload-artifact@v4
         with:
           name: listings-refresh-${{ github.run_id }}

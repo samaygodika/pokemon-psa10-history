@@ -13,9 +13,14 @@ It Now has no end and alt.xyz re-serves it anyway (its age is lowest_bin_first_s
 import csv
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "history"))
+from ingest import when   # noqa: E402
+
 GRADES = {"10": "live_auction_count", "9": "psa9_live_auction_count"}
+FAR = datetime.max.replace(tzinfo=timezone.utc)   # a blank or unreadable end sorts last
 
 
 def main():
@@ -25,7 +30,8 @@ def main():
     rows = list(csv.DictReader(open(cards_path, newline="", encoding="utf-8")))
     for g, col in GRADES.items():
         picked = [r for r in rows if (r.get(col) or "0") not in ("", "0")]
-        picked.sort(key=lambda r: r.get("next_auction_end" if g == "10" else "psa9_next_auction_end") or "~")   # soonest end first
+        # soonest end first, compared as instants (an end may carry an offset other than +00:00)
+        picked.sort(key=lambda r: when(r.get("next_auction_end" if g == "10" else "psa9_next_auction_end")) or FAR)
         if limit:
             picked = picked[:limit]
         docs = {}

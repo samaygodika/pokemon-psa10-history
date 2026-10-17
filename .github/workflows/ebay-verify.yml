@@ -1,10 +1,12 @@
 # eBay verification of the feed's eBay Buy It Nows (2026-10-06): asks eBay's own Browse API
 # whether each listing is still live (alt.xyz re-serves ended ones for months) and drops the
-# dead ones. ~4,800 lookups of eBay's 5,000-a-day budget, which resets at 07:00 UTC. Shares
-# the `scrape` concurrency group with the nightly, weekly and listings-refresh runs, so it
-# queues behind them instead of committing on top of a half-finished run. GitHub keeps only one
-# *pending* run per group: a verify queued behind the nightly is cancelled when a listings
-# refresh queues up too (10-11 and 10-14), hence the second cron slot + nightly/already_ran.sh.
+# dead ones. ~4,800 lookups of eBay's 5,000-a-day budget, which resets at 07:00 UTC. Its own
+# concurrency group since 2026-10-17: it never talks to alt.xyz, and run_ebay_verify.sh's commit
+# loop re-applies the day's answers on top of origin/main when a push is rejected, so it need not
+# queue behind the nightly, weekly and listings-refresh runs (group `scrape`). It used to share
+# that group, and GitHub keeps only one *pending* run per group: a verify queued behind the
+# nightly was cancelled when a listings refresh queued up too (10-11 and 10-14), hence the second
+# cron slot + nightly/already_ran.sh, both kept.
 name: ebay verify (Buy It Now listings still live?)
 on:
   schedule:
@@ -16,7 +18,7 @@ on:
         required: false
         default: ""
 concurrency:
-  group: scrape
+  group: ebay-verify
   cancel-in-progress: false
 permissions:
   contents: write

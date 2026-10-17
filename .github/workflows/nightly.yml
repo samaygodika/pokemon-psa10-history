@@ -3,6 +3,13 @@
 # downloads latest/ straight from this repo's raw GitHub URLs.
 # A manual run with `limit` set is a smoke test: it scrapes N cards and
 # skips the history/commit steps so a partial day never lands in history/.
+#
+# Three jobs since 2026-10-17 (a GitHub job may run 6 h at most, and one job doing everything took
+# 177-256 min and grew with every step added): `scope` lists the index and deals the scope into
+# NIGHTLY_SHARDS slices, one `scrape` job per slice runs at the same time (the workers are split
+# between them, so alt.xyz sees the same total request rate as before: 2 x 3 = 6), and `assemble`
+# merges their files, ingests, rebuilds latest/ and commits. The files travel between jobs as
+# artifacts (scope, shard-<i>; kept 7 days like the final snapshot, for a re-ingest by hand).
 name: nightly scrape (roster candidates + vintage checklist)
 on:
   schedule:
@@ -19,15 +26,24 @@ on:
         description: "scrape only the first N cards (smoke test)"
         required: false
         default: ""
+# One scrape-family run at a time (nightly, weekly, listings refresh, eBay verify): the whole
+# three-job run holds the group, so a later cron slot waits for it, then its guard sees the commit.
 concurrency:
   group: scrape
   cancel-in-progress: false
 permissions:
   contents: write
+env:
+  NIGHTLY_SHARDS: "2"     # scrape jobs running at once; keep NIGHTLY_WORKERS x this at 6
 jobs:
-  scrape:
+  scope:
     runs-on: ubuntu-latest
-    timeout-minutes: 340
+    timeout-minutes: 90
+    outputs:
+      skip: ${{ steps.guard.outputs.skip }}
+      day: ${{ steps.scope.outputs.day }}
+      out: ${{ steps.scope.outputs.out }}
+      shards: ${{ steps.scope.outputs.shards || '[0]' }}   # valid JSON even when the guard skipped the scope
     steps:
       - uses: actions/checkout@v4
       - name: stop if an earlier cron slot already landed today's nightly
@@ -40,13 +56,88 @@ jobs:
         if: steps.guard.outputs.skip != '1'
         with:
           python-version: "3.12"
-      - name: scrape + ingest + rebuild latest/
+      - name: index listing + scope, dealt into shards
+        id: scope
         if: steps.guard.outputs.skip != '1'
         env:
           ALT_SESSION_TOKEN: ${{ secrets.ALT_SESSION_TOKEN }}   # alt.xyz login (README, 'Login')
-          NIGHTLY_WORKERS: "6"
-          NIGHTLY_DELAY: "0.05"
+          NIGHTLY_STAGE: scope
           NIGHTLY_LIMIT: ${{ inputs.limit }}
+        run: nightly/run_nightly.sh
+      # The index listing, the scope and each shard's list (+ run.log so far): what the scrape and
+      # assemble jobs start from.
+      - name: hand the scope to the scrape jobs
+        if: always() && steps.guard.outputs.skip != '1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: scope
+          path: snapshots
+          retention-days: 7
+  scrape:
+    needs: scope
+    if: needs.scope.outputs.skip != '1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    strategy:
+      fail-fast: false      # one shard dying must not cancel the others; assemble takes what arrived
+      matrix:
+        shard: ${{ fromJSON(needs.scope.outputs.shards) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: scope
+          path: snapshots
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: scrape shard ${{ matrix.shard }}
+        env:
+          ALT_SESSION_TOKEN: ${{ secrets.ALT_SESSION_TOKEN }}   # alt.xyz login (README, 'Login')
+          NIGHTLY_STAGE: scrape
+          NIGHTLY_SHARD: ${{ matrix.shard }}
+          NIGHTLY_DATE: ${{ needs.scope.outputs.day }}
+          NIGHTLY_WORKERS: "3"
+          NIGHTLY_DELAY: "0.05"
+          # Don't refetch the sales of cards that cannot have had one since the previous nightly (no
+          # PSA 10 copy in the pop table and no PSA 10 sale on record), carry that run's summary:
+          # measured on the 2026-09-22..25 nightlies, ~27k of ~134k requests (~38 min of a 3 h scrape)
+          # and 0 of 10,886 new PSA 10 sales missed (run_nightly.sh, README). On since 2026-10-17.
+          NIGHTLY_SKIP_UNCHANGED: "1"
+        run: nightly/run_nightly.sh
+      - name: hand this shard's files to the assemble job
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shard-${{ matrix.shard }}
+          path: ${{ needs.scope.outputs.out }}/shard-${{ matrix.shard }}
+          retention-days: 7
+  assemble:
+    needs: [scope, scrape]
+    # Runs even when a shard job failed or timed out: what the other shards scraped is still the
+    # day's data (a card not in the run is simply not refreshed, like a card whose requests failed),
+    # and a shard that died mid-way still uploaded what it had. Not on a cancelled run.
+    if: ${{ !cancelled() && needs.scope.result == 'success' && needs.scope.outputs.skip != '1' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: scope
+          path: snapshots
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: shard-*
+          path: ${{ needs.scope.outputs.out }}    # -> <out>/shard-<i>/cards.csv ..., next to each shard's scope.txt
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: merge the shards + Alt / Fanatics pulls + ingest + rebuild latest/
+        env:
+          ALT_SESSION_TOKEN: ${{ secrets.ALT_SESSION_TOKEN }}   # alt.xyz login (README, 'Login')
+          NIGHTLY_STAGE: assemble
+          NIGHTLY_DATE: ${{ needs.scope.outputs.day }}
           NIGHTLY_SKIP_HISTORY: ${{ inputs.limit != '' && '1' || '' }}
           # Fanatics Collect's Buy Now marketplace, read directly with their permission (2026-10-15):
           # at most this many search requests a night (the pull needs ~45); empty = off
@@ -55,12 +146,12 @@ jobs:
       # Re-derives on top of origin/main instead of rebasing if another run's
       # commit landed meanwhile (the generated files always conflict).
       - name: commit history/ and latest/
-        if: ${{ inputs.limit == '' && steps.guard.outputs.skip != '1' }}
+        if: inputs.limit == ''
         run: nightly/commit_results.sh
       # The raw run, so a failed commit can be re-ingested by hand
       # (python3 history/ingest.py <dir> --date <day>) instead of re-scraped.
       - name: keep the raw run as a downloadable artifact (7 days)
-        if: always() && steps.guard.outputs.skip != '1'
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: snapshot-${{ github.run_id }}
@@ -68,6 +159,7 @@ jobs:
             snapshots/*/cards.csv
             snapshots/*/sales.csv
             snapshots/*/listings.csv
+            snapshots/*/alt_listings.csv
             snapshots/*/fanatics_listings.csv
             snapshots/*/run.log
           retention-days: 7
