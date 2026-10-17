@@ -24,6 +24,7 @@ mkdir -p "$OUT"
 LOG="$OUT/run.log"
 exec > >(tee -a "$LOG") 2>&1
 echo "=== ebay verify $STAMP started $(date -u '+%F %T') ==="
+$PY history/store.py pull   # history/sales + daily from the release (history/store.py, 2026-10-17): metrics reads them; STORE_MODE=local skips it
 
 VERIFY_BUDGET=${EBAY_BUDGET:-4800}
 SWEEP_NOTE=""
@@ -55,8 +56,9 @@ git config user.email "nightly@users.noreply.github.com"
 # the check's one-line summary from its status JSON ($OUT/ebay_verify.json, written by ebay_verify.py check
 # and apply), not a grep of the tee'd log (same set -e trap as above)
 SUMMARY=$($PY -c 'import json,sys;print(json.load(open(sys.argv[1]))["summary"])' "$OUT/ebay_verify.json")$SWEEP_NOTE
+$PY history/store.py push --note "ebay verify $STAMP"   # a no-op (this run never changes the store) unless the release moved: then exit 3, see nightly/commit_results.sh
 for attempt in 1 2 3; do
-  git add history latest
+  $PY history/store.py stage   # latest/ + the history files that stay in git (never history/sales, history/daily)
   if git commit -q -m "ebay verify $STAMP: $SUMMARY"; then
     if git push -q origin HEAD:main; then
       echo "pushed on attempt $attempt: $(git log --oneline -1)"
@@ -69,6 +71,7 @@ for attempt in 1 2 3; do
   echo "--- push rejected (attempt $attempt): re-applying on top of origin/main ---"
   git fetch -q origin
   git reset -q --hard origin/main
+  $PY history/store.py pull --force   # the reset put the checkout's copy of sales/ + daily/ back (while still git-tracked): the pulled generation again
   # eBay's answers are this run's and still true: re-apply them to the newer store, no new lookups.
   [ -s "$OUT/ebay_results.csv" ] && $PY history/ebay_verify.py apply "$OUT"
   [ -s "$OUT/watchlist_listings.csv" ] && cp "$OUT/watchlist_listings.csv" "$OUT/watchlist_listings.summary.json" latest/

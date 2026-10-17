@@ -46,6 +46,9 @@ jobs:
           NIGHTLY_DELAY: "0.05"
           REFRESH_LIMIT: ${{ inputs.limit }}
           NO_COMMIT: ${{ inputs.limit != '' && '1' || '' }}
+          # history/sales + daily come from the release tagged `store` (history/store.py, 2026-10-17)
+          STORE_MODE: "release"
+          GH_TOKEN: ${{ github.token }}
         run: nightly/run_listings_refresh.sh
       - name: keep the raw run as a downloadable artifact (7 days)
         if: always() && steps.guard.outputs.skip != '1'

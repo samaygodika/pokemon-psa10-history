@@ -10,7 +10,9 @@ as its only PSA 10 price/population source. Python 3.8+ standard library only.
 ```
 alt_scraper.py        the scraper (one run = cards.csv + sales.csv + listings.csv)
 nightly/              scheduled run: index listing -> scope -> scrape -> ingest -> latest/
-history/              the store: assets.csv, daily/<date>.csv, sales/<month>.csv, live_listings.csv  (committed)
+history/              the store: assets.csv, live_listings.csv and the check files (committed); daily/<date>.csv and
+                      sales/<month>.csv (1.2 GB, rewritten nightly) live on the GitHub release tagged `store`, one
+                      gzip tarball per generation, pulled and pushed by history/store.py (2026-10-17)
 latest/               what the server reads: cards.csv, series/<xx>.csv, recent_sales/<xx>.csv, recent_sales_psa9/<xx>.csv, clean_sales/<month>.csv, characters.csv, tcgplayer_ids.csv, card_catalog.csv, tcgplayer_sets.csv, watchlist_listings.csv, summary.json (with the sha256 of each)  (committed)
 snapshots/            raw per-run output (gitignored, hundreds of MB)
 .github/workflows/    GitHub Actions cron: nightly roster candidates + vintage checklist, weekly full index
@@ -234,11 +236,13 @@ schedules, both in `.github/workflows/`:
   modern printings and every other species stay fresh too.
 
 Each run ends with `history/manifest.py` (the sha256 of every `latest/` file into
-`summary.json`'s `files`, plus the shard manifests) and commits `history/` and `latest/`.
+`summary.json`'s `files`, plus the shard manifests), pushes `history/sales/` + `history/daily/`
+to the release as the store's next generation, and commits `latest/` and the rest of `history/`.
 Run by hand:
 
 ```bash
-nightly/run_nightly.sh                                    # nightly scope, ~2–3 h
+python3 history/store.py pull                             # history/sales + daily from the release (first, on a fresh checkout; ~430 MB)
+nightly/run_nightly.sh                                    # nightly scope, ~2–3 h (pulls the store itself)
 NIGHTLY_SCOPE=full nightly/run_nightly.sh                 # everything, ~4 h
 NIGHTLY_SHARDS=3 NIGHTLY_SCOPE=full nightly/run_nightly.sh   # the same in 3 slices one after another (the Actions layout on one machine)
 NIGHTLY_LIMIT=15 NIGHTLY_DATE=smoke nightly/run_nightly.sh   # 15-card smoke test
@@ -248,6 +252,8 @@ python3 history/coverage.py                               # rebuild latest/chara
 python3 history/flags.py                                  # append tonight's PSA 9 buy-condition flags to history/
 python3 history/tcgplayer_ids.py --fetch                  # TCGplayer catalog -> latest/tcgplayer_ids.csv, card_catalog.csv, tcgplayer_sets.csv (~4 min)
 python3 history/manifest.py                               # last: summary.json "files" + series/recent_sales*/manifest.json (1 s)
+nightly/commit_results.sh                                 # store push + commit + push after a laptop run
+python3 history/store.py status                           # which generation the release and this checkout hold
 ```
 
 ### What a run says about itself (2026-10-17)
@@ -284,6 +290,18 @@ night with that night's PSA 10 / PSA 9 prices, pops, tier and the flags that hel
 (`buy_rule_50` / `buy_rule_100` = top-50 card, PSA 10 up 50%+ / 100%+, PSA 9 up less than
 10%); plus one row per card type a night with the category's median move. The rule and the
 backtests behind it are in `analysis/README.md` ("Sid's buy rule").
+
+**The store** (2026-10-17): `history/sales/*.csv` and `history/daily/*.csv` are not in git any more.
+`history/store.py` keeps them as one gzip tarball per generation on this repo's release tagged
+`store` (`store.json` there names the current one; the newest three generations and the first of
+each month are kept). A run `pull`s the current generation before reading it (the assemble stage
+before ingest; a nightly scrape shard too, for the previous daily file its skip-unchanged rule
+reads; the laptop path once up front) and `push`es the next one before committing, so `latest/`
+is always built from the generation the release holds; a push that finds the release moved
+meanwhile (a laptop run) stops the run with nothing committed. `STORE_MODE=local` runs offline
+on whatever the folder holds. Why, the alternatives and the numbers:
+`handoff/2026-10-17-store-move-design.md`. The `analysis/` scripts read `history/sales/` in
+place, so run `python3 history/store.py pull` once on a fresh checkout.
 
 Ingest keys sales by alt.xyz's own transaction id (`alt_tx_id` in `history/sales/*.csv`,
 recorded from 2026-09-26) and lets a later run overwrite what the store knows about a

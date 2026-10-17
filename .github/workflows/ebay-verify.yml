@@ -52,6 +52,9 @@ jobs:
           WATCHLIST_URL: ${{ secrets.WATCHLIST_URL }}
           WATCHLIST_TOKEN: ${{ secrets.WATCHLIST_TOKEN }}
           WATCHLIST_EBAY_BUDGET: "360"
+          # history/sales + daily come from the release tagged `store` (history/store.py, 2026-10-17)
+          STORE_MODE: "release"
+          GH_TOKEN: ${{ github.token }}
         run: nightly/run_ebay_verify.sh
       - name: keep the raw run as a downloadable artifact (7 days)
         if: always() && steps.guard.outputs.skip != '1'

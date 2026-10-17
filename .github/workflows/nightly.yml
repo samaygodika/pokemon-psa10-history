@@ -104,6 +104,10 @@ jobs:
           # measured on the 2026-09-22..25 nightlies, ~27k of ~134k requests (~38 min of a 3 h scrape)
           # and 0 of 10,886 new PSA 10 sales missed (run_nightly.sh, README). On since 2026-10-17.
           NIGHTLY_SKIP_UNCHANGED: "1"
+          # ... which reads the previous nightly's daily file, and that is in the store on the release
+          # (history/store.py, 2026-10-17), so the shard pulls it; gh needs the token for the assets
+          STORE_MODE: "release"
+          GH_TOKEN: ${{ github.token }}
         run: nightly/run_nightly.sh
       - name: hand this shard's files to the assemble job
         if: always()
@@ -147,11 +151,19 @@ jobs:
           # share of the scope came back, or more than this share of the live-listings checks failed.
           NIGHTLY_MIN_SCRAPED_PCT: "90"
           NIGHTLY_MAX_LISTINGS_FAILED_PCT: "20"
+          # history/sales + daily come from the release tagged `store`, not the checkout
+          # (history/store.py, 2026-10-17); gh needs the token to read and write its assets
+          STORE_MODE: "release"
+          GH_TOKEN: ${{ github.token }}
         run: nightly/run_nightly.sh
-      # Re-derives on top of origin/main instead of rebasing if another run's
-      # commit landed meanwhile (the generated files always conflict).
-      - name: commit history/ and latest/
+      # Pushes the store's next generation to the release, then commits latest/ and the history
+      # files that stay in git. Re-derives on top of origin/main instead of rebasing if another
+      # run's commit landed meanwhile (the generated files always conflict).
+      - name: push the store, commit history/ and latest/
         if: inputs.limit == ''
+        env:
+          STORE_MODE: "release"
+          GH_TOKEN: ${{ github.token }}
         run: nightly/commit_results.sh
       # Red once the direct Fanatics pull has failed this many nights running (or never succeeded): the
       # night's data is already committed above, this only makes the failure visible before the direct

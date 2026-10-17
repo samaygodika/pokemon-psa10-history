@@ -19,6 +19,8 @@
 #   3c. Alt + Fanatics -> alt_listings.csv, fanatics_listings.csv (bulk pulls; a failed pull keeps the last good rows)
 #   4. ingest         -> history/assets.csv, history/daily/<date>.csv, history/sales/<month>.csv, history/live_listings.csv,
 #                        history/last_run.json (the run's run_stats.json: what was asked, what came back, what failed)
+#                        (daily/ and sales/ are the store: pulled from the release just before this step, pushed by
+#                        nightly/commit_results.sh; history/store.py)
 #   5. metrics        -> latest/cards.csv, latest/series/*.csv, latest/recent_sales{,_psa9}/*.csv, latest/summary.json
 #   6. coverage       -> latest/characters.csv (per-character alt-side market cap and coverage)
 #   7. flags          -> history/psa9_flags.csv, history/psa9_category_moves.csv (Sid's PSA 9 buy conditions, logged forward)
@@ -37,7 +39,8 @@
 # scrapes the shards one after another on one machine and merges them, so the laptop can mirror the
 # Actions layout.
 #
-# Only history/ and latest/ are committed; snapshots/ is raw and gitignored.
+# Only history/ and latest/ are committed (history/sales + daily go to the release instead, 2026-10-17:
+# history/store.py); snapshots/ is raw and gitignored.
 # Every dated snapshot is kept locally on purpose (cheap, and lets a bad ingest
 # be redone), prune old ones by hand if disk gets tight.
 #
@@ -59,7 +62,10 @@
 # 2026-09-22..25 nightlies: ~14.5k of 33.7k cards qualify, ~27k of ~134k requests,
 # ~38 min of a 3 h scrape, 0 of 10,886 new PSA 10 sales missed. Sunday's full run
 # refetches everything, so nothing is carried for more than a week. On in the
-# nightly workflow since 2026-10-17).
+# nightly workflow since 2026-10-17), STORE_MODE (release | local, history/store.py: the store
+# is pulled once up front on the laptop path, by a scrape stage that needs the previous daily
+# file for the skip-unchanged rule, and by the assemble stage before ingest; the scope stage and
+# a NIGHTLY_SKIP_HISTORY smoke run never touch it).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 PY=${PYTHON:-python3}
@@ -154,6 +160,7 @@ stage_scrape() {   # $1 = list file, $2 = folder for cards.csv / sales.csv / lis
   # dated before DAY; the names are YYYY-MM-DD so lexical order is date order). Never on the
   # full scope, which is what refetches every carried card once a week.
   if [ -n "${NIGHTLY_SKIP_UNCHANGED:-}" ] && [ "$SCOPE" != "full" ]; then
+    $PY history/store.py pull   # the previous run's daily file is in the store (a no-op when already pulled, as on the laptop path)
     local PREV_DAILY="" f
     for f in history/daily/*.csv; do
       [ -e "$f" ] || continue
@@ -222,6 +229,9 @@ stage_assemble() {
   fi
   $PY nightly/run_stats.py finish "$OUT"   # finished_at + the Fanatics pull's health -> run_stats.json
 
+  echo "--- 3d/8 history store (sales + daily) ---"
+  $PY history/store.py pull   # the current generation under ingest; nightly/commit_results.sh pushes the next one
+
   echo "--- 4/8 ingest into history/ ---"
   $PY history/ingest.py "$OUT" --date "$DAY"
 
@@ -251,6 +261,7 @@ case "$STAGE" in
   scrape)   stage_scrape "$(scope_list)" "$(scrape_out)" ;;
   assemble) stage_assemble ;;
   all)
+    [ -n "${NIGHTLY_SKIP_HISTORY:-}" ] || $PY history/store.py pull   # the laptop path: the store once, up front (STORE_MODE=local: a no-op)
     stage_scope
     if [ "$SHARDS" -gt 1 ]; then
       for SHARD in $(seq 0 $((SHARDS - 1))); do stage_scrape "$(scope_list)" "$(scrape_out)"; done

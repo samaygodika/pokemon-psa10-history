@@ -11,6 +11,13 @@
 # by URL, a day's file merges every run of that day), rebuild latest/, commit,
 # push. Up to 3 attempts.
 #
+# The sales + daily store is not in git (2026-10-17, history/store.py, handoff/2026-10-17-store-
+# move-design.md): it goes to the release FIRST, as the next generation, then latest/ and the
+# history files that stay in git are committed, so latest/ never claims sales the store does not
+# hold. Exit 3 from the store push = the release moved since this run pulled it (a laptop run
+# landed meanwhile; the Actions runs serialise on the `scrape` group): the run stops with nothing
+# committed, and the raw run is in the 7-day artifact (pull, re-ingest, run this script again).
+#
 # Reads snapshots/last_run.env (written by run_nightly.sh): OUT and DAY.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -24,8 +31,9 @@ git config user.email "nightly@users.noreply.github.com"
 # nightly/already_ran.sh matches the "<prefix> <date>" start, so that part never changes shape)
 msg() { $PY nightly/run_stats.py commit-message --prefix "${1:-nightly}"; }
 
+$PY history/store.py push --note "$(msg "${COMMIT_PREFIX:-nightly}")"   # history/sales + daily -> the release (see above)
 for attempt in 1 2 3; do
-  git add history latest
+  $PY history/store.py stage   # latest/ + the history files that stay in git (never history/sales, history/daily)
   if git commit -q -m "$(msg "${COMMIT_PREFIX:-nightly}")"; then
     if git push -q origin HEAD:main; then
       echo "pushed on attempt $attempt: $(git log --oneline -1)"
@@ -41,6 +49,7 @@ for attempt in 1 2 3; do
   # merged into origin's copy, newest answer per product wins (origin may hold a bigger backfill).
   cp history/tcgplayer_sku_printings.csv "$OUT/tcgplayer_sku_printings.csv" 2>/dev/null || true
   git reset -q --hard origin/main
+  $PY history/store.py pull --force   # the reset put the checkout's copy of sales/ + daily/ back (while still git-tracked): the pulled generation again
   [ -f "$OUT/tcgplayer_sku_printings.csv" ] && $PY history/tcgplayer_skus.py --merge "$OUT/tcgplayer_sku_printings.csv" || true
   $PY history/ingest.py "$OUT" --date "$DAY"
   $PY history/metrics.py

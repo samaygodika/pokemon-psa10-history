@@ -16,8 +16,9 @@
 #           fixed-price listings, every card at once (~25 search pages, 2026-10-06)
 #        4. history/metrics.py (latest/cards.csv, series, recent_sales, clean_sales, summary.json;
 #           only the listing columns can change) — coverage/flags/tcgplayer are not touched
-#        5. commit + push, re-deriving on top of origin/main if a push is rejected (same idea as
-#           nightly/commit_results.sh). NO_COMMIT=1 skips this.
+#        5. store push (history/sales + daily -> the release, 2026-10-17; the check times live in
+#           daily/), commit + push, re-deriving on top of origin/main if a push is rejected (same
+#           idea as nightly/commit_results.sh). NO_COMMIT=1 skips this.
 # Env: NIGHTLY_WORKERS (4), NIGHTLY_DELAY (0.25), REFRESH_LIMIT (cards per grade, smoke tests), NO_COMMIT.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -29,6 +30,7 @@ mkdir -p "$OUT"
 LOG="$OUT/run.log"
 exec > >(tee -a "$LOG") 2>&1
 echo "=== listings refresh $STAMP started $(date -u '+%F %T') ==="
+$PY history/store.py pull   # history/sales + daily from the release (history/store.py, 2026-10-17); STORE_MODE=local skips it
 
 scrape_and_ingest() {
   echo "--- scope ---"
@@ -65,9 +67,11 @@ if [ -n "${NO_COMMIT:-}" ]; then echo "=== done (no commit) $(date -u '+%F %T') 
 
 git config user.name "alt.xyz nightly"
 git config user.email "nightly@users.noreply.github.com"
+MSG="listings refresh $STAMP: $(grep -c '^asset:' "$OUT/refresh_psa10.txt") PSA 10 + $(grep -c '^asset:' "$OUT/refresh_psa9.txt") PSA 9 cards with a running auction re-checked"
+$PY history/store.py push --note "$MSG"   # the store first, then git; exit 3 = the release moved meanwhile, see nightly/commit_results.sh
 for attempt in 1 2 3; do
-  git add history latest
-  if git commit -q -m "listings refresh $STAMP: $(grep -c '^asset:' "$OUT/refresh_psa10.txt") PSA 10 + $(grep -c '^asset:' "$OUT/refresh_psa9.txt") PSA 9 cards with a running auction re-checked"; then
+  $PY history/store.py stage   # latest/ + the history files that stay in git (never history/sales, history/daily)
+  if git commit -q -m "$MSG"; then
     if git push -q origin HEAD:main; then
       echo "pushed on attempt $attempt: $(git log --oneline -1)"
       echo "=== done $(date -u '+%F %T') ==="
@@ -79,6 +83,7 @@ for attempt in 1 2 3; do
   echo "--- push rejected (attempt $attempt): re-deriving on top of origin/main ---"
   git fetch -q origin
   git reset -q --hard origin/main
+  $PY history/store.py pull --force   # the reset put the checkout's copy of sales/ + daily/ back (while still git-tracked): the pulled generation again
   # Re-ingest this run's answers onto the newer store (a nightly may have landed meanwhile);
   # the listings scraped are still this run's, so no re-scrape.
   for g in 10 9; do

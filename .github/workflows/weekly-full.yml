@@ -78,6 +78,7 @@ jobs:
           NIGHTLY_DATE: ${{ needs.scope.outputs.day }}
           NIGHTLY_WORKERS: "2"
           NIGHTLY_DELAY: "0"
+          # no store here: the full scope never uses the skip-unchanged rule, so a shard reads nothing from history/
         run: nightly/run_nightly.sh
       - name: hand this shard's files to the assemble job
         if: always()
@@ -113,15 +114,22 @@ jobs:
           NIGHTLY_STAGE: assemble
           NIGHTLY_DATE: ${{ needs.scope.outputs.day }}
           NIGHTLY_SKIP_HISTORY: ${{ inputs.limit != '' && '1' || '' }}
+          # history/sales + daily come from the release tagged `store`, not the checkout
+          # (history/store.py, 2026-10-17); gh needs the token to read and write its assets
+          STORE_MODE: "release"
+          GH_TOKEN: ${{ github.token }}
         run: nightly/run_nightly.sh
-      # Re-derives on top of origin/main instead of rebasing if another run's
-      # commit landed meanwhile: on 2026-09-20 the nightly's push landed seconds
+      # Pushes the store's next generation to the release, then commits latest/ and the history
+      # files that stay in git. Re-derives on top of origin/main instead of rebasing if another
+      # run's commit landed meanwhile: on 2026-09-20 the nightly's push landed seconds
       # before this job's checkout and the rebase conflicted on every generated
       # file, losing the run.
-      - name: commit history/ and latest/
+      - name: push the store, commit history/ and latest/
         if: inputs.limit == ''
         env:
           COMMIT_PREFIX: weekly full
+          STORE_MODE: "release"
+          GH_TOKEN: ${{ github.token }}
         run: nightly/commit_results.sh
       # The raw run (~65k cards, every sale), so a failed commit can be
       # re-ingested by hand instead of re-scraped for 5 h.

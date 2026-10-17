@@ -9,7 +9,11 @@ Store layout (all plain CSV, all append/merge-friendly so git diffs stay small):
 
     history/assets.csv            one row per alt.xyz asset: identity columns that
                                   never change (name, set, number, subject, ...),
-                                  plus first_seen / last_seen run dates
+                                  plus first_seen, the run day it was first ingested.
+                                  (last_seen was dropped 2026-10-17: nothing read it, and
+                                  bumping it rewrote every scraped row each night. The
+                                  last run day that scraped an asset is the newest
+                                  history/daily file holding it.)
     history/daily/<date>.csv      the numbers from that day's run(s), one row per
                                   asset (pop, totals, last sale, index counts,
                                   listing). Re-ingesting the same day merges by
@@ -143,7 +147,7 @@ ROOT = HERE.parent
 
 IDENTITY_COLS = ["asset_id", "card_name", "alt_url", "year", "set", "card_number", "subject", "variety",
                  "grading_company", "grade"]
-ASSET_COLS = IDENTITY_COLS + ["first_seen", "last_seen"]
+ASSET_COLS = IDENTITY_COLS + ["first_seen"]   # last_seen dropped 2026-10-17, see the module doc
 DAILY_COLS = ["asset_id", "pop_at_grade", "company_total_pop", "index_total_pop", "index_transaction_count",
               "num_sales", "last_sale_price", "last_sale_date", "last_sale_source", "avg_last_3_sales",
               "highest_sale", "lowest_sale", "scraped_at", "alt_public_url",
@@ -217,7 +221,6 @@ def ingest(run_dir, day, store=HERE):
             for c in IDENTITY_COLS:
                 if r.get(c):
                     a[c] = r[c]
-        a["last_seen"] = max(a.get("last_seen") or "", day)
     write_csv_atomic(assets_path, ASSET_COLS, sorted(assets.values(), key=lambda a: a["asset_id"]))
     print(f"  assets.csv: {len(assets)} assets ({new_assets} new)")
 
