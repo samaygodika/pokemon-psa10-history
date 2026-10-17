@@ -257,7 +257,7 @@ import json
 import statistics
 import sys
 from collections import defaultdict
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -1005,7 +1005,8 @@ def build(store=HERE, out=LATEST):
 
     summary = {
         "data_date": today.isoformat(),
-        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        # UTC with offset (+00:00) since 2026-10-17; naive local time before (PokeSniper compares it as a string)
+        "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "daily_files": len(days),
         "first_daily": days[0],
         "assets": len(rows),
@@ -1036,6 +1037,13 @@ def build(store=HERE, out=LATEST):
         "rows_with_psa9_bin_listing": sum(1 for r in rows if r["psa9_lowest_bin_price"]),
         "rows_with": {k: filled[k] for k in ("price_chg_30d_pct", "price_chg_90d_pct", "price_chg_1y_pct", "mkt_cap_chg_30d_pct")},
     }
+    # The newest nightly's account of itself (history/last_run.json, from the run's run_stats.json via
+    # history/ingest.py, 2026-10-17): scrape counts, listings checks failed, the Alt / Fanatics pulls and
+    # the gate verdict, so a reader can tell a full day from a partial one. Absent until the first such run.
+    last_run = store / "last_run.json"
+    if last_run.exists():
+        with open(last_run, encoding="utf-8") as f:
+            summary["last_run"] = json.load(f)
     with open(out / "summary.json", "w") as f:
         json.dump(summary, f, indent=2)
     print(f"wrote {out}/cards.csv ({len(rows)} rows), series/*.csv ({n_series} rows in {len(shards)} shards)")

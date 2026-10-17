@@ -20,7 +20,9 @@ source snapshots/last_run.env   # OUT=snapshots/<day>[-full] DAY=<YYYY-MM-DD>
 git config user.name "alt.xyz nightly"
 git config user.email "nightly@users.noreply.github.com"
 
-msg() { $PY -c 'import json;s=json.load(open("latest/summary.json"));print("'"${1:-nightly}"'",s["data_date"]+":",s["assets"],"assets,",s["psa10_sales"],"sales")'; }
+# "<prefix> <date>: N assets, M sales; <the run's own counts>" from latest/summary.json (nightly/run_stats.py;
+# nightly/already_ran.sh matches the "<prefix> <date>" start, so that part never changes shape)
+msg() { $PY nightly/run_stats.py commit-message --prefix "${1:-nightly}"; }
 
 for attempt in 1 2 3; do
   git add history latest

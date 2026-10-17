@@ -9,9 +9,16 @@
 #   1. index listing  -> snapshots/<date>/all_pokemon_cards.{txt,json}   (~260 requests, ~25 min)
 #   2. scope filter   -> snapshots/<date>/scope.txt (+ .json sidecar)
 #                        (+ shard-<i>/scope.{txt,json} when NIGHTLY_SHARDS > 1, nightly/shards.py)
-#   3. scrape         -> snapshots/<date>/cards.csv, sales.csv, listings.csv, run.log   (retries failed cards twice)
-#                        (sharded: each shard into shard-<i>/, merged back into the run folder by nightly/shards.py)
-#   4. ingest         -> history/assets.csv, history/daily/<date>.csv, history/sales/<month>.csv, history/live_listings.csv
+#   3. scrape         -> snapshots/<date>/cards.csv, sales.csv, listings.csv, run.log, run_stats.json
+#                        (retries failed cards twice: the scraper exits 2 when cards failed)
+#                        (sharded: each shard into shard-<i>/, merged back into the run folder by nightly/shards.py;
+#                        the shards' run_stats.json by nightly/run_stats.py merge)
+#   3b. gate          -> nightly/run_stats.py gate: STOP (no pulls, no ingest, no commit) when fewer than
+#                        NIGHTLY_MIN_SCRAPED_PCT (90) % of the scope came back or more than
+#                        NIGHTLY_MAX_LISTINGS_FAILED_PCT (20) % of the live-listings checks failed (2026-10-17)
+#   3c. Alt + Fanatics -> alt_listings.csv, fanatics_listings.csv (bulk pulls; a failed pull keeps the last good rows)
+#   4. ingest         -> history/assets.csv, history/daily/<date>.csv, history/sales/<month>.csv, history/live_listings.csv,
+#                        history/last_run.json (the run's run_stats.json: what was asked, what came back, what failed)
 #   5. metrics        -> latest/cards.csv, latest/series/*.csv, latest/recent_sales{,_psa9}/*.csv, latest/summary.json
 #   6. coverage       -> latest/characters.csv (per-character alt-side market cap and coverage)
 #   7. flags          -> history/psa9_flags.csv, history/psa9_category_moves.csv (Sid's PSA 9 buy conditions, logged forward)
@@ -35,7 +42,8 @@
 # be redone), prune old ones by hand if disk gets tight.
 #
 # Env knobs: NIGHTLY_FANATICS_BUDGET (max requests for the direct Fanatics Collect Buy Now pull; empty =
-# off), NIGHTLY_SCOPE (top60 = the subjects lists | full), NIGHTLY_ALSO_GRADE (9 on the nightly scope,
+# off), NIGHTLY_MIN_SCRAPED_PCT (90) and NIGHTLY_MAX_LISTINGS_FAILED_PCT (20) (the gate, see
+# nightly/run_stats.py), NIGHTLY_SCOPE (top60 = the subjects lists | full), NIGHTLY_ALSO_GRADE (9 on the nightly scope,
 # empty on full; "" turns it off), NIGHTLY_ALSO_LISTINGS (1 = also fetch the live listings at the
 # --also-grade grade, i.e. PSA 9 listings; default empty = off, and never on the full run, which
 # has no --also-grade), NIGHTLY_WORKERS (4), NIGHTLY_DELAY
@@ -81,6 +89,9 @@ scope_list() {
 scrape_out() { if [ "$SHARDS" -gt 1 ]; then echo "$OUT/shard-$SHARD"; else echo "$OUT"; fi; }
 
 stage_scope() {
+  # -> $OUT/run_stats.json: the run's account of itself (day, scope, started_at here; the scrape and the pulls
+  # add their sections; it travels to the other stages in the `scope` artifact)
+  $PY nightly/run_stats.py start "$OUT" --day "$DAY" --scope "$SCOPE"
   echo "--- 1/8 index listing ---"
   $PY alt_scraper.py --list '*' --out "$OUT"
 
@@ -154,18 +165,20 @@ stage_scrape() {   # $1 = list file, $2 = folder for cards.csv / sales.csv / lis
     fi
   fi
   SCRAPE+=("$LIST")
-  $CAFF "${SCRAPE[@]}" || true
-  # Retry pass: --resume skips everything already in cards.csv, so only the
-  # cards that failed (network blips) get fetched again. Up to 2 passes.
-  local pass
+  # The scraper exits 2 when some cards failed (network blips) and 0 when every card came back; anything
+  # else is a crash. Retry passes: --resume skips everything already in cards.csv, so only the missing cards
+  # are fetched again. Up to 2 passes, on the exit status (until 2026-10-17 this grepped the tee'd log for
+  # "card(s) failed", which also hid a crash). What came back is judged by the gate in the assemble stage,
+  # not here; the scraper's account of this shard is $SOUT/run_stats.json.
+  local rc=0 pass
+  $CAFF "${SCRAPE[@]}" || rc=$?
   for pass in 1 2; do
-    if tail -n 5 "$LOG" | grep -q 'card(s) failed'; then
-      echo "--- retry pass $pass (--resume) ---"
-      $CAFF "${SCRAPE[@]}" --resume || true
-    fi
+    [ "$rc" -ne 0 ] || break
+    echo "--- retry pass $pass (--resume; the scraper exited $rc) ---"
+    rc=0; $CAFF "${SCRAPE[@]}" --resume || rc=$?
   done
   local ROWS; ROWS=$(($(wc -l < "$SOUT/cards.csv") - 1))
-  echo "=== scrape done $(date '+%F %T'): $ROWS rows in $SOUT/cards.csv ==="
+  echo "=== scrape done $(date '+%F %T'): $ROWS rows in $SOUT/cards.csv (scraper exit $rc) ==="
 }
 
 stage_assemble() {
@@ -173,8 +186,19 @@ stage_assemble() {
     echo "--- 3b/8 merge the shards' cards.csv / sales.csv / listings.csv ---"
     $PY nightly/shards.py merge "$OUT"
   fi
+  # The shards' accounts (shard-<i>/run_stats.json) added up into the run's; a shard whose job died is
+  # accounted from its files (its missing cards count as failed). No shard folders = nothing to do.
+  $PY nightly/run_stats.py merge "$OUT"
 
   if [ -n "${NIGHTLY_SKIP_HISTORY:-}" ]; then echo "=== NIGHTLY_SKIP_HISTORY set: stopping after the scrape ==="; exit 0; fi
+
+  echo "--- 3c/8 gate: is this a day's data? ---"
+  # nightly/run_stats.py gate reads $OUT/run_stats.json (the assembled totals) and exits 1, and with set -e so
+  # does this stage (no pulls, no ingest, no commit; the snapshot stays as the workflow artifact), when fewer
+  # than NIGHTLY_MIN_SCRAPED_PCT (90) % of the scope came back or more than NIGHTLY_MAX_LISTINGS_FAILED_PCT
+  # (20) % of the live-listings checks failed at either grade. Before 2026-10-17 such a night was committed as
+  # the day's data with one log line to show for it. The verdict is in run_stats.json either way.
+  $PY nightly/run_stats.py gate "$OUT"
 
   echo "--- alt.xyz's own auctions + marketplace (one bulk pull, all cards) ---"
   # -> $OUT/alt_listings.csv, which ingest folds in (and commit_results.sh's re-derive again). A failed
@@ -185,12 +209,16 @@ stage_assemble() {
   # Pokemon PSA 9 / PSA 10 listing in ~45 search requests, matched to the feed's cards, -> $OUT/
   # fanatics_listings.csv, which ingest folds in (replacing every Fanatics Buy Now row, dropping Sold / gone
   # ones). Only when NIGHTLY_FANATICS_BUDGET (max requests; the permission said ~60-80 a day) is set; a
-  # failed or over-budget pull writes no file, so the last good rows stand and the run goes on.
+  # failed or over-budget pull writes no file, so the last good rows stand and the run goes on. The pull
+  # records ok / failed and requests used vs budget in run_stats.json; after the commit the workflow's
+  # "Fanatics pull health" step (nightly/run_stats.py fanatics-health) goes red once the pull has failed
+  # NIGHTLY_FANATICS_MAX_FAILED_NIGHTS (3) nights running, before the direct rows age out (7 days).
   if [ -n "${NIGHTLY_FANATICS_BUDGET:-}" ]; then
     echo "--- Fanatics Collect's Buy Now marketplace (one bulk pull, all cards) ---"
     $PY alt_scraper.py --fanatics-listings --budget "$NIGHTLY_FANATICS_BUDGET" --out "$OUT" \
       || echo "fanatics listings: pull failed, kept the previous Fanatics rows"
   fi
+  $PY nightly/run_stats.py finish "$OUT"   # finished_at + the Fanatics pull's health -> run_stats.json
 
   echo "--- 4/8 ingest into history/ ---"
   $PY history/ingest.py "$OUT" --date "$DAY"

@@ -439,6 +439,9 @@ def sweep(watchlist, out=DEFAULT_OUT, store=HERE, latest=None, budget=DEFAULT_BU
     out_rows.sort(key=lambda r: (r["asset_id"], r["grade"], r["kind"], ingest.to_float(r["price"]) if r["price"] else float("inf"), r["url"]))
     ingest.write_csv_atomic(Path(out), OUT_COLS, out_rows)
     summary["rows"], summary["ebay_calls"], summary["rate_limited"] = len(out_rows), bud.used, bud.rate_limited
+    # one line for the commit message (nightly/run_ebay_verify.sh reads it here, not off the log)
+    summary["note"] = (f"{len(summary['swept'])} swept, {len(summary['not_swept'])} not fully swept, {len(summary['skipped'])} skipped"
+                       + (", stopped on eBay's rate limit" if bud.rate_limited else ""))
     summary_path(out).write_text(json.dumps(summary, indent=1) + "\n")
     by_source = {}
     for r in out_rows:

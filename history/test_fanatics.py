@@ -8,6 +8,7 @@ and metrics' check-time fallback.
     python3 history/test_fanatics.py
 
 Plain asserts, no pytest (it isn't installed here). No request leaves this machine."""
+import contextlib
 import csv
 import io
 import json
@@ -131,12 +132,16 @@ def test_fixture_page():
 
 
 class FakeIndex:
-    """Stands in for _fanatics_post: the recorded mint and facet replies, and pages of a synthetic
-    pool served the way the price-ascending replica does (price >= floor, 1,000 at a time)."""
+    """Stands in for _fanatics_post: the recorded mint reply; facet answers computed from the pool per
+    grade and category (exact and exhaustive, as the live index answers a one-category facet request;
+    facets="recorded" serves the recorded 2026-10-15 all-category estimate instead, exhaustive false);
+    and pages of the pool served the way the primary index does (one page, price-band filters, 1,000 at
+    a time). cut_short / facet_cut: per page / facet request, pretend the engine cut the scan short."""
 
-    def __init__(self, pool, fail_first_search=False, estimate=None, cut_short=()):
+    def __init__(self, pool, fail_first_search=False, estimate=None, cut_short=(), facets="pool", facet_cut=()):
         self.pool, self.calls, self.fail, self.estimate = pool, [], fail_first_search, estimate
         self.cut_short = list(cut_short)   # per matching page request: drop this many hits and say the scan was partial
+        self.facet_mode, self.facet_cut = facets, list(facet_cut)   # per facet request: True = say the scan was partial
         self.mint = json.load(open(FIX / "fanatics_search_key.json"))
         # the recorded key ran out 10 minutes after it was minted; a live one lasts the whole pull
         from datetime import datetime, timedelta, timezone
@@ -153,11 +158,23 @@ class FakeIndex:
             self.fail = False
             raise urllib.error.HTTPError(url, 403, "key refused", {}, io.BytesIO(b"{}"))
         grade = int(req["facetFilters"][0][0].split(":")[1])
-        if req.get("hitsPerPage") == 0:        # the recorded year counts, nbHits sized to the pool (or as told)
-            fac = json.loads(json.dumps(self.facets))
-            fac["results"][0]["nbHits"] = self.estimate if self.estimate is not None else sum(1 for h in self.pool if h["grade"] == grade)
-            return fac
-        years = {f.split(":")[1] for f in req["facetFilters"][1]} if len(req["facetFilters"]) > 2 and req["facetFilters"][1][0].startswith("year:") else None
+        years = {f.split(":")[1] for f in req["facetFilters"][1]} if req["facetFilters"][1][0].startswith("year:") else None
+        cats = {f.split(":", 1)[1] for f in req["facetFilters"][2 if years is not None else 1]}
+        assert all(c.startswith("Trading Card Games") for c in cats), req["facetFilters"]
+        if req.get("hitsPerPage") == 0:        # year counts for one grade and category
+            if self.facet_mode == "recorded":
+                fac = json.loads(json.dumps(self.facets))
+                fac["results"][0]["nbHits"] = self.estimate if self.estimate is not None else sum(1 for h in self.pool if h["grade"] == grade)
+                return fac
+            assert len(cats) == 1, "the facet request is one category at a time"
+            rows = [h for h in self.pool if h["grade"] == grade and set(h["subCategory1"]) & cats]
+            counts = {}
+            for h in rows:
+                counts[str(h["year"])] = counts.get(str(h["year"]), 0) + 1
+            counts = dict(sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])))
+            ex = not (self.facet_cut and self.facet_cut.pop(0))
+            return {"results": [{"hits": [], "nbHits": len(rows), "exhaustiveNbHits": ex, "exhaustive": {"nbHits": ex, "typo": True},
+                                 "facets": {"year": counts}, "page": 0, "hitsPerPage": 0}]}
         lo, hi = -1.0, float("inf")
         for f in req.get("numericFilters", []):
             if ">=" in f:
@@ -168,7 +185,6 @@ class FakeIndex:
         hits = sorted((h for h in self.pool if h["grade"] == grade and (years is None or str(h["year"]) in years)
                        and lo <= h["currentPrice"] < hi), key=lambda h: (h["currentPrice"], h["listingUuid"]))
         assert req["page"] == 0, "one page per slice: later pages of a query are not a stable partition"
-        cats = {f.split(":", 1)[1] for f in req["facetFilters"][2 if years is not None else 1]}
         hits = [h for h in hits if set(h["subCategory1"]) & cats]
         page, ex = hits[:req["hitsPerPage"]], True
         if self.cut_short and 0 < len(page) < req["hitsPerPage"]:   # the engine cutting a scan short
@@ -178,6 +194,12 @@ class FakeIndex:
         # above 1,000 hits nbHits is the index's (inflated) estimate, as seen on 2026-10-15; a cut scan counts what it saw
         return {"results": [{"hits": page, "nbHits": (2 * len(hits) + 7) if len(hits) > 1000 else len(page),
                              "exhaustiveNbHits": ex, "exhaustive": {"nbHits": ex, "typo": True}, "page": 0}]}
+
+    def kinds(self):
+        return ["mint" if "graphql" in u else "facet" if b["requests"][0].get("hitsPerPage") == 0 else "page" for u, b in self.calls]
+
+    def pages(self):
+        return [b["requests"][0] for u, b in self.calls if b.get("requests") and b["requests"][0].get("hitsPerPage") == 1000]
 
 
 def _pool(n10, n9, tie_at=None):
@@ -192,74 +214,78 @@ def _pool(n10, n9, tie_at=None):
     return pool
 
 
-def test_pull_paging_and_budget():
-    saved = (alt_scraper._fanatics_post, alt_scraper.FANATICS_SLICE_MAX, alt_scraper._fanatics_key, alt_scraper.FANATICS_DELAY)
-    alt_scraper.FANATICS_DELAY = 0
+def _listing(uuid, grade, year, price, cat=EN):
+    return {"listingUuid": uuid, "grade": grade, "year": year, "currentPrice": price, "title": f"card {uuid}",
+            "gradingService": "PSA", "subCategory1": [cat]}
+
+
+@contextlib.contextmanager
+def fake_index(fake, slice_max=None, slice_target=None):
+    saved = (alt_scraper._fanatics_post, alt_scraper.FANATICS_SLICE_MAX, alt_scraper.FANATICS_SLICE_TARGET, alt_scraper._fanatics_key,
+             alt_scraper.FANATICS_DELAY)
+    alt_scraper._fanatics_post, alt_scraper._fanatics_key, alt_scraper.FANATICS_DELAY = fake, None, 0
+    alt_scraper.FANATICS_SLICE_MAX = slice_max or alt_scraper.FANATICS_SLICE_MAX
+    alt_scraper.FANATICS_SLICE_TARGET = slice_target or alt_scraper.FANATICS_SLICE_TARGET
     try:
-        alt_scraper.FANATICS_SLICE_MAX = 10 ** 9          # one slice per grade
-        alt_scraper._fanatics_key = None
-        fake = FakeIndex(_pool(2350, 500), fail_first_search=True)
-        alt_scraper._fanatics_post = fake
+        yield fake
+    finally:
+        (alt_scraper._fanatics_post, alt_scraper.FANATICS_SLICE_MAX, alt_scraper.FANATICS_SLICE_TARGET, alt_scraper._fanatics_key,
+         alt_scraper.FANATICS_DELAY) = saved
+
+
+def test_pull_paging_and_budget():
+    """Pages: one page of 1,000 per slice from the primary index, a full page split at its median price,
+    a page the engine cut short asked again then split; the budget is enforced; a stalled split refused."""
+    # exact facet counts: PSA 10 English has 1,175 listings in each of 1999 and 2025 (both over the 900
+    # target, so a slice each), nothing Japanese / Other (no page asked), PSA 9 English 500 (one whole page)
+    with fake_index(FakeIndex(_pool(2350, 500), fail_first_search=True)) as fake:
         hits, stats = alt_scraper.fanatics_pull(80)
         assert len(hits) == 2850 and set(hits) == {h["listingUuid"] for h in fake.pool}, len(hits)
-        # 1 mint, 1 refused facet request + 1 re-mint, 6 facet requests (grade x category), then one page per slice:
-        # PSA 10 English's 2,350 fill a page -> split at the median -> each upper half fills a page again -> 7 pages;
-        # PSA 10 Japanese / Other and PSA 9 Japanese / Other are empty pages; PSA 9 English's 500 come in one
-        assert stats["requests"] == 21 and stats["slices"] == 6, stats
-        kinds = [("mint" if "graphql" in u else "facet" if b["requests"][0].get("hitsPerPage") == 0 else "page") for u, b in fake.calls]
-        assert kinds == ["mint", "facet", "mint"] + ["facet"] * 6 + ["page"] * 12, kinds
-        pages = [b["requests"][0] for u, b in fake.calls if b.get("requests") and b["requests"][0].get("hitsPerPage") == 1000]
+        # 1 mint, 1 refused facet request + 1 re-mint, 6 facet requests (grade x category), then the pages: each
+        # PSA 10 year fills a page -> split at the median -> two short halves (3 pages each); PSA 9 English in one
+        assert stats["requests"] == 1 + 2 + 6 + 3 + 3 + 1 and stats["slices"] == 3, stats
+        assert fake.kinds() == ["mint", "facet", "mint"] + ["facet"] * 6 + ["page"] * 7, fake.kinds()
+        pages = fake.pages()
         assert pages[0]["indexName"] == "prod_item_state_v1" and "numericFilters" not in pages[0] and pages[0]["page"] == 0
-        assert pages[0]["facetFilters"][2] == [f"subCategory1:{EN}"], pages[0]["facetFilters"]
-        bands = [tuple(p.get("numericFilters", [])) for p in pages[:7]]
-        # the median of the 1,000 cheapest splits off a short lower half each time; the upper half fills a page again
-        assert bands == [(), ("currentPrice < 176.0",), ("currentPrice >= 176.0",), ("currentPrice >= 176.0", "currentPrice < 342.0"),
-                         ("currentPrice >= 342.0",), ("currentPrice >= 342.0", "currentPrice < 508.0"), ("currentPrice >= 508.0",)], bands
+        assert pages[0]["facetFilters"][1] == ["year:1999"] and pages[0]["facetFilters"][2] == [f"subCategory1:{EN}"], pages[0]["facetFilters"]
+        bands = [tuple(p.get("numericFilters", [])) for p in pages]
+        assert bands == [(), ("currentPrice < 343.0",), ("currentPrice >= 343.0",), (), ("currentPrice < 343.0",), ("currentPrice >= 343.0",), ()], bands
+        assert pages[-1]["facetFilters"][0] == ["grade:9"] and not pages[-1]["facetFilters"][1][0].startswith("year:"), "a whole category: no year filter"
         assert set(pages[0]["attributesToRetrieve"]) == set(alt_scraper.FANATICS_FIELDS) and "serial" not in pages[0]["attributesToRetrieve"]
-        # a page the engine cut short (exhaustive false) is asked again; cut again -> split at the median price
-        alt_scraper._fanatics_key = None
-        pool = _pool(0, 500)
-        for i, h in enumerate(pool):
-            h["subCategory1"] = [JP] if i % 3 else [EN]
-        fake = FakeIndex(pool, cut_short=[20])            # PSA 9 English: cut once, whole on the retry
-        alt_scraper._fanatics_post = fake
+    # a page the engine cut short (exhaustive false) is asked again; cut again -> split at the median price.
+    # PSA 9: 167 English + 333 Japanese, both small, read together as ONE page with no year filter
+    pool = _pool(0, 500)
+    for i, h in enumerate(pool):
+        h["subCategory1"] = [JP] if i % 3 else [EN]
+    with fake_index(FakeIndex(pool, cut_short=[20])) as fake:        # cut once, whole on the retry
         hits, stats = alt_scraper.fanatics_pull(80)
-        assert len(hits) == 500 and set(hits) == {h["listingUuid"] for h in pool} and stats["requests"] == 1 + 6 + 3 + 2 + 1 + 1, stats
-        fake = FakeIndex(pool, cut_short=[20, 20])        # cut twice -> two price halves
-        alt_scraper._fanatics_post = fake
-        alt_scraper._fanatics_key = None
+        assert len(hits) == 500 and set(hits) == {h["listingUuid"] for h in pool} and stats["requests"] == 1 + 6 + 2 and stats["slices"] == 1, stats
+        assert fake.pages()[0]["facetFilters"][1] == [f"subCategory1:{JP}", f"subCategory1:{EN}"], fake.pages()[0]["facetFilters"]
+    with fake_index(FakeIndex(pool, cut_short=[20, 20])) as fake:    # cut twice -> two price halves
         hits, stats = alt_scraper.fanatics_pull(80)
-        assert len(hits) == 500 and set(hits) == {h["listingUuid"] for h in pool} and stats["requests"] == 1 + 6 + 3 + 4 + 1 + 1, stats
-        en = [b["requests"][0] for u, b in fake.calls if b.get("requests") and b["requests"][0].get("hitsPerPage") == 1000
-              and b["requests"][0]["facetFilters"][0] == ["grade:9"] and b["requests"][0]["facetFilters"][2] == [f"subCategory1:{EN}"]]
-        assert [tuple(p.get("numericFilters", [])) for p in en] == [(), (), ("currentPrice < 224.0",), ("currentPrice >= 224.0",)], [p.get("numericFilters") for p in en]
-        # slicing: the recorded year counts per grade and category, groups under the cap, biggest years first
-        alt_scraper.FANATICS_SLICE_MAX = 1500
-        alt_scraper._fanatics_post = FakeIndex([], estimate=47397)
-        slices, est = alt_scraper.fanatics_slices(alt_scraper.RequestBudget(10))
-        assert est == 6 * 47397 and slices[0][:2] == (10, EN) and all(len(ys) for _, _, ys in slices)
-        assert slices[0][2] == ["2025"] and sum(len(ys) for _, _, ys in slices) == 6 * 34, slices
-        alt_scraper.FANATICS_SLICE_MAX = 10 ** 9
-        # all or nothing: the budget runs out -> FanaticsBudget, nothing returned
-        alt_scraper.FANATICS_SLICE_MAX = 10 ** 9
-        alt_scraper._fanatics_key = None
-        alt_scraper._fanatics_post = FakeIndex(_pool(2350, 500))
+        assert len(hits) == 500 and set(hits) == {h["listingUuid"] for h in pool} and stats["requests"] == 1 + 6 + 4, stats
+        assert [tuple(p.get("numericFilters", [])) for p in fake.pages()] == [(), (), ("currentPrice < 245.0",), ("currentPrice >= 245.0",)], \
+            [p.get("numericFilters") for p in fake.pages()]
+    # all or nothing: the budget runs out -> FanaticsBudget, nothing returned
+    with fake_index(FakeIndex(_pool(2350, 500))):
         try:
             alt_scraper.fanatics_pull(5)
             raise AssertionError("budget not enforced")
         except alt_scraper.FanaticsBudget:
             pass
-        # 1,000+ listings at one price: the split cannot advance -> refused, not silently partial
-        alt_scraper._fanatics_post = FakeIndex(_pool(1200, 0, tie_at=49.99))
+    # 1,000+ listings of one year at one price: the split cannot advance -> refused, not silently partial
+    tied = _pool(1200, 0, tie_at=49.99)
+    for h in tied:
+        h["year"] = 1999
+    with fake_index(FakeIndex(tied)):
         try:
             alt_scraper.fanatics_pull(80)
             raise AssertionError("stall not detected")
         except RuntimeError as e:
             assert "cannot get past" in str(e), e
-        # rows: fetch_fanatics_listings matches the recorded page against a small card list
-        page = json.load(open(FIX / "fanatics_page_2009_psa9.json"))["results"][0]["hits"]
-        alt_scraper._fanatics_key = None
-        alt_scraper._fanatics_post = FakeIndex(page)
+    # rows: fetch_fanatics_listings matches the recorded page against a small card list
+    page = json.load(open(FIX / "fanatics_page_2009_psa9.json"))["results"][0]["hits"]
+    with fake_index(FakeIndex(page)):
         with tempfile.TemporaryDirectory() as d:
             assets = Path(d) / "assets.csv"
             _write(assets, ingest.ASSET_COLS, ASSETS)
@@ -270,9 +296,83 @@ def test_pull_paging_and_budget():
         assert arc["source"] == "Fanatics Collect" and arc["listing_type"] == "BUY_IT_NOW" and arc["category"] == "English", arc
         assert rows[0]["match"] == "matched" and rows[-1]["match"] != "matched", "matched rows first"
         assert stats["by_reason"]["matched"] == 1 and stats["listings"] == 40, stats
-    finally:
-        alt_scraper._fanatics_post, alt_scraper.FANATICS_SLICE_MAX, alt_scraper._fanatics_key, alt_scraper.FANATICS_DELAY = saved
     print("pull paging + budget ok")
+
+
+def test_adaptive_slicing():
+    """fanatics_slices (2026-10-17): exact counts (an exhaustive facet answer) group years to the 900 target,
+    a category that fits a page is read whole with no year filter and merged with its grade's other small
+    categories, an empty category costs no request; a cut facet answer is asked again, and if still cut
+    its estimates are grouped to the old 1,500 cap one category at a time."""
+    pool = [_listing(f"e{y}-{i}", 10, y, 10 + i) for y in range(2020, 2030) for i in range(250)]   # PSA 10 English: 2,500 over 10 years
+    pool += [_listing(f"n9-{i}", 9, 2009, 5 + i) for i in range(700)]                              # PSA 9 English 700
+    pool += [_listing(f"j9-{i}", 9, 2010, 5 + i, JP) for i in range(300)]                          # PSA 9 Japanese 300
+    pool += [_listing(f"o9-{i}", 9, 2011, 5 + i, "Trading Card Games > Pokémon (Other Languages)") for i in range(50)]
+    with fake_index(FakeIndex(pool)) as fake:
+        slices, est = alt_scraper.fanatics_slices(alt_scraper.RequestBudget(20))
+        assert est == 2500 + 700 + 300 + 50 and fake.kinds() == ["mint"] + ["facet"] * 6, fake.kinds()
+        # PSA 10 English: 10 years of 250 -> groups of 3 (750 <= 900), 3, 3, 1; nothing Japanese / Other
+        # PSA 9: English 700 alone (700 + 300 > 900), Japanese 300 + Other 50 together, no year filter
+        assert [(g, len(cats), ys and len(ys)) for g, cats, ys in slices] == [(10, 1, 3), (10, 1, 3), (10, 1, 3), (10, 1, 1), (9, 1, None), (9, 2, None)], slices
+        assert slices[0][2] == ["2020", "2021", "2022"] and slices[4][1] == [EN] and slices[5][1][0] == JP, slices
+    with fake_index(FakeIndex(pool)) as fake:
+        hits, stats = alt_scraper.fanatics_pull(80)
+        assert len(hits) == len(pool) and set(hits) == {h["listingUuid"] for h in pool}
+        assert stats["slices"] == 6 and stats["requests"] == 1 + 6 + 6, stats       # one short page per slice, no split
+        last = fake.pages()[-1]["facetFilters"]
+        assert last[0] == ["grade:9"] and len(last[1]) == 2 and not last[1][0].startswith("year:"), last
+    # the first facet answer cut short -> asked again (exhaustive this time): exact path, one more request
+    with fake_index(FakeIndex(pool, facet_cut=[True])) as fake:
+        slices, est = alt_scraper.fanatics_slices(alt_scraper.RequestBudget(20))
+        assert len(slices) == 6 and fake.kinds() == ["mint"] + ["facet"] * 7, fake.kinds()
+    # cut twice -> its counts are estimates: grouped to the 1,500 cap, one category at a time (6 years of 250, then 4)
+    with fake_index(FakeIndex(pool, facet_cut=[True, True])) as fake:
+        slices, est = alt_scraper.fanatics_slices(alt_scraper.RequestBudget(20))
+        assert [(g, len(cats), ys and len(ys)) for g, cats, ys in slices][:2] == [(10, 1, 6), (10, 1, 4)] and len(slices) == 4, slices
+    with fake_index(FakeIndex(pool, facet_cut=[True, True])) as fake:
+        hits, stats = alt_scraper.fanatics_pull(80)
+        # the 1,500-listing slice fills a page, splits, and its upper half (1,002) fills a page again (5 requests); the
+        # 1,000-listing slice fills a page once (3); PSA 9's two whole slices one page each: the estimate path costs more
+        assert len(hits) == len(pool) and set(hits) == {h["listingUuid"] for h in pool} and stats["requests"] == 1 + 7 + (5 + 3 + 1 + 1), stats
+    # the recorded 2026-10-15 all-category facets (estimates, exhaustive false, asked twice each): the old grouping
+    with fake_index(FakeIndex([], estimate=47397, facets="recorded"), slice_max=1500) as fake:
+        slices, est = alt_scraper.fanatics_slices(alt_scraper.RequestBudget(20))
+        assert est == 6 * 47397 and fake.kinds() == ["mint"] + ["facet"] * 12, fake.kinds()
+        assert slices[0][:2] == (10, [EN]) and slices[0][2] == ["2025"] and all(ys for _, _, ys in slices), slices[:2]
+        assert sum(len(ys) for _, _, ys in slices) == 6 * 34, "every year once per grade and category"
+    print("adaptive slicing ok")
+
+
+def test_run_stats_fanatics():
+    """alt_scraper.py --fanatics-listings records ok / failed and requests used vs budget in OUT/run_stats.json
+    (a failed pull writes no listings file, raises, and still leaves the account)."""
+    page = json.load(open(FIX / "fanatics_page_2009_psa9.json"))["results"][0]["hits"]
+    with tempfile.TemporaryDirectory() as d:
+        assets = Path(d) / "assets.csv"
+        _write(assets, ingest.ASSET_COLS, ASSETS)
+        with fake_index(FakeIndex(page)):
+            sys.argv = ["alt_scraper.py", "--fanatics-listings", "--budget", "80", "--assets", str(assets), "--out", d]
+            with contextlib.redirect_stdout(io.StringIO()):
+                rc = alt_scraper.main()
+        st = json.load(open(Path(d) / "run_stats.json"))["fanatics"]
+        assert rc == 0 and st["ok"] is True and st["requests"] == 1 + 6 + 1 and st["budget"] == 80 and st["listings"] == 40, st
+        assert st["matched"] == 1 and st["cards"] == 1 and st["slices"] == 1 and st["grades"] == [10, 9], st
+        assert st["started_at"].endswith("+00:00") and st["finished_at"] >= st["started_at"], st
+        assert (Path(d) / "fanatics_listings.csv").exists()
+        (Path(d) / "fanatics_listings.csv").unlink()
+        with fake_index(FakeIndex(page)):
+            sys.argv = ["alt_scraper.py", "--fanatics-listings", "--budget", "4", "--assets", str(assets), "--out", d]
+            try:
+                with contextlib.redirect_stdout(io.StringIO()):
+                    alt_scraper.main()
+                raise AssertionError("over budget, should have raised")
+            except alt_scraper.FanaticsBudget:
+                pass
+        st = json.load(open(Path(d) / "run_stats.json"))["fanatics"]
+        assert st["ok"] is False and st["requests"] == 4 and st["budget"] == 4 and "budget of 4 used up" in st["error"], st
+        assert "listings" not in st, "a failed pull leaves no counts from the earlier success behind"
+        assert not (Path(d) / "fanatics_listings.csv").exists(), "nothing written on a failed pull"
+    print("run_stats fanatics ok")
 
 
 def test_ingest_fanatics():
@@ -368,5 +468,7 @@ if __name__ == "__main__":
     test_match_rules()
     test_fixture_page()
     test_pull_paging_and_budget()
+    test_adaptive_slicing()
+    test_run_stats_fanatics()
     test_ingest_fanatics()
     print("all Fanatics checks passed")

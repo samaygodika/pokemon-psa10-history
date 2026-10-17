@@ -38,10 +38,10 @@ scrape_and_ingest() {
     if [ "$(grep -c '^asset:' "$LIST")" = "0" ]; then echo "PSA $g: nothing to refresh"; continue; fi
     echo "--- scrape PSA $g listings ---"
     rm -rf "$OUT/psa$g"
-    $PY alt_scraper.py --listings-only --grade "$g" --workers "${NIGHTLY_WORKERS:-4}" --delay "${NIGHTLY_DELAY:-0.25}" \
-        --keep-empty --out "$OUT/psa$g" "$LIST" || true
-    if tail -n 5 "$LOG" | grep -q 'card(s) failed'; then
-      echo "--- retry (--resume) ---"
+    rc=0; $PY alt_scraper.py --listings-only --grade "$g" --workers "${NIGHTLY_WORKERS:-4}" --delay "${NIGHTLY_DELAY:-0.25}" \
+        --keep-empty --out "$OUT/psa$g" "$LIST" || rc=$?
+    if [ "$rc" -ne 0 ]; then   # 2 = some cards failed (anything else a crash): fetch the missing ones again
+      echo "--- retry (--resume; the scraper exited $rc) ---"
       $PY alt_scraper.py --listings-only --grade "$g" --workers "${NIGHTLY_WORKERS:-4}" --delay "${NIGHTLY_DELAY:-0.25}" \
           --keep-empty --out "$OUT/psa$g" --resume "$LIST" || true
     fi

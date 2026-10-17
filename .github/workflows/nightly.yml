@@ -140,14 +140,27 @@ jobs:
           NIGHTLY_DATE: ${{ needs.scope.outputs.day }}
           NIGHTLY_SKIP_HISTORY: ${{ inputs.limit != '' && '1' || '' }}
           # Fanatics Collect's Buy Now marketplace, read directly with their permission (2026-10-15):
-          # at most this many search requests a night (the pull needs ~45); empty = off
+          # at most this many search requests a night (the permission said ~60-80 a day; the first pull used
+          # 71, the adaptive slicing of 2026-10-17 should need ~40); empty = off
           NIGHTLY_FANATICS_BUDGET: "80"
+          # The gate (nightly/run_stats.py, 2026-10-17): the run stops before the commit when fewer than this
+          # share of the scope came back, or more than this share of the live-listings checks failed.
+          NIGHTLY_MIN_SCRAPED_PCT: "90"
+          NIGHTLY_MAX_LISTINGS_FAILED_PCT: "20"
         run: nightly/run_nightly.sh
       # Re-derives on top of origin/main instead of rebasing if another run's
       # commit landed meanwhile (the generated files always conflict).
       - name: commit history/ and latest/
         if: inputs.limit == ''
         run: nightly/commit_results.sh
+      # Red once the direct Fanatics pull has failed this many nights running (or never succeeded): the
+      # night's data is already committed above, this only makes the failure visible before the direct
+      # Fanatics rows age out of live_listings.csv (7 days). Reads the run's run_stats.json.
+      - name: Fanatics pull health
+        if: inputs.limit == ''
+        env:
+          NIGHTLY_FANATICS_MAX_FAILED_NIGHTS: "3"
+        run: python3 nightly/run_stats.py fanatics-health
       # The raw run, so a failed commit can be re-ingested by hand
       # (python3 history/ingest.py <dir> --date <day>) instead of re-scraped.
       - name: keep the raw run as a downloadable artifact (7 days)
@@ -161,5 +174,6 @@ jobs:
             snapshots/*/listings.csv
             snapshots/*/alt_listings.csv
             snapshots/*/fanatics_listings.csv
+            snapshots/*/run_stats.json
             snapshots/*/run.log
           retention-days: 7

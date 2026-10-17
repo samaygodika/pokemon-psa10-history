@@ -184,11 +184,31 @@ class RateLimited(Exception):
     pass
 
 
+STATUS = "ebay_verify.json"   # <out>/: the check's and apply's counts, what nightly/run_ebay_verify.sh reads (2026-10-17)
+
+
+def write_status(out, **fields):
+    """Merge fields into <out>/ebay_verify.json, the run's account for the shell (it used to grep the
+    tee'd log for the summary line, which under set -e killed the script before the commit when the
+    line was not in the tail window). `summary` is the one-line text for the commit message."""
+    out = Path(out)
+    out.mkdir(parents=True, exist_ok=True)
+    path = out / STATUS
+    cur = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
+    cur.update(fields)
+    tmp = path.with_name(STATUS + ".tmp")
+    tmp.write_text(json.dumps(cur, indent=1) + "\n", encoding="utf-8")
+    tmp.replace(path)
+    return cur
+
+
 def check(out, budget=DEFAULT_BUDGET, workers=4, store=HERE, urlopen=None, now=None):
-    """Ask eBay about up to `budget` listings; write <out>/ebay_results.csv. Returns counts."""
+    """Ask eBay about up to `budget` listings; write <out>/ebay_results.csv and <out>/ebay_verify.json.
+    Returns counts."""
     keys = load_keys()
     if not keys:
         print("ebay verify: no EBAY_CLIENT_ID / EBAY_CLIENT_SECRET (env or ~/.ebay_keys), nothing checked")
+        write_status(out, asked=0, answered=0, keys=False, summary="no eBay keys, nothing checked")
         return {"asked": 0}
     now = now or datetime.now(timezone.utc)
     live_rows = ingest.read_csv(store / "live_listings.csv")
@@ -216,9 +236,12 @@ def check(out, budget=DEFAULT_BUDGET, workers=4, store=HERE, urlopen=None, now=N
     out.mkdir(parents=True, exist_ok=True)
     ingest.write_csv_atomic(out / "ebay_results.csv", RESULT_COLS, sorted(results, key=lambda r: r["item_id"]))
     counts = {s: sum(1 for r in results if r["status"] == s) for s in ("live", "ended", "gone")}
-    print(f"ebay verify: {len(todo)} listing(s) picked, {len(results)} answered ({counts['live']} live, "
-          f"{counts['ended']} ended, {counts['gone']} gone), {len(todo) - len(results)} no answer"
-          + (" — stopped on eBay's rate limit" if stop.is_set() else ""))
+    summary = (f"{len(todo)} listing(s) picked, {len(results)} answered ({counts['live']} live, "
+               f"{counts['ended']} ended, {counts['gone']} gone), {len(todo) - len(results)} no answer"
+               + (" — stopped on eBay's rate limit" if stop.is_set() else ""))
+    print("ebay verify: " + summary)
+    write_status(out, asked=len(todo), answered=len(results), **counts, no_answer=len(todo) - len(results),
+                 rate_limited=stop.is_set(), keys=True, checked_at=stamp, summary=summary)
     return {"asked": len(todo), "answered": len(results), **counts, "rate_limited": stop.is_set()}
 
 
@@ -245,6 +268,7 @@ def apply(out, store=HERE):
     ingest.write_csv_atomic(live_path, ingest.LIVE_COLS, kept)
     print(f"ebay verify apply: {len(results)} answer(s) folded into ebay_checks.csv ({len(checks)} listings on file, "
           f"{len(dead)} ended); {len(rows) - len(kept)} dead Buy It Now row(s) dropped from live_listings.csv")
+    write_status(out, applied=len(results), dropped=len(rows) - len(kept), on_file=len(checks), dead=len(dead))
     return {"dropped": len(rows) - len(kept), "on_file": len(checks), "dead": len(dead)}
 
 

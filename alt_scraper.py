@@ -44,6 +44,11 @@ Outputs (written next to this script unless --out is given):
                    Fanatics Collect, read from its own marketplace index with their permission
                    (2026-10-15), matched to the feed's cards (history/fanatics_match.py); same
                    columns plus the title, Fanatics' year / number / category and the match verdict
+  run_stats.json   the run's account of itself (2026-10-17), one section per step: "scrape" (cards asked /
+                   ok / failed / carried, live-listings checks asked / failed at PSA 10 and PSA 9), "alt" and
+                   "fanatics" (the bulk pulls: ok / failed, requests used vs budget), each with start / end
+                   in UTC. nightly/run_stats.py judges it; history/ingest.py and metrics.py publish it as
+                   latest/summary.json `last_run`. Exit status 2 = some cards failed (rerun with --resume).
 
 Login (optional): alt.xyz's pages ask for a free account since 2026-10-02. To scrape as that
 account, put its stytch_session cookie value in ALT_SESSION_TOKEN or ~/.alt_session (README, 'Login').
@@ -112,6 +117,11 @@ JWT_REFRESH_MARGIN = 60       # seconds before the JWT's exp at which we fetch a
 LOGIN_HELP = ("alt.xyz refused the request (see README, 'Why a 403'). If the site now needs a login, put "
               "the account's stytch_session cookie value in the ALT_SESSION_TOKEN environment variable or in "
               f"{SESSION_FILE} (README, 'Login')")
+
+
+def utc_now():
+    """Now, UTC with offset: 2026-10-17T06:50:05+00:00 (every stamp the feed writes)."""
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 class _Session:
@@ -462,7 +472,9 @@ def summarise(asset, pops, sales, company, grade, source_input, listing, public_
         # 1 = this run asked alt.xyz for the card's sales; 0 = the seven summary columns above
         # were carried over from the previous run's daily row (--skip-unchanged-sales).
         "sales_fetched": 1,
-        "scraped_at": datetime.now().isoformat(timespec="seconds"),
+        # UTC with offset (+00:00) since 2026-10-17; before that naive local time (UTC on Actions, Pacific on
+        # the laptop fallback), which the daily merge in history/ingest.py compared across machines
+        "scraped_at": utc_now(),
         # UTC time the live listings were fetched (they go to listings.csv); blank when
         # that request failed, i.e. unknown, not "nothing listed".
         "listings_checked_at": listings_checked_at,
@@ -820,8 +832,14 @@ def fetch_alt_listings(company="PSA", grades=("10.0", "9.0"), category="POKEMON_
 # slice is one grade x one category x a group of years (sized from one facet request per grade and
 # category), read as ONE page of 1,000 from the primary index and accepted only when short AND
 # exhaustive; a cut page is asked once more (that fixed it every time on 2026-10-16), then the slice
-# is split at its median price; a full page is split the same way. ~18k listings on 2026-10-16, so
-# the whole pull is ~45 requests.
+# is split at its median price; a full page is split the same way. Since 2026-10-17 the slicing is
+# adaptive (fanatics_slices): a facet answer that is itself exhaustive has EXACT year counts, so its
+# years are grouped to FANATICS_SLICE_TARGET real listings (one short page each, no split), a category
+# that fits a page whole is read with no year filter, and such small categories of one grade are
+# merged into one page; only a facet answer the engine cut short (asked once more first) falls back
+# to the FANATICS_SLICE_MAX estimate cap. An empty category costs nothing. The first pull under the
+# old rule (2026-10-17) read 19.5k listings in 71 of 80 requests (22 slices, 19 retries, 8 cut pages
+# split; the permission allows ~60-80 a day); run_stats.json records requests used vs budget.
 FANATICS_KEY_URL = "https://app.fanaticscollect.com/graphql?webSearchKeyQuery"
 FANATICS_KEY_QUERY = "query webSearchKeyQuery { collectSearchKeyV2 { key validUntil } }"
 FANATICS_SEARCH_URL = "https://3xt9c4x62i-dsn.algolia.net/1/indexes/*/queries"
@@ -829,7 +847,8 @@ FANATICS_APP_ID = "3XT9C4X62I"
 FANATICS_INDEX = "prod_item_state_v1"
 FANATICS_PAGE = 1000
 FANATICS_DELAY = 1.0            # the permission request said >= 1 s apart
-FANATICS_SLICE_MAX = 1500       # listings (index estimate, 1.5-3x the real count) per grade x category x year-group slice
+FANATICS_SLICE_TARGET = 900     # listings per slice when the facet answer is exhaustive (exact counts): one short page each
+FANATICS_SLICE_MAX = 1500       # index-estimate cap per slice when the facet answer was cut short (estimates run 1.5-3x)
 FANATICS_CATEGORIES = ["Trading Card Games > Pokémon (English)", "Trading Card Games > Pokémon (Japanese)",
                        "Trading Card Games > Pokémon (Other Languages)"]
 FANATICS_BASE_FILTERS = ["marketplace:FIXED", "status:Live", "marketplaceSource:bo", "gradingService:PSA"]
@@ -912,24 +931,57 @@ def exhaustive(res):
     return bool(ex.get("nbHits", True)) if isinstance(ex, dict) else bool(res.get("exhaustiveNbHits", True))
 
 
-def fanatics_slices(budget, grades=(10, 9), slice_max=None):
-    """[(grade, category, [years]), ...] with each group's index estimate under slice_max (default
-    FANATICS_SLICE_MAX; one facet request per grade and category), plus the index's total estimate."""
+def fanatics_slices(budget, grades=(10, 9), slice_max=None, slice_target=None):
+    """[(grade, [categories], [years] or None), ...]: the slices one pull reads, each meant to come back
+    in ONE short page, sized from one facet request per grade and category (asked once more when the
+    engine cut that scan short, like a page). An exhaustive facet answer has exact counts: its years are
+    grouped to slice_target (FANATICS_SLICE_TARGET) listings; a category that fits a page whole is read
+    with no year filter, merged with the grade's other such categories while they fit one page together;
+    an empty category gets no slice at all. A facet answer still cut after the retry has only estimates
+    (1.5-3x the real count), so its years are grouped to slice_max (FANATICS_SLICE_MAX) of the estimate,
+    one category at a time, as before 2026-10-17. Also returns the index's total estimate."""
     slice_max = slice_max or FANATICS_SLICE_MAX
+    slice_target = slice_target or FANATICS_SLICE_TARGET
     slices, estimate = [], 0
     for g in grades:
+        whole = []   # (category, exact count): fits one page by itself; merged with its grade's others below
         for cat in FANATICS_CATEGORIES:
-            res = fanatics_query({"facetFilters": fanatics_filters(g, cats=[cat]), "facets": ["year"], "hitsPerPage": 0,
-                                  "maxValuesPerFacet": 200}, budget, f"year counts at PSA {g}, {cat}")
+            short = cat.split("(")[-1].rstrip(")")
+            req = {"facetFilters": fanatics_filters(g, cats=[cat]), "facets": ["year"], "hitsPerPage": 0,
+                   "maxValuesPerFacet": 200}
+            for attempt in (1, 2):
+                res = fanatics_query(req, budget, f"year counts at PSA {g}, {cat}")
+                if exhaustive(res):
+                    break
+                print(f"  fanatics PSA {g} {short} year counts: engine cut the scan short, asking again")
             counts = {str(y): int(n) for y, n in (res.get("facets", {}).get("year") or {}).items()}
-            estimate += res.get("nbHits", 0)
+            total, exact = int(res.get("nbHits") or 0), exhaustive(res)
+            estimate += total
+            if exact and total == 0:
+                print(f"  fanatics PSA {g} {short}: nothing listed, no page to read")
+                continue
+            if exact and total <= slice_target:
+                whole.append((cat, total))
+                continue
+            cap = slice_target if exact else slice_max
+            print(f"  fanatics PSA {g} {short}: {'exact count' if exact else 'index estimate'} {total}, "
+                  f"years grouped to {cap} per slice"
+                  + (f"; {total - sum(counts.values())} listing(s) carry no year and no year slice can reach them"
+                     if exact and total > sum(counts.values()) else ""))
             group, size = [], 0
             for y, n in sorted(counts.items(), key=lambda kv: -kv[1]):   # biggest years first, then fill up
-                if group and size + n > slice_max:
-                    slices.append((g, cat, group)); group, size = [], 0
+                if group and size + n > cap:
+                    slices.append((g, [cat], group)); group, size = [], 0
                 group.append(y); size += n
             if group:
-                slices.append((g, cat, group))
+                slices.append((g, [cat], group))
+        group, size = [], 0
+        for cat, n in sorted(whole, key=lambda kv: -kv[1]):              # whole categories, merged while they fit a page
+            if group and size + n > slice_target:
+                slices.append((g, group, None)); group, size = [], 0
+            group.append(cat); size += n
+        if group:
+            slices.append((g, group, None))
     return slices, estimate
 
 
@@ -941,8 +993,8 @@ def fanatics_slice_hits(grade, years, budget, out, lo=None, hi=None, cats=None, 
     Returns the requests used."""
     cats = cats or FANATICS_CATEGORIES
     band = ([f"currentPrice >= {lo}"] if lo is not None else []) + ([f"currentPrice < {hi}"] if hi is not None else [])
-    label = (f"PSA {grade} {cats[0].split('(')[-1].rstrip(')') if len(cats) == 1 else 'all categories'} "
-             f"years {years[0]}..{years[-1]} ({len(years)}) {' '.join(band) or 'all prices'}")
+    label = (f"PSA {grade} {'+'.join(c.split('(')[-1].rstrip(')') for c in cats) if len(cats) < len(FANATICS_CATEGORIES) else 'all categories'} "
+             f"{f'years {years[0]}..{years[-1]} ({len(years)})' if years else 'all years'} {' '.join(band) or 'all prices'}")
     req = {"facetFilters": fanatics_filters(grade, years, cats), "hitsPerPage": FANATICS_PAGE, "page": 0,
            "attributesToRetrieve": FANATICS_FIELDS}
     if band:
@@ -985,8 +1037,8 @@ def fanatics_pull(budget, grades=(10, 9)):
     budget = budget if isinstance(budget, RequestBudget) else RequestBudget(budget)
     slices, estimate = fanatics_slices(budget, grades)
     hits = {}
-    for g, cat, years in slices:
-        fanatics_slice_hits(g, years, budget, hits, cats=[cat])
+    for g, cats, years in slices:
+        fanatics_slice_hits(g, years, budget, hits, cats=cats)
     # Every slice came back in one short, exhaustive page, so the pull is complete by construction;
     # the index's own nbHits is only an estimate (1.5-3x the real count on 2026-10-15), so this last
     # check is loose: it catches a filter or a field name that changed under us.
@@ -1200,6 +1252,37 @@ def already_done(path):
         return set()
 
 
+RUN_STATS = "run_stats.json"
+
+
+def read_run_stats(out):
+    """OUT/run_stats.json as a dict ({} when there is none yet)."""
+    path = Path(out) / RUN_STATS
+    if not path.exists():
+        return {}
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def update_run_stats(out, section, data):
+    """Set the `section` object of OUT/run_stats.json to `data` (2026-10-17): the run's own account of
+    itself, one section per step ("scrape", "alt", "fanatics"; nightly/run_stats.py adds the run-level
+    fields and the gate verdict). A section is one invocation's account, replaced whole, so a failed
+    pull never sits next to an earlier success's counts; the scrape adds its --resume passes up itself.
+    history/ingest.py copies the file to history/last_run.json and history/metrics.py publishes it as
+    latest/summary.json `last_run`, so a partial or failed run says so in the feed. Written atomically;
+    returns the whole dict."""
+    stats = read_run_stats(out)
+    stats[section] = dict(data)
+    path = Path(out) / RUN_STATS
+    tmp = path.with_name(RUN_STATS + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(stats, f, indent=1)
+        f.write("\n")
+    tmp.replace(path)
+    return stats
+
+
 def main():
     global DELAY_SECONDS
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -1290,7 +1373,13 @@ def main():
     if args.alt_listings:
         out = Path(args.out)
         out.mkdir(parents=True, exist_ok=True)
-        rows = fetch_alt_listings(args.company.upper(), category=args.category.upper())
+        started = utc_now()
+        try:
+            rows = fetch_alt_listings(args.company.upper(), category=args.category.upper())
+        except Exception as e:   # recorded in the run's account, then the usual traceback (exit 1); nothing written
+            update_run_stats(out, "alt", {"ok": False, "error": f"{type(e).__name__}: {e}"[:300],
+                                          "started_at": started, "finished_at": utc_now()})
+            raise
         tmp = out / "alt_listings.csv.tmp"
         with open(tmp, "w", newline="", encoding="utf-8") as f:
             w = csv.DictWriter(f, fieldnames=LIVE_COLS)
@@ -1300,12 +1389,21 @@ def main():
         n_auc = sum(1 for r in rows if r["listing_type"] == "AUCTION")
         print(f"alt.xyz's own listings: {n_auc} auctions + {len(rows) - n_auc} fixed-price on "
               f"{len({r['asset_id'] for r in rows})} cards -> {out / 'alt_listings.csv'}")
-        return
+        update_run_stats(out, "alt", {"ok": True, "listings": len(rows), "auctions": n_auc, "cards": len({r['asset_id'] for r in rows}),
+                                      "started_at": started, "finished_at": utc_now()})
+        return 0
     if args.fanatics_listings:
         out = Path(args.out)
         out.mkdir(parents=True, exist_ok=True)
         grades = tuple(int(float(g)) for g in args.fanatics_grades.split(",") if g.strip())
-        rows, stats = fetch_fanatics_listings(args.budget, args.assets, grades)
+        budget, started = RequestBudget(args.budget), utc_now()
+        try:
+            rows, stats = fetch_fanatics_listings(budget, args.assets, grades)
+        except Exception as e:   # over budget, a failed page, a stalled split: nothing written, the account says why (exit 1)
+            update_run_stats(out, "fanatics", {"ok": False, "error": f"{type(e).__name__}: {e}"[:300], "requests": budget.used,
+                                               "budget": budget.limit, "grades": list(grades), "started_at": started,
+                                               "finished_at": utc_now()})
+            raise
         tmp = out / "fanatics_listings.csv.tmp"
         with open(tmp, "w", newline="", encoding="utf-8") as f:
             w = csv.DictWriter(f, fieldnames=FANATICS_COLS)
@@ -1318,7 +1416,11 @@ def main():
               f"{len(matched)} matched to {len({r['asset_id'] for r in matched})} cards, "
               + ", ".join(f"{n} {why}" for why, n in sorted(stats['by_reason'].items()) if why != "matched")
               + f" -> {out / 'fanatics_listings.csv'}")
-        return
+        update_run_stats(out, "fanatics", {"ok": True, "requests": stats["requests"], "budget": budget.limit, "slices": stats["slices"],
+                                           "listings": stats["listings"], "matched": len(matched),
+                                           "cards": len({r['asset_id'] for r in matched}), "index_estimate": stats["index_estimate"],
+                                           "grades": list(grades), "started_at": started, "finished_at": utc_now()})
+        return 0
     if not args.inputs:
         ap.error("give at least one URL / ID / file, or use --find")
 
@@ -1334,7 +1436,7 @@ def main():
     out.mkdir(parents=True, exist_ok=True)
 
     inputs, sidecar = read_inputs(args.inputs)
-    n = len(inputs)
+    n, started = len(inputs), utc_now()
     print(f"{n} card(s) to fetch, {company} {grade}" + (" live listings only" if args.listings_only else "")
           + "".join(f" + {g} sales{' and listings' if args.also_listings else ''}" for g in also_grades)
           + f", {args.workers} worker(s), {DELAY_SECONDS}s pause"
@@ -1353,6 +1455,7 @@ def main():
     live_sink = CsvSink(out / "listings.csv", LIVE_COLS, args.resume)
     counts = {"ok": 0, "skipped": 0, "done": 0, "failed": 0}
     carried = {SKIP_INDEX: 0, SKIP_DORMANT: 0}   # cards whose sales were not refetched, by reason
+    also_stats = {"asked": 0, "failed": 0}       # the --also-listings requests (PSA 9), counted in the workers
 
     def handle(i, raw):
         """Fetch one card. Runs in a worker thread; returns (status, message, row, sale rows, listing rows,
@@ -1423,6 +1526,9 @@ def main():
                     # is "nothing listed at this grade"); blank when it failed or the card was skipped above.
                     more = fetch_live_listings(asset["id"], company, g)
                     also_checked[g] = datetime.now(timezone.utc).isoformat(timespec="seconds") if more is not None else ""
+                    with lock:
+                        also_stats["asked"] += 1
+                        also_stats["failed"] += more is None
                     extra_lrows += list(live_rows(asset, more or [], company, g, also_checked[g]))
                 # a carried card's extra grades stay with the previous run too, except that a
                 # dormant card (no copies at the main grade) may well have copies, and sales, at g
@@ -1494,7 +1600,22 @@ def main():
         print(f"  {skipped} card(s) skipped because no {company} {grade} copies exist")
     if failures:
         print(f"  {failures} card(s) failed, rerun with --resume to retry just those")
+    # The run's account of itself (run_stats.json, see update_run_stats). The counts add up across
+    # --resume passes: a card already in cards.csv is not asked again ("done"), so ok = the rows written
+    # by every pass, and the listings counts of the earlier passes are kept; failed and skipped are this
+    # pass's, because those cards are asked again on every pass.
+    prev = (read_run_stats(out).get("scrape") or {}) if args.resume else {}
+    asked = sum(c[0] for c in stats.counts.values()) + stats.unknown_pop[0] + stats.failed
+    update_run_stats(out, "scrape", {
+        "scope": n, "ok": counts["ok"] + counts["done"], "failed": failures, "skipped": skipped,
+        "carried": prev.get("carried", 0) + sum(carried.values()), "passes": prev.get("passes", 0) + 1,
+        "listings_asked": prev.get("listings_asked", 0) + asked, "listings_failed": prev.get("listings_failed", 0) + stats.failed,
+        "psa9_listings_asked": prev.get("psa9_listings_asked", 0) + also_stats["asked"],
+        "psa9_listings_failed": prev.get("psa9_listings_failed", 0) + also_stats["failed"],
+        "company": company, "grade": grade, "also_grades": also_grades, "listings_only": bool(args.listings_only),
+        "started_at": prev.get("started_at") or started, "finished_at": utc_now()})
+    return 2 if failures else 0   # 2 = some cards failed; nightly/run_nightly.sh retries those with --resume on it
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

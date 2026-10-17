@@ -37,6 +37,13 @@ Store layout (all plain CSV, all append/merge-friendly so git diffs stay small):
                                   month files with a change are rewritten
                                   (merge_sales, 2026-09-26; before that the
                                   store was append-only and never saw a flip).
+    history/last_run.json         the newest nightly's account of itself (the run's
+                                  run_stats.json, written by alt_scraper.py and
+                                  nightly/run_stats.py: cards asked / ok / failed /
+                                  carried, listings checks asked / failed, the Alt and
+                                  Fanatics pulls, the gate verdict, start / end UTC),
+                                  copied here by ingest and published by metrics.py as
+                                  latest/summary.json `last_run` (2026-10-17)
     history/live_listings.csv     what is for sale RIGHT NOW, not history: every
                                   live auction plus the cheapest Buy It Now
                                   listing per asset and grade (PSA 10 always; PSA 9
@@ -262,7 +269,25 @@ def ingest(run_dir, day, store=HERE):
         live.update(ingest_alt(run_dir / "alt_listings.csv", store, day))
     if (run_dir / "fanatics_listings.csv").exists():
         live.update(ingest_fanatics(run_dir / "fanatics_listings.csv", store, day))
+    live["last_run"] = copy_run_stats(run_dir, store)
     return {"assets": len(assets), "new_assets": new_assets, "daily_rows": len(daily), **stats, **live}
+
+
+def copy_run_stats(run_dir, store):
+    """The run's run_stats.json (alt_scraper.py / nightly/run_stats.py) -> history/last_run.json, for
+    metrics.py to publish as latest/summary.json `last_run`. Returns whether there was one."""
+    src = Path(run_dir) / "run_stats.json"
+    if not src.exists():
+        print("  last_run.json: run has no run_stats.json, left as is")
+        return False
+    dst = store / "last_run.json"
+    fd, tmp = tempfile.mkstemp(prefix=dst.name + ".", dir=store)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        f.write(src.read_text(encoding="utf-8"))
+    os.chmod(tmp, 0o644)
+    os.replace(tmp, dst)
+    print(f"  last_run.json: the run's account copied from {src}")
+    return True
 
 
 def merge_sales(sales_dir, incoming, allow_drop=True):

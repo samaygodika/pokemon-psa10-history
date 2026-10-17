@@ -272,6 +272,7 @@ def test_sweep_end_to_end():
         assert summary["rows"] == 5 and summary["ebay_calls"] == 8 and len(summary["swept"]) == 2 and summary["not_swept"] == []
         assert [s["why"] for s in summary["skipped"]] == ["unknown asset", "grade not 9 or 10"]
         assert json.loads(wl.summary_path(out).read_text())["ebay_calls"] == 8
+        assert json.loads(wl.summary_path(out).read_text())["note"] == "2 swept, 0 not fully swept, 2 skipped", "the commit-message note"
         assert wl.summary_path(out).name == "watchlist_listings.summary.json"
         # no eBay keys: alt.xyz rows only, every card reported as not fully swept
         summary = wl.sweep(watch, out, store, latest, budget=100, urlopen=fake, now=NOW, keys={})

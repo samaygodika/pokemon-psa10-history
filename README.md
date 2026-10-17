@@ -27,6 +27,7 @@ say", never 0:
 | `pop_at_grade`, `company_total_pop` | PSA 10 pop and all-PSA-grades pop from the card's population table. **Blank when alt.xyz has no PSA rows for the record** (CGC/BGS only); `0` when PSA rows exist and the 10 count is zero (since 2026-09-18 such cards are in the feed, with no sales, instead of being skipped). |
 | `index_total_pop`, `index_transaction_count` | alt.xyz search-index counts: graded copies across every company and grade, and recorded transactions. Present even when the pop columns are blank. |
 | `last_sale_price/date/source` | alt.xyz's literal newest PSA 10 sale. |
+| `scraped_at` | when this card's row was fetched from alt.xyz. **UTC with offset (`2026-10-17T02:14:09+00:00`) from the 2026-10-17 nightly on**; rows written before that carry naive local time with no offset (UTC on GitHub Actions, Pacific on the laptop fallback) and sort before any new stamp as text. The listings refresh can move `listings_checked_at` past it (see *Listings refresh*). |
 | `clean_last_sale_price/date/source`, `outliers_excluded`, `last_sale_unconfirmed` | the newest sale after holding back junk rows: a sale below 1/4x or above 6x the running median of the card's last 12 accepted sales (past year) is held back unless confirmed — two consecutive high sales confirm a jump, five consecutive low sales a drop, and repeat sales of one listing URL count once towards those (2026-09-28: one $15 eBay Buy It Now that sold ten times had reset Dragon Frontiers Gold Star Charizard's reference from $58k to $15, a +2,619,900% 90-day change). A card with fewer than 4 sales that year is measured against its last 12 sales of any age with a 1/10x–10x band instead (2026-09-21; before that such cards had no filter, which let a PSA 5 sold at $31 and a $122,000 Goldin lot for a signed Steve Jobs document into PSA 10 histories). A card with only 1 or 2 earlier sales is measured against those with the same 1/10x–10x band, and two distinct listings confirm a move either way (2026-09-28; before that it had no filter, and single lots such as a $78,000 PWCC sale of a $490 BW87 Leafeon promo or a $3.72M XY Mudkip became clean prices). After a confirmed move only sales from that move onward form the reference, and a sale within 2x of the last accepted one is never held (see `drop_outliers` in `history/metrics.py`); 0.18% of all sales. Before any of that, a PWCC Weekly Auctions lot that alt.xyz records under both fanaticscollect.com and pwccmarketplace.com (same card, date and price) counts once, here and in `recent_sales/` (2026-09-22; the copy used to confirm its own jump, e.g. one $204,000 Legendary Collection Articuno lot read as +1,260%). The volume columns and every price level are built from these clean sales; the change columns also count the held-back sales on the high side (see `price_chg_30d_pct`). The app shows the literal `last_sale_price` and marks it unconfirmed when `last_sale_unconfirmed` = 1 (the newest sale is one the filter is holding back). |
 | `price_chg_30d_pct`, `_90d_`, `_1y_` | median of the last 3 sales vs the same median as of 30/90/365 days earlier; blank unless both exist and at least one sale happened in the window. The sales are the clean ones **plus the ones the outlier filter still holds back on the HIGH side** (2026-10-01). Over the past year a held-back high newest sale was later shown real 81% of the time (90% on cards up to 2013; eBay 80%, major auction houses 86%) and a held-back low one 17% (4%), so highs count here and lows stay out. Without them the cards that had just moved dropped out of every category's median % (452 cards with a held-back sale in the last 30 days had a blank 30-day change). One held sale moves a card that trades often only part of the way, since the price is a median of 3; on a dormant card it counts in full. Prices and market caps (`median_last_3`, `cap_price*`, `clean_*`, `series/`, `clean_sales/`, `characters.csv`) still wait for a confirming sale. |
 | `volume_30d`, `_90d`, `_1y` | clean PSA 10 sales in the window. |
@@ -208,6 +209,31 @@ python3 history/flags.py                                  # append tonight's PSA
 python3 history/tcgplayer_ids.py --fetch                  # TCGplayer catalog -> latest/tcgplayer_ids.csv, card_catalog.csv, tcgplayer_sets.csv (~4 min)
 ```
 
+### What a run says about itself (2026-10-17)
+
+Every scrape leaves `snapshots/<day>/run_stats.json`, its own account: cards asked / scraped ok /
+failed / carried by `--skip-unchanged-sales`, live-listings checks asked / failed at PSA 10 and at
+PSA 9 (added up over the retry passes), whether the Alt and Fanatics bulk pulls succeeded and how many
+of the Fanatics request budget they used, start and end in UTC (`alt_scraper.py` writes the step
+sections and exits 2 when cards failed, which is what the retry passes test now instead of grepping
+the log; `nightly/run_stats.py` writes the rest). On Actions each scrape job leaves its shard's
+account in `shard-<i>/run_stats.json` and the assemble job adds them up (`nightly/run_stats.py
+merge`; a shard whose job died is accounted from its files, its missing cards as failed). Before the
+pulls and the ingest, `nightly/run_stats.py gate` judges the whole night: fewer than
+`NIGHTLY_MIN_SCRAPED_PCT` (90) % of the scope
+scraped, or more than `NIGHTLY_MAX_LISTINGS_FAILED_PCT` (20) % of the listings checks failed at either
+grade, and the run stops with exit 1, so nothing is ingested or committed and the snapshot stays as
+the workflow's artifact (until then a half-finished night was committed as the day's data with one
+log line to show for it). `history/ingest.py` copies the file to `history/last_run.json` and
+`history/metrics.py` publishes it in `latest/summary.json` as `last_run` (absent until the first
+such nightly), so PokeSniper's status can show what the newest nightly asked and got; the commit
+message carries the same counts after the usual `nightly <date>: N assets, M sales`. A workflow step
+after the commit, `nightly/run_stats.py fanatics-health`, goes red once the direct Fanatics pull has
+failed `NIGHTLY_FANATICS_MAX_FAILED_NIGHTS` (3) nights running, or has never succeeded: the night's
+data is committed either way, but the direct Fanatics rows age out of `history/live_listings.csv`
+after 7 days without a pull, so this shows first. From the same day `summary.json`'s `generated_at`
+and every row's `scraped_at` are UTC with offset (`+00:00`); before that both were naive local time.
+
 `history/psa9_flags.csv` and `history/psa9_category_moves.csv` (from 2026-09-27, step 7 of the
 nightly, append-only) log Sid's PSA 9 buy conditions forward so they can be checked 3, 6 and
 12 months later: for every card of a top-50 Pokemon (the app's roster rank: alt-side market cap of cards up to
@@ -360,7 +386,10 @@ so the card shows its next cheapest live BIN instead. Auctions are left to the l
 refresh. Keys: repository secrets `EBAY_CLIENT_ID` / `EBAY_CLIENT_SECRET` (App ID / Cert ID of
 a production keyset; a new keyset stays disabled until the Marketplace Account Deletion
 opt-out is done in eBay's developer portal), or `~/.ebay_keys` locally. Without keys the
-step does nothing.
+step does nothing. The check and the apply write `snapshots/ebay/<stamp>/ebay_verify.json` (their
+counts and the one-line summary the commit message uses), and the watchlist sweep's summary JSON
+carries a `note` line; since 2026-10-17 the shell reads those instead of grepping the tee'd log,
+which under `set -e` killed the script before the commit whenever the line was not in the tail window.
 
 
 ### Watchlist sweep (custom scrape for portfolio and favorites, 2026-10-15)
@@ -416,6 +445,17 @@ listing not in it (Sold, withdrawn, or not the Pokémon card alt.xyz said; the 2
 and `history/ingest.py` skips it when alt.xyz serves it again; a live listing the matcher could not place
 keeps alt.xyz's card with Fanatics' current price. Cards never checked per-card at a grade still show
 their direct Fanatics Buy Now (the pull's time is the check time, as for Alt's own listings).
+
+The pull reads one page of 1,000 per slice of grade x language x years and splits a slice at its median
+price when the page is full or the index cut the scan short. Since 2026-10-17 the slicing is adaptive:
+the facet request that sizes a grade and language has exact year counts when the index scanned everything
+(`exhaustive`), so the years are grouped to ~900 real listings per slice (one short page each, no split), a
+language that fits a page is read whole with no year filter and small ones of a grade are merged into one
+page, an empty one costs nothing, and only a facet answer the engine cut short (asked once more first)
+falls back to the old cap on estimates. The first pull under the old rule (2026-10-17) used 71 of its 80
+requests (22 slices, 19 retries, 8 split pages); the permission allows ~60-80 a day, so the budget stays
+at 80 and `run_stats.json` records requests used vs budget every night, with the pull's success or failure
+(see *What a run says about itself*).
 
 ### Login (optional)
 

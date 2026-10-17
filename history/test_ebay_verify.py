@@ -113,7 +113,14 @@ def test_check_and_apply():
         assert sorted(fake.asked) == ["200000001", "200000002", "200000003", "200000004"], fake.asked
         assert got == {"asked": 4, "answered": 3, "live": 1, "ended": 1, "gone": 1, "rate_limited": False}, got
         assert not (store / "ebay_checks.csv").exists(), "check alone never touches history/"
+        # the status JSON the shell reads for the commit message (instead of grepping the log)
+        import json
+        st = json.loads((out / "ebay_verify.json").read_text())
+        assert st["summary"] == "4 listing(s) picked, 3 answered (1 live, 1 ended, 1 gone), 1 no answer", st
+        assert st["asked"] == 4 and st["no_answer"] == 1 and st["keys"] is True and st["rate_limited"] is False and st["checked_at"] == NOW.isoformat(timespec="seconds"), st
         ev.apply(out, store)
+        st = json.loads((out / "ebay_verify.json").read_text())
+        assert st["summary"].startswith("4 listing(s)") and st["dropped"] == 2 and st["dead"] == 2 and st["applied"] == 3, st
         checks = ev.load_checks(store)
         assert {i: c["status"] for i, c in checks.items()} == {"200000001": "live", "200000002": "ended", "200000003": "gone"}
         assert checks["200000002"]["first_dead_at"] and not checks["200000001"]["first_dead_at"]
@@ -154,6 +161,9 @@ def test_no_keys_is_a_no_op():
             os.environ.pop(k, None)
         try:
             assert ev.check(Path(d) / "out", store=Path(d)) == {"asked": 0}
+            import json
+            st = json.loads((Path(d) / "out" / "ebay_verify.json").read_text())
+            assert st == {"asked": 0, "answered": 0, "keys": False, "summary": "no eBay keys, nothing checked"}, st
         finally:
             del os.environ["EBAY_KEYS_FILE"]
         print("no keys ok")

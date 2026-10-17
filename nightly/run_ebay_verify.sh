@@ -33,7 +33,9 @@ if [ -n "${WATCHLIST_FILE:-}${WATCHLIST_URL:-}" ]; then
     cp latest/watchlist_listings.csv latest/watchlist_listings.summary.json "$OUT/"   # survives the re-derive below
     SWEEP_CALLS=$($PY -c 'import json;print(json.load(open("latest/watchlist_listings.summary.json"))["ebay_calls"])')
     VERIFY_BUDGET=$(( VERIFY_BUDGET - SWEEP_CALLS )); [ "$VERIFY_BUDGET" -lt 0 ] && VERIFY_BUDGET=0
-    SWEEP_NOTE="; watchlist $(tail -n 20 "$LOG" | grep -m1 '^watchlist sweep:' | sed -E 's/^watchlist sweep: [0-9]+ watchlist row\(s\), //; s/;.*//')"
+    # the sweep's own one-line note (its summary JSON), not a grep of the log: under set -e a missing
+    # line killed this script here, before the commit (2026-10-17)
+    SWEEP_NOTE="; watchlist $($PY -c 'import json,sys;print(json.load(open(sys.argv[1]))["note"])' latest/watchlist_listings.summary.json)"
     echo "watchlist sweep used $SWEEP_CALLS eBay call(s); verify budget now $VERIFY_BUDGET"
   else
     echo "watchlist sweep FAILED (exit $?), verify runs with the full budget"
@@ -49,7 +51,9 @@ if [ -n "${NO_COMMIT:-}" ]; then echo "=== done (no commit) $(date -u '+%F %T') 
 
 git config user.name "alt.xyz nightly"
 git config user.email "nightly@users.noreply.github.com"
-SUMMARY=$(tail -n 30 "$LOG" | grep -m1 '^ebay verify:' | sed 's/^ebay verify: //')$SWEEP_NOTE
+# the check's one-line summary from its status JSON ($OUT/ebay_verify.json, written by ebay_verify.py check
+# and apply), not a grep of the tee'd log (same set -e trap as above)
+SUMMARY=$($PY -c 'import json,sys;print(json.load(open(sys.argv[1]))["summary"])' "$OUT/ebay_verify.json")$SWEEP_NOTE
 for attempt in 1 2 3; do
   git add history latest
   if git commit -q -m "ebay verify $STAMP: $SUMMARY"; then
