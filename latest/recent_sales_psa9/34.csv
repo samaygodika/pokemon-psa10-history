@@ -456,6 +456,7 @@ asset_id,date,price,source,sale_type,status,outlier,url
 3422e3ac-6ea5-4569-9b01-4237cbe0a1e3,2025-03-30,12,PWCC Weekly Auctions,AUCTION,ok,0,https://www.fanaticscollect.com/weekly/3c05d6e0-0358-11f0-b896-0a58a9feac02
 3422e3ac-6ea5-4569-9b01-4237cbe0a1e3,2025-03-23,23.99,eBay,AUCTION,RELISTED,0,https://www.ebay.com/itm/365463490822
 3422e3ac-6ea5-4569-9b01-4237cbe0a1e3,2025-02-07,19.99,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/Sylveon-V-074-184-Japanese-Pokemon-Card-Vmax-Climax-PSA-9-Mint-/334886409126
+34fc6602-4783-4240-a24f-1d5196a3ba8c,2026-10-17,31,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/168494434112
 34fc6602-4783-4240-a24f-1d5196a3ba8c,2026-09-28,23,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/137771721429
 34fc6602-4783-4240-a24f-1d5196a3ba8c,2026-06-03,32.5,eBay,BEST_OFFER,RELISTED,0,https://www.ebay.com/itm/167442472774
 34fc6602-4783-4240-a24f-1d5196a3ba8c,2026-01-29,18,Alt,AUCTION,ok,0,https://alt.xyz/exchange/select-listing?ids=62fa1a5d-dbda-4f28-af6b-33bdd855cc39
@@ -465,7 +466,6 @@ asset_id,date,price,source,sale_type,status,outlier,url
 34fc6602-4783-4240-a24f-1d5196a3ba8c,2025-10-02,43.99,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/146576142027
 34fc6602-4783-4240-a24f-1d5196a3ba8c,2025-09-22,19.95,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/116771127362
 34fc6602-4783-4240-a24f-1d5196a3ba8c,2025-09-10,22,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/397000610630
-34fc6602-4783-4240-a24f-1d5196a3ba8c,2025-08-20,22,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/205391968116
 34260a4c-7a92-429b-ba67-86ae13a45020,2026-10-12,243.55,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/318290047878
 34260a4c-7a92-429b-ba67-86ae13a45020,2026-10-06,89.99,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/407079549142
 34260a4c-7a92-429b-ba67-86ae13a45020,2026-09-19,47,eBay,AUCTION,ok,0,https://www.ebay.com/itm/298660899904
@@ -535,7 +535,7 @@ asset_id,date,price,source,sale_type,status,outlier,url
 34a65c34-66e8-4fba-9baa-a0e3eef8ecc0,2024-12-08,20.4,PWCC Weekly Auctions,AUCTION,ok,0,https://www.fanaticscollect.com/weekly/2fedb496-a1f5-11ef-8781-0a225a85c053
 34a65c34-66e8-4fba-9baa-a0e3eef8ecc0,2023-07-01,30,eBay,AUCTION,ok,0,https://www.ebay.com/itm/PSA9-MINT-VENUSAUR-EX-STAMP-CAMPAIGN-PROMO-POKEMON-CARD-JAPANESE-2016-233-M234-/394704467393
 34a65c34-66e8-4fba-9baa-a0e3eef8ecc0,2023-06-29,28,eBay,AUCTION,ok,0,https://www.ebay.com/itm/PSA9-MINT-VENUSAUR-EX-STAMP-CAMPAIGN-PROMO-POKEMON-CARD-JAPANESE-2016-233-M243-/394704499558
-34a2b779-4448-40a4-a975-2b9188cc6acc,2026-10-15,112.8,Alt,AUCTION,PENDING,0,https://alt.xyz/exchange/select-listing?ids=3bc99605-fe8f-4aa3-896c-2d11d3853ec4
+34a2b779-4448-40a4-a975-2b9188cc6acc,2026-10-15,112.8,Alt,AUCTION,PAYMENT_INITIATED,0,https://alt.xyz/exchange/select-listing?ids=3bc99605-fe8f-4aa3-896c-2d11d3853ec4
 34a2b779-4448-40a4-a975-2b9188cc6acc,2026-10-08,160,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/227550443333
 34a2b779-4448-40a4-a975-2b9188cc6acc,2026-10-08,158.5,eBay,AUCTION,ok,0,https://www.ebay.com/itm/820183899648
 34a2b779-4448-40a4-a975-2b9188cc6acc,2026-09-28,190,PWCC Fixed Price,BEST_OFFER,ok,0,https://www.fanaticscollect.com/buy-now/1073d990-1bc4-4be8-a7c2-f3e65ec5d892
@@ -568,16 +568,16 @@ asset_id,date,price,source,sale_type,status,outlier,url
 34e414ac-2921-46d2-83e6-0c4a20050e82,2024-01-25,24.4,Goldin Auctions,AUCTION,ok,0,https://goldin.co/item/1998-amada-pokemon-japanese-super-dx-stickers-d72-scyther-py0bri
 34e414ac-2921-46d2-83e6-0c4a20050e82,2023-12-09,29.99,eBay,AUCTION,ok,0,https://www.ebay.com/itm/1998-Amada-Pokemon-Japanese-Scyther-Holo-Super-DX-Stickers-PSA-Grade-9-Mint-D72-/325907397015
 3442fa25-aee3-4b3b-b3b2-98e25a7ff905,2023-12-24,7.95,eBay,AUCTION,ok,0,https://www.ebay.com/itm/PSA-9-Metang-004-019-1st-Ed-Constructed-Deck-Japanese-Pokemon-Card-/355300167342
+341ffe62-34aa-4e22-950e-791a2ce75693,2026-10-17,1011.51,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/198714959727
 341ffe62-34aa-4e22-950e-791a2ce75693,2026-10-16,850,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/307195157618
 341ffe62-34aa-4e22-950e-791a2ce75693,2026-10-16,750,eBay,AUCTION,ok,0,https://www.ebay.com/itm/278437370009
+341ffe62-34aa-4e22-950e-791a2ce75693,2026-10-16,740,eBay,AUCTION,ok,0,https://www.ebay.com/itm/278437378620
 341ffe62-34aa-4e22-950e-791a2ce75693,2026-10-15,740,eBay,AUCTION,ok,0,https://www.ebay.com/itm/117454068353
 341ffe62-34aa-4e22-950e-791a2ce75693,2026-10-14,1225,eBay,AUCTION,ok,0,https://www.ebay.com/itm/800766295110
+341ffe62-34aa-4e22-950e-791a2ce75693,2026-10-14,829.88,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/318546330733
 341ffe62-34aa-4e22-950e-791a2ce75693,2026-10-14,800,PWCC Fixed Price,BEST_OFFER,ok,0,https://www.fanaticscollect.com/buy-now/6e960917-5e2a-4062-95da-5c1d1ed6a1a9
 341ffe62-34aa-4e22-950e-791a2ce75693,2026-10-13,750,eBay,AUCTION,ok,0,https://www.ebay.com/itm/377555382944
 341ffe62-34aa-4e22-950e-791a2ce75693,2026-10-12,800,eBay,AUCTION,ok,0,https://www.ebay.com/itm/298733100746
-341ffe62-34aa-4e22-950e-791a2ce75693,2026-10-11,858,eBay,AUCTION,ok,0,https://www.ebay.com/itm/298714901351
-341ffe62-34aa-4e22-950e-791a2ce75693,2026-10-11,828,eBay,AUCTION,ok,0,https://www.ebay.com/itm/189042831498
-341ffe62-34aa-4e22-950e-791a2ce75693,2026-10-11,784,eBay,AUCTION,ok,0,https://www.ebay.com/itm/366710503642
 346687bc-8db6-4867-a3e2-10bb23acaa8e,2024-02-13,128.24,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/Pokemon-Bulbasaur-124-BW-P-Promo-Black-Star-Psa-9-MINT-Jap-/196178123764
 347a3c4b-7f12-412b-8eb2-1f827df2e396,2024-03-20,6.61,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/Pokemon-PSA-9-Gigalith-Holo-029-050-1st-Ed-Dragon-Blade-Japanese-/305450153505
 347a3c4b-7f12-412b-8eb2-1f827df2e396,2024-03-10,0.66,eBay,AUCTION,RELISTED,0,https://www.ebay.com/itm/Pokemon-PSA-9-Gigalith-Holo-029-050-1st-Ed-Dragon-Blade-Japanese-/305421332713
@@ -588,10 +588,6 @@ asset_id,date,price,source,sale_type,status,outlier,url
 34eedf52-64f8-41dc-9a59-426e408da0f8,2025-05-30,136.43,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/306319498194
 34eedf52-64f8-41dc-9a59-426e408da0f8,2025-05-28,135.92,eBay,BUY_IT_NOW,RELISTED,0,https://www.ebay.com/itm/306319498194
 34eedf52-64f8-41dc-9a59-426e408da0f8,2024-05-09,107.5,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/Florizarre-Alternative-Full-Art-198-165-Pokemon-151-EV3-5-PSA-9-Mint-/395353900696
-3466fc0e-1c09-4349-b21f-02ebd430c444,2024-08-04,86.04,eBay,AUCTION,ok,0,https://www.ebay.com/itm/2016-POKEMON-KOREAN-EXPANSION-20TH-ANNIVERSARY-104-FA-M-CHARIZARD-EX-PSA-9-/135162705030
-3466fc0e-1c09-4349-b21f-02ebd430c444,2024-07-21,94.74,eBay,AUCTION,RELISTED,0,https://www.ebay.com/itm/2016-POKEMON-KOREAN-EXPANSION-20TH-ANNIVERSARY-104-FA-M-CHARIZARD-EX-PSA-9-/135143177580
-3466fc0e-1c09-4349-b21f-02ebd430c444,2024-07-09,125,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/2016-POKEMON-MEGA-CHARIZARD-EX-FULL-ART-104-100-Expansion-20th-Anniversary-PSA-9-/226223591762
-3466fc0e-1c09-4349-b21f-02ebd430c444,2024-07-07,161.82,eBay,AUCTION,RELISTED,0,https://www.ebay.com/itm/2016-POKEMON-KOREAN-EXPANSION-20TH-ANNIVERSARY-104-FA-M-CHARIZARD-EX-PSA-9-/135122927219
 3434b508-5cd3-4d91-9dcd-d57a42103beb,2026-10-14,24.99,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/317909905981
 3434b508-5cd3-4d91-9dcd-d57a42103beb,2026-08-30,9.99,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/158230182639
 3434b508-5cd3-4d91-9dcd-d57a42103beb,2026-07-14,13.99,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/398027867451
