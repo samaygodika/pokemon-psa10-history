@@ -1,6 +1,6 @@
 {
   "data_date": "2026-10-18",
-  "generated_at": "2026-10-18T20:38:36+00:00",
+  "generated_at": "2026-10-18T20:52:00+00:00",
   "daily_files": 36,
   "first_daily": "2026-09-11",
   "assets": 68166,
@@ -16,6 +16,20 @@
   "rows_unconfirmed_last_sale": 1352,
   "rows_chg_counts_held_high": 1410,
   "rows_psa9_chg_counts_held_high": 499,
+  "rows_single_last_sale": 1062,
+  "rows_psa9_single_last_sale": 210,
+  "last_sale_status_counts": {
+    "completed": 35131,
+    "pending": 416,
+    "unpaid": 84,
+    "relisted": 283
+  },
+  "psa9_last_sale_status_counts": {
+    "completed": 18953,
+    "pending": 102,
+    "unpaid": 34,
+    "relisted": 137
+  },
   "rows_listings_checked": 68159,
   "rows_with_live_auction": 7593,
   "rows_with_bin_listing": 17952,
@@ -40,8 +54,8 @@
   },
   "files": {
     "cards.csv": {
-      "sha256": "942ed568d882b551fb35745062f2e3fa587465afaf486982cd4fadeac7e3bcf0",
-      "bytes": 42638746,
+      "sha256": "43942ad160c433494389dde33644fd4a26659530da80a6e38fdcd7e50c9933d0",
+      "bytes": 43407695,
       "rows": 68166
     },
     "characters.csv": {

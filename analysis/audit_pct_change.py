@@ -45,6 +45,15 @@ Definitions audited (README, "The data PokeSniper gets"):
                    audited on the rows whose psa9_scraped_date is set or that have
                    any PSA 9 sale on record, and expected blank on every other row
                    (PSA 9 sales not collected).
+  last_sale_single (2026-10-18) blank when the newest settled sale is not held
+                   (last_sale_unconfirmed 0) or there is none; 1 when it was held on the
+                   HIGH side while the filter's reference was the stale or thin one (fewer
+                   than 4 accepted sales in the year before it); 0 when held otherwise.
+  last_sale_status (2026-10-18) the state of the newest sale alt.xyz lists, any status:
+                   completed / pending (PENDING, PAYMENT_INITIATED) / unpaid (NOT_PAID) /
+                   relisted (RELISTED); a not-completed sale on the newest day wins the tie
+                   in that order; blank with no sales (or only unknown statuses).
+  psa9_last_sale_single, psa9_last_sale_status  the same over the PSA 9 sales.
 
 Usage: analysis/.venv/bin/python analysis/audit_pct_change.py [--show 20] [--feed cards.csv]
 """
@@ -71,6 +80,7 @@ OUT_REF_MAX_AGE = 365
 OUT_STALE_MIN, OUT_STALE_LOW, OUT_STALE_HIGH = 3, 0.1, 10.0
 OUT_CONTINUATION = 2.0
 OUT_THIN_RUN = 2
+STATUS = {"PENDING": "pending", "PAYMENT_INITIATED": "pending", "NOT_PAID": "unpaid", "RELISTED": "relisted"}   # alt.xyz's flags
 
 
 MIRRORS = ("fanaticscollect.com", "pwccmarketplace.com")
@@ -87,7 +97,8 @@ GRADES = ("10.0", "9.0")
 
 def load_sales():
     """grade -> asset_id -> list of (date, price, source, flagged, url) sorted by (date, price,
-    source, url), for PSA 10 and PSA 9. A PWCC lot recorded under both mirror hosts (same asset,
+    source, url), for PSA 10 and PSA 9; flagged = alt.xyz's status flag (RELISTED, NOT_PAID,
+    PENDING ...), "" when the sale is settled. A PWCC lot recorded under both mirror hosts (same asset,
     grade, date, price) is one sale: per (asset, date, price) keep the host with more rows
     (fanaticscollect on a tie) and drop the other's."""
     rows = {g: [] for g in GRADES}
@@ -103,7 +114,7 @@ def load_sales():
                 if price <= 0:
                     continue
                 rows[s["grade"]].append((s["asset_id"], date.fromisoformat(s["date"][:10]), price, s["source"] or "",
-                                         bool(s["skipped_reason"]), mirror_of(s["url"] or ""), s["url"] or ""))
+                                         s["skipped_reason"] or "", mirror_of(s["url"] or ""), s["url"] or ""))
     return {g: _dedupe_mirrors(rows[g]) for g in GRADES}
 
 
@@ -129,9 +140,10 @@ def _dedupe_mirrors(rows):
 
 def clean_sales(sales):
     """Sequential outlier filter, re-implemented from the README description.
-    Returns (kept, dropped, held_highs)."""
+    Returns (kept, dropped, held_highs, singles): singles = the {(date, price)} of the held
+    highs rejected while the reference was the stale or thin one (2026-10-18)."""
     accepted, kept = [], []
-    rejected = {}   # position -> (sale, side) for every rejection; confirmed runs are removed
+    rejected = {}   # position -> (sale, side, band) for every rejection; confirmed runs are removed
     run_side, run, run_pos = None, [], []
     dropped = 0
     regime = 0
@@ -142,13 +154,13 @@ def clean_sales(sales):
         sale = (sd, price, src)
         pool = accepted[regime:]
         window = [a for a in pool[-OUT_REF_N:] if (sd - a[0]).days <= OUT_REF_MAX_AGE]
-        ref = None
+        ref, band = None, None
         if len(window) >= (OUT_MIN_ACCEPTED if regime == 0 else 1):
-            ref, lo_b, hi_b = statistics.median(a[1] for a in window), OUT_LOW, OUT_HIGH
+            ref, lo_b, hi_b, band = statistics.median(a[1] for a in window), OUT_LOW, OUT_HIGH, "normal"
         elif len(pool) >= (OUT_STALE_MIN if regime == 0 else 1):
-            ref, lo_b, hi_b = statistics.median(a[1] for a in pool[-OUT_REF_N:]), OUT_STALE_LOW, OUT_STALE_HIGH
+            ref, lo_b, hi_b, band = statistics.median(a[1] for a in pool[-OUT_REF_N:]), OUT_STALE_LOW, OUT_STALE_HIGH, "stale"
         elif len(pool) > 0:
-            ref, lo_b, hi_b = statistics.median(a[1] for a in pool), OUT_STALE_LOW, OUT_STALE_HIGH
+            ref, lo_b, hi_b, band = statistics.median(a[1] for a in pool), OUT_STALE_LOW, OUT_STALE_HIGH, "thin"
         few = regime == 0 and 0 < len(pool) < OUT_STALE_MIN
         if ref is not None and not (accepted and 1 / OUT_CONTINUATION <= price / accepted[-1][1] <= OUT_CONTINUATION):
             side = "low" if price < lo_b * ref else "high" if price > hi_b * ref else None
@@ -156,7 +168,7 @@ def clean_sales(sales):
                 if run_side != side:
                     run_side, run, run_pos = side, [], []
                 run.append((sale, listing))
-                rejected[n] = (sale, side)
+                rejected[n] = (sale, side, band)
                 run_pos.append(n)
                 need = OUT_THIN_RUN if few else OUT_RUN_LOW if side == "low" else OUT_RUN_HIGH
                 if len({lst for _, lst in run}) >= need:
@@ -174,8 +186,9 @@ def clean_sales(sales):
         kept.append(sale)
         accepted.append(sale)
     kept.sort(key=lambda t: (t[0], t[1], t[2]))
-    highs = sorted((sale for sale, side in rejected.values() if side == "high"), key=lambda t: (t[0], t[1], t[2]))
-    return kept, dropped, highs
+    highs = sorted((sale for sale, side, _ in rejected.values() if side == "high"), key=lambda t: (t[0], t[1], t[2]))
+    singles = {(sale[0], sale[1]) for sale, side, band in rejected.values() if side == "high" and band != "normal"}
+    return kept, dropped, highs, singles
 
 
 def ref_price(clean, at):
@@ -198,7 +211,7 @@ def derive(raw, today, windows):
     """Every audited figure for one card and grade from its raw sales: the README definitions
     over the clean sales (+ held highs for the change columns). Keys are the PSA 10 column
     names; the caller prefixes psa9_ for the PSA 9 set."""
-    clean, dropped, highs = clean_sales(raw)
+    clean, dropped, highs, singles = clean_sales(raw)
     counted = sorted(clean + highs, key=lambda t: (t[0], t[1], t[2]))
     mine = {}
     last = clean[-1] if clean else None
@@ -208,6 +221,15 @@ def derive(raw, today, windows):
     ok = [(sd, p) for sd, p, _, fl, _ in raw if not fl]
     newest = max(ok) if ok else None
     mine["last_sale_unconfirmed"] = 1 if (newest and last and newest != (last[0], last[1]) and newest[0] >= last[0]) else 0
+    mine["last_sale_single"] = None if not mine["last_sale_unconfirmed"] else 1 if newest in singles else 0   # None = blank, like the other numeric cells
+    # the newest sale alt.xyz lists, flagged ones included; a not-completed one wins a same-day tie
+    if raw:
+        top = max(sd for sd, _, _, _, _ in raw)
+        states = {fl for sd, _, _, fl, _ in raw if sd == top}
+        mine["last_sale_status"] = next((STATUS[s] for s in ("PENDING", "PAYMENT_INITIATED", "NOT_PAID", "RELISTED") if s in states),
+                                        "completed" if "" in states else "")
+    else:
+        mine["last_sale_status"] = ""
     ref_now = ref_price(clean, today)
     mine["median_last_3"] = ref_now
     held_in = []
@@ -250,17 +272,17 @@ def main():
     cols = ["clean_last_sale_price", "clean_last_sale_date", "outliers_excluded", "last_sale_unconfirmed", "median_last_3"]
     cols += [f"volume_{w}" for w in WINDOWS] + [f"price_chg_{w}_pct" for w in WINDOWS]
     cols += [f"price_chg_{w}_pct" for w in CHG_ONLY] + [f"volume_{w}" for w in CHG_ONLY] + ["cap_price"] + [f"cap_price_{w}_ago" for w in CAP_AGO]
-    cols += ["chg_held_windows"]
+    cols += ["chg_held_windows", "last_sale_single", "last_sale_status"]          # 2026-10-18
     # the PSA 9 set (2026-10-17): the same figures over the PSA 9 sales, under the psa9_ prefix
     psa9_cols = ["clean_last_sale_price", "last_sale_unconfirmed", "median_last_3"]
     psa9_cols += [f"volume_{w}" for w in CAP_AGO] + [f"price_chg_{w}_pct" for w in CAP_AGO]
-    psa9_cols += ["cap_price"] + [f"cap_price_{w}_ago" for w in CAP_AGO] + ["chg_held_windows"]
+    psa9_cols += ["cap_price"] + [f"cap_price_{w}_ago" for w in CAP_AGO] + ["chg_held_windows", "last_sale_single", "last_sale_status"]
     cols += ["psa9_" + c for c in psa9_cols]
     mism = defaultdict(list)
     checked = defaultdict(int)
     future_dated = []
     sales10, sales9 = sales["10.0"], sales["9.0"]
-    text_cols = {"clean_last_sale_date", "chg_held_windows", "psa9_chg_held_windows"}
+    text_cols = {"clean_last_sale_date", "chg_held_windows", "psa9_chg_held_windows", "last_sale_status", "psa9_last_sale_status"}
 
     for aid, row in feed.items():
         mine, last = derive(sales10.get(aid, []), today, {**WINDOWS, **CHG_ONLY})
@@ -272,7 +294,7 @@ def main():
             mine.update({"psa9_" + c: mine9[c] for c in psa9_cols})
         else:
             # PSA 9 sales never collected for this card: every PSA 9 column must be blank
-            mine.update({"psa9_" + c: ("" if c == "chg_held_windows" else None) for c in psa9_cols})
+            mine.update({"psa9_" + c: ("" if c in ("chg_held_windows", "last_sale_status") else None) for c in psa9_cols})
 
         for c in cols:
             theirs, ours = row.get(c, ""), mine[c]

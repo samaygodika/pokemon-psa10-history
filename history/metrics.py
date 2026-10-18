@@ -261,6 +261,38 @@ Market cap inputs (2026-09-28), the last columns of cards.csv before chg_held_wi
                          from 2026-10-11); history/coverage.py does this per
                          character.
 
+Held-back pivot (2026-10-18, Sid's 10-17 ask), the last four columns of cards.csv. One flag
+used to cover two things: a real-looking sale on a rarely traded card that only lacks a
+second sale, and a sale that may not have completed (another item, unpaid, relisted).
+Measured 10-16/17 (handoff/2026-10-16-heldback-rule-options.md and
+2026-10-17-heldback-pivot-design.md): a held-back HIGH on a card the filter judged in its
+stale or thin band (fewer than 4 clean sales in the year before the sale) was later shown
+real 90% of the time, on a liquid card (normal band) 31%, a held LOW 17%. alt.xyz's own
+status flags are the only completion signal there is: a settled sale is flagged NOT_PAID a
+median 8 days after the sale (all within 30) or RELISTED a median 14 days (90% within 31,
+all within 44); 1.6% of settled sales flip at all, 10% of far-out sales on liquid cards,
+0 of 1,092 major-house auction lots (the flags are eBay's own states). No existing column
+changes meaning: the app already shows the literal newest sale as the price and cap_price
+never takes an unconfirmed sale, so these are flags, not prices.
+  last_sale_single     = 1 when last_sale_unconfirmed is 1 AND the newest sale is held on
+                         the HIGH side with the filter in its stale or thin band at that
+                         sale: one real-looking sale on a rarely traded card, waiting for a
+                         second (the app's "≈"). 0 = unconfirmed for another reason (a high
+                         on a liquid card's band, or a held low: the app's "held back").
+                         Blank = the newest sale is not held, or no sale.
+                         last_sale_unconfirmed keeps its meaning (the union); this splits it.
+  last_sale_status     = the state of the NEWEST sale alt.xyz lists for the card, any
+                         status: completed (it is the sale in last_sale_*), pending (PENDING
+                         or PAYMENT_INITIATED: ended, payment not settled), unpaid
+                         (NOT_PAID), relisted (RELISTED). When not completed, last_sale_* is
+                         the newest completed sale before it and the newer sale is the first
+                         row of recent_sales/ with its price and date. A not-completed sale
+                         dated on the shown sale's day wins the tie. Blank = no sale on
+                         record, or only statuses this list does not know.
+  psa9_last_sale_single, psa9_last_sale_status
+                       = the same two over the PSA 9 sales (blank when PSA 9 sales were not
+                         collected, like every psa9_* sale column).
+
 "today" is the data date (the newest daily file), not the wall clock, so
 rebuilding latest/ from the same history always gives the same file.
 """
@@ -337,6 +369,9 @@ BIN_REF_DATE_COLS = ["lowest_bin_ref_date", "psa9_lowest_bin_ref_date"]
 PSA9_WINDOW_COLS = ([f"psa9_price_chg_{w}_pct" for w in ("60d", "90d", "180d", "1y")]
                     + [f"psa9_volume_{w}" for w in ("60d", "90d", "180d", "1y")]
                     + ["psa9_cap_price"] + [f"psa9_cap_price_{w}_ago" for w in CAP_WINDOWS] + ["psa9_chg_held_windows"])
+SINGLE_COLS = ["last_sale_single", "psa9_last_sale_single", "last_sale_status", "psa9_last_sale_status"]   # 2026-10-18, the last columns
+SALE_STATUS = {"ok": "completed", "PENDING": "pending", "PAYMENT_INITIATED": "pending", "NOT_PAID": "unpaid", "RELISTED": "relisted"}
+NOT_COMPLETED = ("PENDING", "PAYMENT_INITIATED", "NOT_PAID", "RELISTED")   # same-day tie order: the state the user most needs first
 
 
 def d(s):
@@ -389,13 +424,15 @@ def drop_mirror_copies(rows):
 
 
 def load_sales(store):
-    """{grade: (by_asset, n, outliers, raw, held_high)} for each of GRADES, one pass over
-    the history. by_asset = {asset_id: [(date, price, source), ...] ascending}
+    """{grade: (by_asset, n, outliers, raw, held_high, single_high)} for each of GRADES, one
+    pass over the history. by_asset = {asset_id: [(date, price, source), ...] ascending}
     with skipped sales (alt.xyz's own outlier/bad-data flag), PWCC mirror
     copies and outliers excluded; raw = every sale incl. flagged ones as
     (date, price, source, sale_type, status, url), mirror copies excluded;
     held_high = {asset_id: [(date, price, source), ...]} the sales the outlier
-    filter still holds back on the high side (drop_outliers)."""
+    filter still holds back on the high side (drop_outliers); single_high =
+    {asset_id: {(date, price), ...}} the subset of those at which the filter was in
+    its stale or thin band (last_sale_single, 2026-10-18)."""
     raw = {g: defaultdict(list) for g in GRADES}
     for p in sorted((store / "sales").glob("*.csv")):
         with open(p, newline="", encoding="utf-8") as f:
@@ -423,19 +460,21 @@ def clean_grade(grade, raw):
                 by_asset[aid].append((dt_, price, source, url))
                 n += 1
     print(f"  PSA {grade}: {mirrors} PWCC mirror copies dropped", file=sys.stderr)
-    outliers, held_high = {}, {}
+    outliers, held_high, single_high = {}, {}, {}
     for aid, v in by_asset.items():
         v.sort()
-        hh = []
-        clean, dropped = drop_outliers(v, held_high=hh)
+        hh, hs = [], []
+        clean, dropped = drop_outliers(v, held_high=hh, held_single=hs)
         by_asset[aid] = clean
         outliers[aid] = dropped
         if hh:
             held_high[aid] = hh
-    return by_asset, n, outliers, raw, held_high
+        if hs:
+            single_high[aid] = {(sd, p) for sd, p, _ in hs}
+    return by_asset, n, outliers, raw, held_high, single_high
 
 
-def drop_outliers(sales, held_high=None):
+def drop_outliers(sales, held_high=None, held_single=None):
     """Sequential outlier filter. Walk the sales in date order keeping a
     reference price = median of the last OUTLIER_REF accepted sales from the
     past OUTLIER_REF_MAX_AGE; once at least OUTLIER_MIN_ACCEPTED sales are
@@ -523,7 +562,14 @@ def drop_outliers(sales, held_high=None):
     side at the end (above the band, never confirmed), as (date, price,
     source) tuples in date order. The change columns count those (see
     build: a held-back high sale was later shown real 81% of the time over
-    the past year, a held-back low one 17%)."""
+    the past year, a held-back low one 17%).
+
+    held_single: pass a list to also get the subset of those held-back high
+    sales at which the filter was in its stale or thin band (fewer than 4
+    accepted sales in the year before the sale), as (date, price, source)
+    tuples in date order: one real-looking sale on a rarely traded card, held
+    only for want of a second (last_sale_single, 2026-10-18; measured 90% real
+    against 31% for a held high in the normal band)."""
     keep, dropped = [], 0
     accepted = []  # accepted sales (date, price, source), in date order
     run = []       # consecutive rejected sales, same side: (side, sale, listing, index)
@@ -536,15 +582,15 @@ def drop_outliers(sales, held_high=None):
         pool = accepted[regime:]
         recent = [a[1] for a in pool[-OUTLIER_REF:] if sale[0] - a[0] <= OUTLIER_REF_MAX_AGE]
         if len(recent) >= (OUTLIER_MIN_ACCEPTED if regime == 0 else 1):
-            ref, lo_b, hi_b = statistics.median(recent), OUTLIER_LOW, OUTLIER_HIGH
+            ref, lo_b, hi_b, band = statistics.median(recent), OUTLIER_LOW, OUTLIER_HIGH, "normal"
         elif len(pool) >= (OUTLIER_STALE_MIN if regime == 0 else 1):
             # stale reference: not enough sales this year, so the last 12 of any age with the wider band
-            ref, lo_b, hi_b = statistics.median([a[1] for a in pool[-OUTLIER_REF:]]), OUTLIER_STALE_LOW, OUTLIER_STALE_HIGH
+            ref, lo_b, hi_b, band = statistics.median([a[1] for a in pool[-OUTLIER_REF:]]), OUTLIER_STALE_LOW, OUTLIER_STALE_HIGH, "stale"
         elif pool:
             # thin card: one or two accepted sales ever, so the same wide band around them
-            ref, lo_b, hi_b = statistics.median([a[1] for a in pool]), OUTLIER_STALE_LOW, OUTLIER_STALE_HIGH
+            ref, lo_b, hi_b, band = statistics.median([a[1] for a in pool]), OUTLIER_STALE_LOW, OUTLIER_STALE_HIGH, "thin"
         else:
-            ref = None
+            ref, band = None, None
         thin = regime == 0 and 0 < len(pool) < OUTLIER_STALE_MIN
         if ref is not None and not (accepted and 1 / OUTLIER_CONTINUATION <= price / accepted[-1][1] <= OUTLIER_CONTINUATION):
             low, high = price < lo_b * ref, price > hi_b * ref
@@ -565,14 +611,16 @@ def drop_outliers(sales, held_high=None):
                     run = []
                 else:
                     dropped += 1
-                    held[i] = (side, sale)
+                    held[i] = (side, sale, band)
                 continue
         run = []
         keep.append(sale)
         accepted.append(sale)
     keep.sort()
     if held_high is not None:
-        held_high.extend(sorted(s for side, s in held.values() if side == "high"))
+        held_high.extend(sorted(s for side, s, _ in held.values() if side == "high"))
+    if held_single is not None:
+        held_single.extend(sorted(s for side, s, band in held.values() if side == "high" and band != "normal"))
     return keep, dropped
 
 
@@ -621,6 +669,38 @@ def change_since(clean, counted, start, today):
     return chg, fmt(chg) != fmt(base)
 
 
+def single_flag(newest, last, singles):
+    """last_sale_single for one card and grade (2026-10-18): newest = the literal newest
+    settled sale, last = the newest clean sale, singles = the (date, price) of the held-back
+    highs the filter judged in its stale or thin band (clean_grade's single_high). Blank
+    when the newest sale is not held (the same test as last_sale_unconfirmed) or there is
+    none; 1 when it is one of the singles; else 0."""
+    if not (newest and last and (newest[0], newest[1]) != (last[0], last[1]) and newest[0] >= last[0]):
+        return ""
+    return 1 if (newest[0], newest[1]) in singles else 0
+
+
+def sale_status(raw):
+    """last_sale_status for one card and grade (2026-10-18) from its raw sales (date, price,
+    source, sale_type, status, url), every status included: the state of the newest sale
+    alt.xyz lists (SALE_STATUS). A not-completed sale dated on the newest day wins the tie,
+    in NOT_COMPLETED order. Blank when there are no sales, or the newest day's statuses are
+    all ones SALE_STATUS does not know."""
+    if not raw:
+        return ""
+    newest_day = max(t[0] for t in raw)
+    states = {t[4] for t in raw if t[0] == newest_day}
+    for st in NOT_COMPLETED:
+        if st in states:
+            return SALE_STATUS[st]
+    return SALE_STATUS["ok"] if "ok" in states else ""
+
+
+def status_counts(rows, col):
+    """summary.json: how many rows carry each last_sale_status value (blank rows not counted)."""
+    return {s: sum(1 for r in rows if r[col] == s) for s in ("completed", "pending", "unpaid", "relisted")}
+
+
 def pct(now, before):
     if now is None or before is None or before <= 0:
         return None
@@ -642,14 +722,16 @@ def to_int(s):
         return None
 
 
-def psa9_cols(aid, num, scraped_day, s9, raw9, ref10, today, held9=None):
+def psa9_cols(aid, num, scraped_day, s9, raw9, ref10, today, held9=None, singles9=None):
     """The PSA 9 columns for one card (PSA9_COLS and PSA9_WINDOW_COLS). pop_at_grade_9
     comes with every run (it is in the same pop response as PSA 10); the sale columns
     only exist for cards some run scraped with --also-grade 9 (psa9_scraped_date), so
     blank there means "not collected", while psa9_sales_total = 0 means none sold.
     held9 = the PSA 9 sales the outlier filter still holds back on the high side: the
-    change columns count them, exactly as the PSA 10 ones do (change_since)."""
-    out = {c: "" for c in PSA9_COLS + PSA9_WINDOW_COLS}
+    change columns count them, exactly as the PSA 10 ones do (change_since). singles9 =
+    the (date, price) of those held in the stale/thin band, for psa9_last_sale_single;
+    psa9_last_sale_status comes from raw9 (2026-10-18)."""
+    out = {c: "" for c in PSA9_COLS + PSA9_WINDOW_COLS + ["psa9_last_sale_single", "psa9_last_sale_status"]}
     out["pop_at_grade_9"] = num.get("pop_at_grade_9", "")
     if not scraped_day and not raw9:
         return out
@@ -661,6 +743,8 @@ def psa9_cols(aid, num, scraped_day, s9, raw9, ref10, today, held9=None):
         out["psa9_last_sale_price"], out["psa9_last_sale_date"], out["psa9_last_sale_source"] = fmt(newest[1]), newest[0].isoformat(), newest[2]
     out["psa9_clean_last_sale_price"] = fmt(last[1]) if last else ""
     out["psa9_last_sale_unconfirmed"] = 1 if (newest and last and (newest[0], newest[1]) != (last[0], last[1]) and newest[0] >= last[0]) else 0
+    out["psa9_last_sale_single"] = single_flag(newest, last, singles9 or ())          # 2026-10-18
+    out["psa9_last_sale_status"] = sale_status(raw9)
     ref9 = ref_price(s9, today)
     out["psa9_median_last_3"] = fmt(ref9)
     # The window columns, by the PSA 10 functions over the PSA 9 sales (2026-10-17; before that
@@ -871,8 +955,8 @@ def build(store=HERE, out=LATEST):
     daily, days = load_daily(store)
     today = d(days[-1])
     by_grade = load_sales(store)
-    sales, n_sales, outliers, raw_sales, held_high = by_grade["10.0"]
-    sales9, n_sales9, _, raw_sales9, held_high9 = by_grade["9.0"]
+    sales, n_sales, outliers, raw_sales, held_high, single_high = by_grade["10.0"]
+    sales9, n_sales9, _, raw_sales9, held_high9, single_high9 = by_grade["9.0"]
     print(f"{len(assets)} assets, {len(days)} daily files ({days[0]}..{days[-1]}), {n_sales} PSA 10 sales, {n_sales9} PSA 9 sales")
 
     live = load_live(store)
@@ -926,6 +1010,8 @@ def build(store=HERE, out=LATEST):
         raw_ok = [t for t in raw_sales.get(aid, []) if t[4] == "ok"]
         newest = max(raw_ok) if raw_ok else None
         row["last_sale_unconfirmed"] = 1 if (newest and last and (newest[0], newest[1]) != (last[0], last[1]) and newest[0] >= last[0]) else 0
+        row["last_sale_single"] = single_flag(newest, last, single_high.get(aid, ()))        # 2026-10-18
+        row["last_sale_status"] = sale_status(raw_sales.get(aid, []))
         ref_now = ref_price(s, today)
         row["median_last_3"] = fmt(ref_now)
         # The change columns also count the sales the filter holds back on the
@@ -974,7 +1060,7 @@ def build(store=HERE, out=LATEST):
         row["sales_total"] = len(s)
         row["history_days"] = (today - d(first_day[aid])).days
         row.update(psa9_cols(aid, num, psa9_day.get(aid), sales9.get(aid, []), raw_sales9.get(aid, []), ref_now, today,
-                             held_high9.get(aid)))
+                             held_high9.get(aid), single_high9.get(aid)))
         if row["psa9_last_sale_price"]:
             filled["psa9_last_sale_price"] += 1
         for c in ("psa9_price_chg_30d_pct", "psa9_price_chg_1y_pct", "psa9_chg_held_windows"):
@@ -1003,7 +1089,7 @@ def build(store=HERE, out=LATEST):
 
     out.mkdir(parents=True, exist_ok=True)
     with open(out / "cards.csv", "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=CARD_COLS + DERIVED_COLS + PSA9_COLS + LIVE_COLS + PSA9_LIVE_COLS + CAP_COLS + HELD_COLS + LISTING_AGE_COLS + EBAY_COLS + BIN_SUSPECT_COLS + BIN_REF_DATE_COLS + PSA9_WINDOW_COLS, extrasaction="ignore")
+        w = csv.DictWriter(f, fieldnames=CARD_COLS + DERIVED_COLS + PSA9_COLS + LIVE_COLS + PSA9_LIVE_COLS + CAP_COLS + HELD_COLS + LISTING_AGE_COLS + EBAY_COLS + BIN_SUSPECT_COLS + BIN_REF_DATE_COLS + PSA9_WINDOW_COLS + SINGLE_COLS, extrasaction="ignore")
         w.writeheader()
         w.writerows(rows)
 
@@ -1060,6 +1146,10 @@ def build(store=HERE, out=LATEST):
         "rows_unconfirmed_last_sale": sum(1 for r in rows if r["last_sale_unconfirmed"] == 1),
         "rows_chg_counts_held_high": filled["chg_held_windows"],
         "rows_psa9_chg_counts_held_high": filled["psa9_chg_held_windows"],          # 2026-10-17
+        "rows_single_last_sale": sum(1 for r in rows if r["last_sale_single"] == 1),          # 2026-10-18
+        "rows_psa9_single_last_sale": sum(1 for r in rows if r["psa9_last_sale_single"] == 1),
+        "last_sale_status_counts": status_counts(rows, "last_sale_status"),
+        "psa9_last_sale_status_counts": status_counts(rows, "psa9_last_sale_status"),
         "rows_listings_checked": sum(1 for r in rows if r["listings_checked_at"]),
         "rows_with_live_auction": sum(1 for r in rows if r["live_auction_count"]),
         "rows_with_bin_listing": sum(1 for r in rows if r["lowest_bin_price"]),
