@@ -99,7 +99,9 @@ stage_scope() {
   if [ "$SCOPE" = "full" ]; then
     # The index listing already wrote all_pokemon_cards.txt/.json in the format the scraper takes.
     if [ -n "${NIGHTLY_LIMIT:-}" ]; then
-      { grep '^asset:' "$OUT/all_pokemon_cards.txt" | head -n "$NIGHTLY_LIMIT"; } > "$OUT/scope.txt"   # exactly N cards (the file's blank line used to count)
+      # exactly N cards (the file's blank line used to count). One process, not grep | head: under
+      # pipefail, head closing the pipe early made grep exit 2 and killed the smoke run (2026-10-18).
+      awk -v n="$NIGHTLY_LIMIT" '/^asset:/ && c++ < n' "$OUT/all_pokemon_cards.txt" > "$OUT/scope.txt"
       cp "$OUT/all_pokemon_cards.json" "$OUT/scope.json"
     fi
   else
