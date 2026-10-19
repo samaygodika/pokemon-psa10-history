@@ -17,3 +17,8 @@ __pycache__/
 /cards.txt
 analysis/.venv/
 analysis/out/
+
+# The history store (2026-10-17): history/sales/ and history/daily/ live on the GitHub release tagged
+# `store`, pulled and pushed by history/store.py (handoff/2026-10-17-store-move-design.md)
+history/sales/
+history/daily/
