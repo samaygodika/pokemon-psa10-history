@@ -1,0 +1,104 @@
+{
+ "day": "2026-10-19",
+ "scope": "top60",
+ "started_at": "2026-10-19T06:19:39+00:00",
+ "scrape": {
+  "scope": 34427,
+  "ok": 34427,
+  "failed": 0,
+  "skipped": 0,
+  "carried": 14551,
+  "listings_asked": 34427,
+  "listings_failed": 4,
+  "psa9_listings_asked": 33695,
+  "psa9_listings_failed": 8,
+  "company": "PSA",
+  "grade": "10.0",
+  "also_grades": [
+   "9.0"
+  ],
+  "listings_only": false,
+  "passes": 2,
+  "started_at": "2026-10-19T06:47:49+00:00",
+  "finished_at": "2026-10-19T09:12:03+00:00",
+  "shards": {
+   "shard-0": {
+    "scope": 17214,
+    "ok": 17214,
+    "failed": 0,
+    "skipped": 0,
+    "carried": 7256,
+    "passes": 2,
+    "listings_asked": 17214,
+    "listings_failed": 3,
+    "psa9_listings_asked": 16854,
+    "psa9_listings_failed": 8,
+    "company": "PSA",
+    "grade": "10.0",
+    "also_grades": [
+     "9.0"
+    ],
+    "listings_only": false,
+    "started_at": "2026-10-19T06:47:56+00:00",
+    "finished_at": "2026-10-19T09:12:03+00:00"
+   },
+   "shard-1": {
+    "scope": 17213,
+    "ok": 17213,
+    "failed": 0,
+    "skipped": 0,
+    "carried": 7295,
+    "passes": 2,
+    "listings_asked": 17213,
+    "listings_failed": 1,
+    "psa9_listings_asked": 16841,
+    "psa9_listings_failed": 0,
+    "company": "PSA",
+    "grade": "10.0",
+    "also_grades": [
+     "9.0"
+    ],
+    "listings_only": false,
+    "started_at": "2026-10-19T06:47:49+00:00",
+    "finished_at": "2026-10-19T08:28:47+00:00"
+   }
+  }
+ },
+ "gate": {
+  "ok": true,
+  "reasons": [],
+  "min_scraped_pct": 90.0,
+  "max_listings_failed_pct": 20.0,
+  "scraped_pct": 100.0,
+  "listings_failed_pct": 0.0,
+  "psa9_listings_failed_pct": 0.0,
+  "judged_at": "2026-10-19T09:15:22+00:00"
+ },
+ "alt": {
+  "ok": true,
+  "listings": 5019,
+  "auctions": 3239,
+  "cards": 3673,
+  "started_at": "2026-10-19T09:15:22+00:00",
+  "finished_at": "2026-10-19T09:15:48+00:00"
+ },
+ "fanatics": {
+  "ok": true,
+  "requests": 41,
+  "budget": 80,
+  "slices": 28,
+  "listings": 19317,
+  "matched": 13332,
+  "cards": 5264,
+  "index_estimate": 20037,
+  "grades": [
+   10,
+   9
+  ],
+  "started_at": "2026-10-19T09:15:48+00:00",
+  "finished_at": "2026-10-19T09:16:58+00:00",
+  "last_ok": "2026-10-19",
+  "failed_nights": 0
+ },
+ "finished_at": "2026-10-19T09:16:58+00:00"
+}
