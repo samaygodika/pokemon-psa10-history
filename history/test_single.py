@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Checks for the held-back pivot (2026-10-18): last_sale_single / last_sale_status and the
-PSA 9 pair, the last four columns of cards.csv.
+PSA 9 pair, plus (2026-10-20) the last_sale_newer_price / _date pair, the REMOVED status and the
+last_sale_title_check column, the last ten columns of cards.csv.
 
     python3 history/test_single.py
 
@@ -90,6 +91,39 @@ def test_sale_status():
     # a status this feed does not know: unknown, blank
     assert metrics.sale_status([raw(day(0), 100.0, "SOMETHING_NEW")]) == ""
     assert metrics.sale_status([raw(day(0), 100.0, "SOMETHING_NEW"), raw(day(0), 100.0)]) == "completed"
+    # REMOVED (2026-10-20): alt.xyz no longer lists the sale, so it is never the newest listed one
+    assert metrics.sale_status(ok + [raw(day(12), 300.0, "REMOVED")]) == "completed"
+    assert metrics.sale_status([raw(day(0), 100.0, "REMOVED")]) == ""
+    assert metrics.sale_status(ok + [raw(day(12), 300.0, "REMOVED"), raw(day(11), 250.0, "PENDING")]) == "pending"
+
+
+def test_newer_cols():
+    ok = [raw(day(0), 100.0), raw(day(10), 110.0)]
+    blank = {"last_sale_newer_price": "", "last_sale_newer_date": ""}
+    assert metrics.newer_cols(ok) == {"last_sale_status": "completed", **blank}
+    assert metrics.newer_cols([]) == {"last_sale_status": "", **blank}
+    assert metrics.newer_cols(ok + [raw(day(12), 300.0, "PENDING")]) == {"last_sale_status": "pending", "last_sale_newer_price": "300", "last_sale_newer_date": day(12).isoformat()}
+    # same day, same state, two sales: the dearer one; a different not-completed state loses to the tie order
+    got = metrics.newer_cols(ok + [raw(day(12), 300.0, "RELISTED"), raw(day(12), 350.0, "RELISTED"), raw(day(12), 999.0, "NOT_PAID")])
+    assert got == {"last_sale_status": "unpaid", "last_sale_newer_price": "999", "last_sale_newer_date": day(12).isoformat()}, got
+    got = metrics.newer_cols(ok + [raw(day(12), 300.0, "RELISTED"), raw(day(12), 350.0, "RELISTED")])
+    assert got["last_sale_newer_price"] == "350"
+    # an older flagged sale is not "newer"; a REMOVED newer row is not listed
+    assert metrics.newer_cols(ok + [raw(day(5), 300.0, "RELISTED")])["last_sale_newer_price"] == ""
+    assert metrics.newer_cols(ok + [raw(day(12), 300.0, "REMOVED")]) == {"last_sale_status": "completed", **blank}
+    assert metrics.newer_cols([raw(day(0), 100.0, "NOT_PAID")], prefix="psa9_") == {"psa9_last_sale_status": "unpaid", "psa9_last_sale_newer_price": "100", "psa9_last_sale_newer_date": day(0).isoformat()}
+    print("newer_cols ok")
+
+
+def test_title_check_col():
+    checks = {("286456815956", IDS["a"], "10.0"): "mismatch"}
+    newest = (day(0), 9000.0, "eBay", "AUCTION", "ok", "https://www.ebay.com/itm/286456815956")
+    assert metrics.title_check(newest, IDS["a"], "10.0", checks) == "mismatch"
+    assert metrics.title_check(newest, IDS["a"], "9.0", checks) == "", "the verdict is per grade"
+    assert metrics.title_check(newest, IDS["b"], "10.0", checks) == "", "and per card"
+    assert metrics.title_check(newest[:5] + ("https://goldin.co/item/x",), IDS["a"], "10.0", checks) == "", "not an eBay sale"
+    assert metrics.title_check(None, IDS["a"], "10.0", checks) == "" and metrics.title_check(newest, IDS["a"], "10.0", {}) == ""
+    print("title_check ok")
 
 
 # ---- end to end over a synthetic store ------------------------------------------------------
@@ -116,7 +150,7 @@ def test_build_writes_the_four_columns_last():
     a, b, c, d_, e, f, g, h, i, j = (IDS[k] for k in "abcdefghij")
     y = TODAY - timedelta(days=750)
     sales = []
-    sales += [sale(a, y + timedelta(days=k * 30), 500.0 + k) for k in range(3)] + [sale(a, TODAY - timedelta(days=3), 9000.0, src="PWCC")]   # stale single
+    sales += [sale(a, y + timedelta(days=k * 30), 500.0 + k) for k in range(3)] + [sale(a, TODAY - timedelta(days=3), 9000.0, url="https://www.ebay.com/itm/286456815956")]   # stale single, eBay
     sales += [sale(b, y, 500.0), sale(b, TODAY - timedelta(days=2), 8000.0)]                                                            # thin single
     sales += [sale(c, TODAY - timedelta(days=200 - k * 20), 50000.0 + k * 100) for k in range(6)] + [sale(c, TODAY - timedelta(days=1), 400000.0)]   # liquid held high
     sales += [sale(d_, TODAY - timedelta(days=200 - k * 20), 50000.0 + k * 100) for k in range(6)] + [sale(d_, TODAY - timedelta(days=1), 100.0)]    # held low
@@ -127,6 +161,11 @@ def test_build_writes_the_four_columns_last():
     sales += [sale(h, TODAY - timedelta(days=10), 1000.0)]                                                                                  # PSA 9 not collected
     sales += [sale(i, TODAY - timedelta(days=10), 1000.0, status="NOT_PAID")]                                                               # only an unpaid sale
     sales += [sale(j, TODAY - timedelta(days=20), 1000.0), sale(j, TODAY - timedelta(days=1), 1010.0), sale(j, TODAY - timedelta(days=1), 990.0, status="RELISTED")]   # same-day tie
+    sales += [sale(a, TODAY, 15000.0, status="REMOVED", url="https://www.ebay.com/itm/999000999")]   # a: alt.xyz removed a newer sale: not listed, out of everything
+    checks = [{"item_id": "286456815956", "asset_id": a, "grade": "10.0", "status": "unclear", "reason": "number 4 missing", "title": "card a PSA 10",
+               "bid_count": "3", "unique_bidders": "2", "ebay_price": "9000", "end_date": "", "checked_at": "2026-10-01T08:00:00+00:00"},
+              {"item_id": "286456815956", "asset_id": b, "grade": "10.0", "status": "ok", "reason": "", "title": "", "bid_count": "", "unique_bidders": "", "ebay_price": "", "end_date": "", "checked_at": ""},
+              {"item_id": "999000999", "asset_id": a, "grade": "10.0", "status": "mismatch", "reason": "", "title": "", "bid_count": "", "unique_bidders": "", "ebay_price": "", "end_date": "", "checked_at": ""}]
     with tempfile.TemporaryDirectory() as tmp:
         store = Path(tmp) / "store"
         _write(store / "assets.csv", ["asset_id", "card_name", "year", "set", "card_number", "subject", "variety", "first_seen", "last_seen"],
@@ -139,15 +178,26 @@ def test_build_writes_the_four_columns_last():
         daily = [{"asset_id": v, "pop_at_grade": "10", "pop_at_grade_9": "20", "num_sales": "1", "scraped_at": f"{TODAY}T10:00:00+00:00",
                   "extra_grades": "" if v == h else "9.0", "sales_fetched": "1"} for v in IDS.values()]
         _write(store / "daily" / f"{TODAY}.csv", ingest.DAILY_COLS, daily)
+        _write(store / metrics.TITLE_CHECKS, ["item_id", "asset_id", "grade", "status", "reason", "title", "bid_count", "unique_bidders", "ebay_price", "end_date", "checked_at"], checks)
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             summary = metrics.build(store, Path(tmp) / "latest")
         with open(Path(tmp) / "latest" / "cards.csv", newline="", encoding="utf-8") as fh:
             rd = csv.DictReader(fh)
             header = rd.fieldnames
             feed = {r["asset_id"]: r for r in rd}
-    assert header[-4:] == metrics.SINGLE_COLS, header[-6:]
+        recent_a = [r for r in csv.DictReader(open(Path(tmp) / "latest" / "recent_sales" / f"{a[:2]}.csv", newline="", encoding="utf-8")) if r["asset_id"] == a]
+    assert header[-10:] == metrics.SINGLE_COLS + metrics.NEWER_COLS + metrics.TITLE_COLS, header[-12:]
     col = lambda k, c: feed[IDS[k]][c]
     assert (col("a", "last_sale_unconfirmed"), col("a", "last_sale_single"), col("a", "last_sale_status")) == ("1", "1", "completed"), feed[a]
+    assert (col("a", "clean_last_sale_price"), col("a", "last_sale_newer_price"), col("a", "last_sale_newer_date")) == ("502", "", ""), "the REMOVED sale is not listed: not a newer sale, not a price"
+    assert col("a", "last_sale_title_check") == "unclear" and col("b", "last_sale_title_check") == "", "the verdict for a's newest sale, not for b's"
+    assert recent_a[0]["status"] == "REMOVED" and recent_a[0]["outlier"] == "0" and recent_a[1]["price"] == "9000", recent_a[:2]
+    assert (col("g", "last_sale_newer_price"), col("g", "last_sale_newer_date")) == ("52000", TODAY.isoformat()), feed[g]
+    assert (col("g", "psa9_last_sale_newer_price"), col("g", "psa9_last_sale_newer_date")) == ("450", (TODAY - timedelta(days=1)).isoformat()), feed[g]
+    assert (col("i", "last_sale_newer_price"), col("j", "last_sale_newer_price"), col("e", "last_sale_newer_price")) == ("1000", "990", ""), "only-unpaid card carries its sale; tie gives the relisted one; completed is blank"
+    assert col("h", "psa9_last_sale_newer_price") == "" and col("h", "psa9_last_sale_title_check") == "", "PSA 9 not collected: blank"
+    assert summary["rows_newer_sale"] == 3 and summary["rows_psa9_newer_sale"] == 1, summary
+    assert summary["last_sale_title_check_counts"] == {"ok": 0, "mismatch": 0, "unclear": 1, "unavailable": 0}, summary["last_sale_title_check_counts"]
     assert (col("b", "last_sale_unconfirmed"), col("b", "last_sale_single")) == ("1", "1")
     assert (col("c", "last_sale_unconfirmed"), col("c", "last_sale_single")) == ("1", "0"), "liquid held high: held back, not single"
     assert (col("d", "last_sale_unconfirmed"), col("d", "last_sale_single")) == ("1", "0"), "held low: held back, not single"
@@ -169,5 +219,7 @@ if __name__ == "__main__":
     test_held_single_is_the_stale_or_thin_band_subset_of_held_high()
     test_single_flag()
     test_sale_status()
+    test_newer_cols()
+    test_title_check_col()
     test_build_writes_the_four_columns_last()
     print("all single/status checks passed")

@@ -4,7 +4,7 @@
 # .github/workflows/ebay-verify.yml just after eBay's quota reset (07:00 UTC); ~4,800 lookups,
 # ~20-30 min. See history/ebay_verify.py for which listings and what the answers mean.
 #
-#   nightly/run_ebay_verify.sh                         # [watchlist sweep ->] check -> apply -> metrics -> commit
+#   nightly/run_ebay_verify.sh                         # [watchlist sweep ->] [title check ->] check -> apply -> metrics -> commit
 #   EBAY_BUDGET=50 NO_COMMIT=1 nightly/run_ebay_verify.sh   # smoke test: 50 lookups, no commit
 #
 # Env: EBAY_CLIENT_ID / EBAY_CLIENT_SECRET (or ~/.ebay_keys), EBAY_BUDGET (4800), EBAY_WORKERS (4),
@@ -15,6 +15,12 @@
 # and hands the verify what is left of EBAY_BUDGET after its own eBay calls (WATCHLIST_EBAY_BUDGET,
 # default 360, ~300 used), so the day stays under eBay's 5,000. Unset = no sweep, nothing changes.
 # A sweep failure is logged and the verify still runs.
+#
+# Sale title check (2026-10-20, history/sale_title_check.py): runs next, asks eBay for the title of
+# every held-back eBay sale not yet judged (TITLE_CHECK_BUDGET calls, default 400; 0 = skip) and folds
+# the verdicts into history/sale_title_checks.csv, which metrics.py reads into cards.csv
+# last_sale_title_check. Its calls also come off the verify's budget. A failure is logged, the
+# verify still runs.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 PY=${PYTHON:-python3}
@@ -43,9 +49,23 @@ if [ -n "${WATCHLIST_FILE:-}${WATCHLIST_URL:-}" ]; then
   fi
 fi
 
+TITLE_NOTE=""
+if [ "${TITLE_CHECK_BUDGET:-400}" != "0" ]; then
+  echo "--- sale title check ---"
+  if $PY history/sale_title_check.py check --out "$OUT" --budget "${TITLE_CHECK_BUDGET:-400}" --workers "${EBAY_WORKERS:-4}"; then
+    TITLE_CALLS=$($PY -c 'import json,sys;print(json.load(open(sys.argv[1]))["calls"])' "$OUT/title_check.json")
+    VERIFY_BUDGET=$(( VERIFY_BUDGET - TITLE_CALLS )); [ "$VERIFY_BUDGET" -lt 0 ] && VERIFY_BUDGET=0
+    TITLE_NOTE="; titles $($PY -c 'import json,sys;print(json.load(open(sys.argv[1]))["note"])' "$OUT/title_check.json")"
+    echo "sale title check used $TITLE_CALLS eBay call(s); verify budget now $VERIFY_BUDGET"
+  else
+    echo "sale title check FAILED (exit $?), verify runs with the full budget"
+  fi
+fi
+
 $PY history/ebay_verify.py check --out "$OUT" --budget "$VERIFY_BUDGET" --workers "${EBAY_WORKERS:-4}"
-if [ ! -s "$OUT/ebay_results.csv" ] && [ ! -s "$OUT/watchlist_listings.csv" ]; then echo "=== no answers, nothing to apply ==="; exit 0; fi
+if [ ! -s "$OUT/ebay_results.csv" ] && [ ! -s "$OUT/watchlist_listings.csv" ] && [ ! -s "$OUT/title_results.csv" ]; then echo "=== no answers, nothing to apply ==="; exit 0; fi
 [ -s "$OUT/ebay_results.csv" ] && $PY history/ebay_verify.py apply "$OUT"
+[ -s "$OUT/title_results.csv" ] && $PY history/sale_title_check.py apply "$OUT"
 echo "--- rebuild latest/ ---"
 $PY history/metrics.py
 $PY history/manifest.py   # last: sha256 / rows of every latest/ file into summary.json "files" + shard manifests
@@ -55,7 +75,7 @@ git config user.name "alt.xyz nightly"
 git config user.email "nightly@users.noreply.github.com"
 # the check's one-line summary from its status JSON ($OUT/ebay_verify.json, written by ebay_verify.py check
 # and apply), not a grep of the tee'd log (same set -e trap as above)
-SUMMARY=$($PY -c 'import json,sys;print(json.load(open(sys.argv[1]))["summary"])' "$OUT/ebay_verify.json")$SWEEP_NOTE
+SUMMARY=$($PY -c 'import json,sys;print(json.load(open(sys.argv[1]))["summary"])' "$OUT/ebay_verify.json")$SWEEP_NOTE$TITLE_NOTE
 $PY history/store.py push --note "ebay verify $STAMP"   # a no-op (this run never changes the store) unless the release moved: then exit 3, see nightly/commit_results.sh
 for attempt in 1 2 3; do
   $PY history/store.py stage   # latest/ + the history files that stay in git (never history/sales, history/daily)
@@ -74,6 +94,7 @@ for attempt in 1 2 3; do
   $PY history/store.py pull --force   # the reset put the checkout's copy of sales/ + daily/ back (while still git-tracked): the pulled generation again
   # eBay's answers are this run's and still true: re-apply them to the newer store, no new lookups.
   [ -s "$OUT/ebay_results.csv" ] && $PY history/ebay_verify.py apply "$OUT"
+  [ -s "$OUT/title_results.csv" ] && $PY history/sale_title_check.py apply "$OUT"
   [ -s "$OUT/watchlist_listings.csv" ] && cp "$OUT/watchlist_listings.csv" "$OUT/watchlist_listings.summary.json" latest/
   $PY history/metrics.py
   $PY history/manifest.py   # last: sha256 / rows of every latest/ file into summary.json "files" + shard manifests

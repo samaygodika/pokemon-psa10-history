@@ -37,7 +37,17 @@ Store layout (all plain CSV, all append/merge-friendly so git diffs stay small):
                                   clean price columns depend on those fields. A
                                   sale re-dated into another month moves there;
                                   one alt.xyz no longer lists under a URL it
-                                  still lists is dropped. Only
+                                  still lists is dropped. A stored sale of a
+                                  card whose complete sale list the run fetched
+                                  that the run no longer lists at all is kept
+                                  with skipped_reason REMOVED (2026-10-20):
+                                  alt.xyz dropped the record outright (on
+                                  2026-10-16, 18 cards showed an older price
+                                  with "held back" because the store still held
+                                  such a sale as settled, e.g. a $9,852 Bandai
+                                  Flareon alt.xyz removed on 10-13). It is out of
+                                  every number like NOT_PAID, and a later run
+                                  that lists the sale again restores it. Only
                                   month files with a change are rewritten
                                   (merge_sales, 2026-09-26; before that the
                                   store was append-only and never saw a flip).
@@ -163,6 +173,7 @@ LIVE_COLS = ["asset_id", "grading_company", "grade", "listing_type", "source", "
 # via (2026-10-15) = where the row came from: blank = alt.xyz's per-card answer (or its own
 # listings, source "Alt"); "fanatics" = Fanatics Collect's own marketplace index (ingest_fanatics)
 VIA_FANATICS = "fanatics"
+REMOVED = "REMOVED"   # skipped_reason of a stored sale a complete fetch of its card no longer lists (merge_sales, 2026-10-20)
 CHECK_COLS = ["listing_id", "status", "asset_id", "fanatics_title", "fanatics_price", "checked_at"]   # fanatics_checks.csv
 DEAD_FANATICS = {"gone", "crossed"}
 BIN_MAX_AGE_DAYS = 7   # a Buy It Now row survives this long without alt.xyz showing it again
@@ -262,9 +273,22 @@ def ingest(run_dir, day, store=HERE):
     if truncated:
         print(f"  sales: {len(truncated)} card(s) have fewer sale rows than num_sales (a --max-sales run?): "
               "no stored sale is dropped this time")
-    stats = merge_sales(sales_dir, incoming, allow_drop=not truncated)
+    # Which (asset, grading company, grade) sale lists this run fetched in full: a stored sale of theirs
+    # that the run no longer lists anywhere is marked REMOVED (merge_sales, 2026-10-20). A card whose
+    # sales were carried over (sales_fetched 0) says nothing about its stored rows, and a --max-sales
+    # run says nothing about anyone's (the same caution as allow_drop).
+    fetched = set()
+    if not truncated:
+        for r in cards:
+            if r.get("sales_fetched", "1") == "0":
+                continue
+            for g in [r.get("grade") or ""] + (r.get("extra_grades") or "").split():
+                if g:
+                    fetched.add((r["asset_id"], r.get("grading_company") or "PSA", g))
+    stats = merge_sales(sales_dir, incoming, allow_drop=not truncated, fetched=fetched)
     print(f"  sales: {n_in} rows in run, {stats['sales_added']} new, {stats['sales_updated']} changed in place, "
           f"{stats['sales_moved']} moved to another month, {stats['sales_dropped']} dropped (no longer listed by alt.xyz), "
+          f"{stats['sales_removed']} marked REMOVED (a fully fetched card no longer lists them), "
           f"{stats['sales_month_files_rewritten']} month files rewritten")
 
     live = ingest_live(run_dir, cards, store, day)
@@ -293,7 +317,7 @@ def copy_run_stats(run_dir, store):
     return True
 
 
-def merge_sales(sales_dir, incoming, allow_drop=True):
+def merge_sales(sales_dir, incoming, allow_drop=True, fetched=None):
     """Fold {month: [sale rows]} into sales/<month>.csv (see the module doc).
 
     Two facts drive this. (1) alt.xyz keeps editing sales after it first lists them: about
@@ -321,9 +345,13 @@ def merge_sales(sales_dir, incoming, allow_drop=True):
     Run rows nothing matched are added. With allow_drop=False (ingest passes it when a run
     shows fewer sale rows than num_sales for some card, i.e. --max-sales cut it short) the
     two "dropped" cases keep the row instead. Stored rows for URLs the run does not list at all
-    are never touched (the card was not fetched, or the sale is gone from alt.xyz along
-    with its URL). Every month file is read twice (URL counts, then the merge) but only
-    changed ones are rewritten."""
+    (the card was not fetched, or the sale is gone from alt.xyz along with its URL), or lists only
+    under another grade, are kept as they are, except when `fetched` holds the row's (asset_id,
+    grading_company, grade): the run fetched that card's complete sale list and alt.xyz no longer
+    lists the sale, so its skipped_reason becomes REMOVED (2026-10-20; the row stays, out of every
+    number like NOT_PAID, and a later run that lists the sale again replaces it with alt.xyz's
+    version through the id / URL rules above). Every month file is read twice (URL counts, then
+    the merge) but only changed ones are rewritten."""
     def fine_key(s):
         return (s.get("date") or "", s.get("price") or "")
 
@@ -344,7 +372,7 @@ def merge_sales(sales_dir, incoming, allow_drop=True):
             if sale_key(r) in inc_rows:
                 store_count[sale_key(r)] += 1
 
-    added = updated = moved = dropped = rewritten = 0
+    added = updated = moved = dropped = removed = rewritten = 0
     for month in months:
         path = sales_dir / f"{month}.csv"
         existing = read_csv(path)
@@ -363,14 +391,26 @@ def merge_sales(sales_dir, incoming, allow_drop=True):
             else:
                 kept.append(r)
 
+        def unlisted(r):
+            """The run does not list stored row r (its URL is absent, or under another grade only): as it was,
+            or marked REMOVED when the run fetched the card's complete list at that grade."""
+            nonlocal removed, changed
+            if (fetched and (r["asset_id"], r.get("grading_company"), r.get("grade")) in fetched
+                    and (r.get("skipped_reason") or "") != REMOVED):
+                kept.append({**r, "skipped_reason": REMOVED})
+                removed += 1
+                changed = True
+            else:
+                kept.append(r)
+
         for r in existing:
             k = sale_key(r)
             runs = [s for s in inc_rows.get(k, []) if same_grade(s, r)]
             if k not in inc_rows:
-                kept.append(r)                        # URL not in this run: card not fetched, or sale and URL gone
+                unlisted(r)                           # URL not in this run: card not fetched, or sale and URL gone
                 continue
             if not runs:
-                kept.append(r)                        # the same URL only under another grade: the stored row stands
+                unlisted(r)                           # the same URL only under another grade: a mislabeled twin
                 continue
             if r.get("alt_tx_id"):
                 s = by_id.get(r["alt_tx_id"])
@@ -423,7 +463,7 @@ def merge_sales(sales_dir, incoming, allow_drop=True):
             added += len(fresh)
             rewritten += 1
     return {"sales_added": added, "sales_updated": updated, "sales_moved": moved, "sales_dropped": dropped,
-            "sales_month_files_rewritten": rewritten}
+            "sales_removed": removed, "sales_month_files_rewritten": rewritten}
 
 
 def to_int(s):

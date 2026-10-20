@@ -37,6 +37,10 @@ Statuses in ebay_checks.csv:
 Anything else (rate limit, a multi-variation listing, a network error) records nothing:
 the listing is simply asked again on a later day. HTTP 429 stops the run.
 
+The same keyset and daily budget serve history/watchlist_listings.py (the watchlist sweep)
+and history/sale_title_check.py (the title of a held-back eBay sale, 2026-10-20);
+nightly/run_ebay_verify.sh runs those first and hands this check what is left.
+
 Keys: EBAY_CLIENT_ID / EBAY_CLIENT_SECRET (App ID / Cert ID of a production keyset) from
 the environment, else ~/.ebay_keys (KEY=value lines). Without them `check` prints a line
 and exits 0, so the workflow never fails over a missing key.
@@ -153,9 +157,11 @@ class Ebay:
                 self.token, self.exp = d["access_token"], time.time() + float(d.get("expires_in", 7200))
             return self.token
 
-    def lookup(self, iid, now):
-        """(status, end_date, price) for one listing; status None = no answer this time.
-        Raises RateLimited on HTTP 429."""
+    def fetch(self, iid):
+        """eBay's item record for one legacy item id: the dict, "gone" (HTTP 404 with errorId 11003:
+        eBay no longer serves it), or None (no answer this time: another error, a timeout, a bad
+        body). Raises RateLimited on HTTP 429. Split out of lookup 2026-10-20 for
+        sale_title_check.py, which reads the title and bid counts of a SOLD item."""
         req = urllib.request.Request(f"{ITEM_URL}?{urllib.parse.urlencode({'legacy_item_id': iid})}", headers={
             "Authorization": f"Bearer {self.bearer()}", "X-EBAY-C-MARKETPLACE-ID": "EBAY_US", "Accept": "application/json"})
         try:
@@ -170,10 +176,20 @@ class Ebay:
                 except ValueError:
                     errs = []
                 if any(err.get("errorId") == NOT_FOUND for err in errs):
-                    return "gone", "", ""
-            return None, "", ""
+                    return "gone"
+            return None
         except (urllib.error.URLError, TimeoutError, ValueError):
+            return None
+        return d if isinstance(d, dict) else None
+
+    def lookup(self, iid, now):
+        """(status, end_date, price) for one listing; status None = no answer this time.
+        Raises RateLimited on HTTP 429."""
+        d = self.fetch(iid)
+        if d is None:
             return None, "", ""
+        if d == "gone":
+            return "gone", "", ""
         end = d.get("itemEndDate") or ""
         price = (d.get("price") or {}).get("value") or (d.get("currentBidPrice") or {}).get("value") or ""
         ended = bool(end) and datetime.fromisoformat(end.replace("Z", "+00:00")) <= now
@@ -187,16 +203,17 @@ class RateLimited(Exception):
 STATUS = "ebay_verify.json"   # <out>/: the check's and apply's counts, what nightly/run_ebay_verify.sh reads (2026-10-17)
 
 
-def write_status(out, **fields):
-    """Merge fields into <out>/ebay_verify.json, the run's account for the shell (it used to grep the
-    tee'd log for the summary line, which under set -e killed the script before the commit when the
-    line was not in the tail window). `summary` is the one-line text for the commit message."""
+def write_status(out, _name=STATUS, **fields):
+    """Merge fields into <out>/ebay_verify.json (or another `_name`: sale_title_check.py keeps its own),
+    the run's account for the shell (it used to grep the tee'd log for the summary line, which under
+    set -e killed the script before the commit when the line was not in the tail window). `summary`
+    is the one-line text for the commit message."""
     out = Path(out)
     out.mkdir(parents=True, exist_ok=True)
-    path = out / STATUS
+    path = out / _name
     cur = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {}
     cur.update(fields)
-    tmp = path.with_name(STATUS + ".tmp")
+    tmp = path.with_name(_name + ".tmp")
     tmp.write_text(json.dumps(cur, indent=1) + "\n", encoding="utf-8")
     tmp.replace(path)
     return cur

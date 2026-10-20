@@ -2,7 +2,8 @@
 """Checks for history/ingest.py merge_sales (2026-09-26): alt.xyz's transaction id is the
 key, URL rules cover rows stored before the id existed, edits arrive, repeat sales on one
 eBay listing are kept, twins alt.xyz no longer lists are dropped, untouched months are not
-rewritten.
+rewritten; and (2026-10-20) a sale a fully fetched card no longer lists at all is marked
+REMOVED, comes back when listed again, and is left alone for cards the run did not fetch.
 
     python3 history/test_ingest_sales.py
 
@@ -95,13 +96,13 @@ def test_merge_sales():
         assert rows_for(sep, "u/brand-new") == [("2026-09-20", "70", "", "id-7")]
         assert os.stat(sd / "2026-06.csv").st_mtime == june_mtime, "untouched month not rewritten"
         assert stats == {"sales_added": 5, "sales_updated": 5, "sales_moved": 1, "sales_dropped": 3,
-                         "sales_month_files_rewritten": 3}, stats
+                         "sales_removed": 0, "sales_month_files_rewritten": 3}, stats
         # A second identical run changes nothing and rewrites nothing.
         sep_m = os.stat(sd / "2026-09.csv").st_mtime
         time.sleep(0.02)
         stats2 = ingest.merge_sales(sd, incoming)
         assert stats2 == {"sales_added": 0, "sales_updated": 0, "sales_moved": 0, "sales_dropped": 0,
-                          "sales_month_files_rewritten": 0}, stats2
+                          "sales_removed": 0, "sales_month_files_rewritten": 0}, stats2
         assert os.stat(sd / "2026-09.csv").st_mtime == sep_m
         # With allow_drop=False (a run cut short by --max-sales) the same store keeps every unmatched row.
         write(sd / "2026-07.csv", [row(url="u/multi", date="2026-07-04", price="90")])
@@ -110,6 +111,102 @@ def test_merge_sales():
         print("merge_sales ok:", stats)
 
 
+def test_removed():
+    """fetched = the (asset, company, grade) lists the run holds in full: their stored sales the run no
+    longer lists anywhere become REMOVED; everyone else's stay; a later run that lists the sale again
+    restores alt.xyz's version; marking is idempotent and only rewrites months with a change."""
+    F = {("A", "PSA", "10.0"), ("B", "PSA", "10.0")}
+    with tempfile.TemporaryDirectory() as d:
+        sd = Path(d)
+        write(sd / "2026-09.csv", [
+            row(url="u/a-still", alt_tx_id="id-a1"),                                     # A: listed again, unchanged
+            row(url="u/a-gone", date="2026-09-20", price="9852", alt_tx_id="id-a2"),      # A: gone from the run -> REMOVED
+            row(url="u/a-other-grade", date="2026-09-21", price="300", alt_tx_id="id-a3"), # A@10: run lists the URL at PSA 9 only -> REMOVED
+            row(asset_id="A", grade="9.0", url="u/a9-gone", date="2026-09-22", alt_tx_id="id-a4"),   # A@9 not fetched: stays
+            row(asset_id="C", url="u/c-gone", date="2026-09-23", alt_tx_id="id-c1"),      # C not fetched: stays
+            row(asset_id="B", url="u/b-gone", date="2026-09-24", skipped_reason="REMOVED", alt_tx_id="id-b1"),   # already marked: no rewrite
+        ])
+        write(sd / "2026-08.csv", [row(asset_id="B", url="u/b-aug", date="2026-08-10", alt_tx_id="id-b2")])        # B: gone -> REMOVED, August rewritten
+        write(sd / "2026-07.csv", [row(asset_id="C", url="u/c-jul", date="2026-07-10", alt_tx_id="id-c2")])        # untouched
+        july_m = os.stat(sd / "2026-07.csv").st_mtime
+        time.sleep(0.02)
+        incoming = by_month([
+            row(url="u/a-still", alt_tx_id="id-a1"),
+            row(asset_id="A", grade="9.0", url="u/a-other-grade", date="2026-09-21", price="300", alt_tx_id="id-a3x"),
+        ])
+        stats = ingest.merge_sales(sd, incoming, fetched=F)
+        sep = ingest.read_csv(sd / "2026-09.csv")
+        assert rows_for(sep, "u/a-still") == [("2026-09-10", "100", "", "id-a1")]
+        assert rows_for(sep, "u/a-gone") == [("2026-09-20", "9852", "REMOVED", "id-a2")], rows_for(sep, "u/a-gone")
+        assert rows_for(sep, "u/a-other-grade") == [("2026-09-21", "300", "REMOVED", "id-a3")], "twin at PSA 9 only: the PSA 10 row is no longer listed"
+        assert rows_for(sep, "u/a9-gone") == [("2026-09-22", "100", "", "id-a4")], "PSA 9 list of A not fetched: untouched"
+        assert rows_for(sep, "u/c-gone") == [("2026-09-23", "100", "", "id-c1")], "card C not fetched: untouched"
+        assert rows_for(ingest.read_csv(sd / "2026-08.csv"), "u/b-aug") == [("2026-08-10", "100", "REMOVED", "id-b2")]
+        assert os.stat(sd / "2026-07.csv").st_mtime == july_m
+        assert stats == {"sales_added": 0, "sales_updated": 0, "sales_moved": 0, "sales_dropped": 0,
+                         "sales_removed": 3, "sales_month_files_rewritten": 2}, stats
+        # the same run again: nothing to mark, nothing rewritten
+        sep_m = os.stat(sd / "2026-09.csv").st_mtime
+        time.sleep(0.02)
+        assert ingest.merge_sales(sd, incoming, fetched=F)["sales_month_files_rewritten"] == 0
+        assert os.stat(sd / "2026-09.csv").st_mtime == sep_m
+        # alt.xyz lists the sale again: the run's (settled) version replaces the REMOVED row
+        back = by_month(incoming["2026-09"] + [row(url="u/a-gone", date="2026-09-20", price="9852", alt_tx_id="id-a2")])
+        st = ingest.merge_sales(sd, back, fetched=F)
+        assert rows_for(ingest.read_csv(sd / "2026-09.csv"), "u/a-gone") == [("2026-09-20", "9852", "", "id-a2")], "restored"
+        assert st["sales_updated"] == 1 and st["sales_removed"] == 0, st
+        # no fetched set (a --max-sales run, or an old caller): nothing is ever marked
+        write(sd / "2026-06.csv", [row(url="u/a-june", date="2026-06-01", alt_tx_id="id-a6")])
+        assert ingest.merge_sales(sd, incoming)["sales_removed"] == 0
+        assert rows_for(ingest.read_csv(sd / "2026-06.csv"), "u/a-june") == [("2026-06-01", "100", "", "id-a6")]
+        print("removed ok:", stats)
+
+
+def test_ingest_fetched_set():
+    """ingest() derives the fetched set from the run's cards.csv: sales_fetched 0 (carried) and the
+    grades the run did not ask are out; a --max-sales run marks nothing."""
+    import contextlib
+    import io
+    with tempfile.TemporaryDirectory() as d:
+        store = Path(d) / "store"
+        (store / "sales").mkdir(parents=True)
+        (store / "daily").mkdir()
+        ingest.write_csv_atomic(store / "assets.csv", ingest.ASSET_COLS, [])
+        write(store / "sales" / "2026-09.csv", [
+            row(asset_id="A", url="u/a", alt_tx_id="id-a"),                                  # A fetched -> REMOVED
+            row(asset_id="A", grade="9.0", url="u/a9", alt_tx_id="id-a9"),                  # A's PSA 9 also fetched -> REMOVED
+            row(asset_id="B", url="u/b", alt_tx_id="id-b"),                                  # B carried -> stays
+            row(asset_id="C", url="u/c", alt_tx_id="id-c"),                                  # C fetched, PSA 10 only
+            row(asset_id="C", grade="9.0", url="u/c9", alt_tx_id="id-c9"),                  # C's PSA 9 not asked -> stays
+        ])
+        run = Path(d) / "run"
+        run.mkdir()
+        cols = ["asset_id", "grading_company", "grade", "num_sales", "scraped_at", "extra_grades", "sales_fetched"] + \
+               [c for c in ingest.IDENTITY_COLS + ingest.DAILY_COLS if c not in ("asset_id",)]
+        cols = list(dict.fromkeys(cols))
+        cards = [{"asset_id": "A", "grading_company": "PSA", "grade": "10.0", "num_sales": "0", "scraped_at": "2026-10-20T01:00:00+00:00", "extra_grades": "9.0", "sales_fetched": "1"},
+                 {"asset_id": "B", "grading_company": "PSA", "grade": "10.0", "num_sales": "1", "scraped_at": "2026-10-20T01:00:00+00:00", "extra_grades": "", "sales_fetched": "0"},
+                 {"asset_id": "C", "grading_company": "PSA", "grade": "10.0", "num_sales": "0", "scraped_at": "2026-10-20T01:00:00+00:00", "extra_grades": "", "sales_fetched": "1"}]
+        ingest.write_csv_atomic(run / "cards.csv", cols, cards)
+        ingest.write_csv_atomic(run / "sales.csv", ingest.SALE_COLS, [])
+        ingest.write_csv_atomic(run / "listings.csv", ingest.LIVE_COLS, [])
+        with contextlib.redirect_stdout(io.StringIO()):
+            st = ingest.ingest(run, "2026-10-20", store)
+        got = {(r["asset_id"], r["grade"]): r["skipped_reason"] for r in ingest.read_csv(store / "sales" / "2026-09.csv")}
+        assert got == {("A", "10.0"): "REMOVED", ("A", "9.0"): "REMOVED", ("B", "10.0"): "", ("C", "10.0"): "REMOVED", ("C", "9.0"): ""}, got
+        assert st["sales_removed"] == 3, st
+        # a run cut short by --max-sales (fewer rows than num_sales for some card) marks nothing
+        cards[2]["num_sales"] = "5"
+        ingest.write_csv_atomic(run / "cards.csv", cols, cards)
+        write(store / "sales" / "2026-09.csv", [row(asset_id="A", url="u/a", alt_tx_id="id-a")])
+        with contextlib.redirect_stdout(io.StringIO()):
+            st = ingest.ingest(run, "2026-10-20", store)
+        assert st["sales_removed"] == 0 and ingest.read_csv(store / "sales" / "2026-09.csv")[0]["skipped_reason"] == "", st
+        print("ingest fetched set ok")
+
+
 if __name__ == "__main__":
     test_merge_sales()
+    test_removed()
+    test_ingest_fetched_set()
     print("all sales-merge checks passed")

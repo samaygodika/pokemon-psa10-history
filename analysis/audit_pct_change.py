@@ -54,10 +54,21 @@ Definitions audited (README, "The data PokeSniper gets"):
                    relisted (RELISTED); a not-completed sale on the newest day wins the tie
                    in that order; blank with no sales (or only unknown statuses).
   psa9_last_sale_single, psa9_last_sale_status  the same over the PSA 9 sales.
+  REMOVED          (2026-10-20) a skipped_reason ingest writes when a complete fetch of the card no
+                   longer lists the sale: excluded from the clean sales like any flag, and NOT a
+                   listed sale, so last_sale_status looks past it.
+  last_sale_newer_price / _date  (2026-10-20) when last_sale_status is pending / unpaid / relisted,
+                   the price and date of the newest-day sale in that state (the dearest on a tie);
+                   blank otherwise. psa9_ pair the same over the PSA 9 sales.
+  last_sale_title_check  (2026-10-20) history/sale_title_checks.csv's status for (the eBay item id
+                   of the newest settled sale, asset, grade), blank when there is none or the sale
+                   is not an eBay item; psa9_ the same over the PSA 9 sales. Read here straight
+                   from that file, not through metrics.py.
 
 Usage: analysis/.venv/bin/python analysis/audit_pct_change.py [--show 20] [--feed cards.csv]
 """
 import argparse
+import re
 import csv
 import statistics
 import sys
@@ -84,6 +95,8 @@ STATUS = {"PENDING": "pending", "PAYMENT_INITIATED": "pending", "NOT_PAID": "unp
 
 
 MIRRORS = ("fanaticscollect.com", "pwccmarketplace.com")
+EBAY_RX = re.compile(r"ebay\.[a-z.]+/itm/(?:[^/?#]+/)?(\d{9,})")   # the eBay legacy item id in a sale URL (2026-10-20)
+TITLE_CHECKS = STORE / "sale_title_checks.csv"
 
 
 def mirror_of(url):
@@ -222,14 +235,22 @@ def derive(raw, today, windows):
     newest = max(ok) if ok else None
     mine["last_sale_unconfirmed"] = 1 if (newest and last and newest != (last[0], last[1]) and newest[0] >= last[0]) else 0
     mine["last_sale_single"] = None if not mine["last_sale_unconfirmed"] else 1 if newest in singles else 0   # None = blank, like the other numeric cells
-    # the newest sale alt.xyz lists, flagged ones included; a not-completed one wins a same-day tie
-    if raw:
-        top = max(sd for sd, _, _, _, _ in raw)
-        states = {fl for sd, _, _, fl, _ in raw if sd == top}
-        mine["last_sale_status"] = next((STATUS[s] for s in ("PENDING", "PAYMENT_INITIATED", "NOT_PAID", "RELISTED") if s in states),
-                                        "completed" if "" in states else "")
+    # the newest sale alt.xyz lists, flagged ones included but not REMOVED ones (alt.xyz no longer lists
+    # those); a not-completed one wins a same-day tie, and is the "newer" sale (dearest on a tie)
+    listed = [t for t in raw if t[3] != "REMOVED"]
+    mine["last_sale_newer_price"], mine["last_sale_newer_date"] = None, ""
+    if listed:
+        top = max(sd for sd, _, _, _, _ in listed)
+        states = {fl for sd, _, _, fl, _ in listed if sd == top}
+        state = next((s for s in ("PENDING", "PAYMENT_INITIATED", "NOT_PAID", "RELISTED") if s in states), None)
+        mine["last_sale_status"] = STATUS[state] if state else ("completed" if "" in states else "")
+        if state:
+            mine["last_sale_newer_price"] = max(p for sd, p, _, fl, _ in listed if sd == top and fl == state)
+            mine["last_sale_newer_date"] = top.isoformat()
     else:
         mine["last_sale_status"] = ""
+    # the eBay item ids of the newest settled sale(s): several only when two sales share date and price
+    mine["_newest_items"] = {EBAY_RX.search(u).group(1) for sd, p, _, fl, u in raw if not fl and (sd, p) == newest and EBAY_RX.search(u or "")} if newest else set()
     ref_now = ref_price(clean, today)
     mine["median_last_3"] = ref_now
     held_in = []
@@ -273,33 +294,52 @@ def main():
     cols += [f"volume_{w}" for w in WINDOWS] + [f"price_chg_{w}_pct" for w in WINDOWS]
     cols += [f"price_chg_{w}_pct" for w in CHG_ONLY] + [f"volume_{w}" for w in CHG_ONLY] + ["cap_price"] + [f"cap_price_{w}_ago" for w in CAP_AGO]
     cols += ["chg_held_windows", "last_sale_single", "last_sale_status"]          # 2026-10-18
+    cols += ["last_sale_newer_price", "last_sale_newer_date", "last_sale_title_check"]          # 2026-10-20
     # the PSA 9 set (2026-10-17): the same figures over the PSA 9 sales, under the psa9_ prefix
     psa9_cols = ["clean_last_sale_price", "last_sale_unconfirmed", "median_last_3"]
     psa9_cols += [f"volume_{w}" for w in CAP_AGO] + [f"price_chg_{w}_pct" for w in CAP_AGO]
     psa9_cols += ["cap_price"] + [f"cap_price_{w}_ago" for w in CAP_AGO] + ["chg_held_windows", "last_sale_single", "last_sale_status"]
+    psa9_cols += ["last_sale_newer_price", "last_sale_newer_date", "last_sale_title_check"]
     cols += ["psa9_" + c for c in psa9_cols]
     mism = defaultdict(list)
     checked = defaultdict(int)
     future_dated = []
     sales10, sales9 = sales["10.0"], sales["9.0"]
-    text_cols = {"clean_last_sale_date", "chg_held_windows", "psa9_chg_held_windows", "last_sale_status", "psa9_last_sale_status"}
+    text_cols = {"clean_last_sale_date", "chg_held_windows", "psa9_chg_held_windows", "last_sale_status", "psa9_last_sale_status",
+                 "last_sale_newer_date", "psa9_last_sale_newer_date", "last_sale_title_check", "psa9_last_sale_title_check"}
+    blank_text = {"chg_held_windows", "last_sale_status", "last_sale_newer_date", "last_sale_title_check"}
+    title_checks = {}
+    if TITLE_CHECKS.exists():
+        with open(TITLE_CHECKS, newline="", encoding="utf-8") as f:
+            title_checks = {(r["item_id"], r["asset_id"], r["grade"]): r["status"] for r in csv.DictReader(f)}
+
+    def title_verdict(mine, aid, grade):
+        """The file's verdict for the newest settled sale; when two sales share the newest date and price,
+        any of their verdicts is accepted (metrics.py picks one of them by source / URL order)."""
+        found = {title_checks.get((iid, aid, grade), "") for iid in mine.pop("_newest_items", set())}
+        return found if found else {""}
 
     for aid, row in feed.items():
         mine, last = derive(sales10.get(aid, []), today, {**WINDOWS, **CHG_ONLY})
+        mine["last_sale_title_check"] = title_verdict(mine, aid, "10.0")
         if last and last[0] > today:
             future_dated.append((aid, last[0].isoformat()))
         raw9 = sales9.get(aid, [])
         if row.get("psa9_scraped_date") or raw9:
             mine9, _ = derive(raw9, today, CAP_AGO)
+            mine9["last_sale_title_check"] = title_verdict(mine9, aid, "9.0")
             mine.update({"psa9_" + c: mine9[c] for c in psa9_cols})
         else:
             # PSA 9 sales never collected for this card: every PSA 9 column must be blank
-            mine.update({"psa9_" + c: ("" if c in ("chg_held_windows", "last_sale_status") else None) for c in psa9_cols})
+            mine.update({"psa9_" + c: ("" if c in blank_text else None) for c in psa9_cols})
 
         for c in cols:
             theirs, ours = row.get(c, ""), mine[c]
             checked[c] += 1
-            if c in text_cols:
+            if isinstance(ours, set):
+                same = theirs in ours
+                ours = "/".join(sorted(ours))
+            elif c in text_cols:
                 same = theirs == ours
             else:
                 t = num(theirs)

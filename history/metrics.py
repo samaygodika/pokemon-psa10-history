@@ -293,6 +293,35 @@ never takes an unconfirmed sale, so these are flags, not prices.
                        = the same two over the PSA 9 sales (blank when PSA 9 sales were not
                          collected, like every psa9_* sale column).
 
+Sale completion checks (2026-10-20, Sid's "Samay Work" list), appended after those four:
+  last_sale_newer_price, last_sale_newer_date
+                       = the newer, not-completed sale behind a last_sale_status of pending /
+                         unpaid / relisted: its price and date (the highest-priced one when
+                         several share the newest day). Blank when the status is completed or
+                         blank. So the row carries the pending sale, not only the dropdown.
+  psa9_last_sale_newer_price, psa9_last_sale_newer_date = the same over the PSA 9 sales.
+  last_sale_title_check = what eBay's own record of the sold item says about the sale in
+                         last_sale_* (history/sale_title_check.py asks eBay for the title of
+                         the newest sale whenever it is held back and is an eBay item): ok (the
+                         title names this card at this grade, by the watchlist sweep's strict
+                         rule), mismatch (the title contradicts the card: another grade, number
+                         or printed total, a 1st Edition / Shadowless the card is not or lacks,
+                         a lot / autograph / other language / reprint word, a year over a year
+                         off, or no word of the card's subject: alt.xyz attached another item's
+                         sale to this card), unclear (too vague to judge either way),
+                         unavailable (eBay no longer serves the item: it forgets sold items
+                         after ~90 days). Blank = not an eBay sale, or not asked yet. The
+                         answer is kept once given (a sold item's title never changes), so it
+                         stays on the sale after a second sale confirms it. A flag, not a price:
+                         no number moves on it.
+  psa9_last_sale_title_check = the same over the PSA 9 sale in psa9_last_sale_*.
+  REMOVED              = a sale alt.xyz no longer lists at all (history/ingest.py marks it when
+                         a run fetched the card's complete sale list and the record is gone;
+                         before 2026-10-20 the store kept it as settled and the card showed an
+                         older price with "held back"). Out of every number like NOT_PAID, not
+                         a state of a listed sale (last_sale_status looks past it), carried in
+                         recent_sales/ with status REMOVED so the dropdown can show it.
+
 "today" is the data date (the newest daily file), not the wall clock, so
 rebuilding latest/ from the same history always gives the same file.
 """
@@ -308,6 +337,7 @@ from urllib.parse import urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ingest import utc_iso, when   # noqa: E402  (the store's UTC time form; CardHobby ends arrive as -04:00)
+from ebay_verify import item_id as ebay_item_id   # noqa: E402  (the eBay item id in a sale URL, for the title check)
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -372,6 +402,11 @@ PSA9_WINDOW_COLS = ([f"psa9_price_chg_{w}_pct" for w in ("60d", "90d", "180d", "
 SINGLE_COLS = ["last_sale_single", "psa9_last_sale_single", "last_sale_status", "psa9_last_sale_status"]   # 2026-10-18, the last columns
 SALE_STATUS = {"ok": "completed", "PENDING": "pending", "PAYMENT_INITIATED": "pending", "NOT_PAID": "unpaid", "RELISTED": "relisted"}
 NOT_COMPLETED = ("PENDING", "PAYMENT_INITIATED", "NOT_PAID", "RELISTED")   # same-day tie order: the state the user most needs first
+NOT_LISTED = ("REMOVED",)   # ingest's mark for a sale alt.xyz dropped outright: not listed, so never the newest listed sale (2026-10-20)
+NEWER_COLS = ["last_sale_newer_price", "last_sale_newer_date", "psa9_last_sale_newer_price", "psa9_last_sale_newer_date"]   # 2026-10-20
+TITLE_COLS = ["last_sale_title_check", "psa9_last_sale_title_check"]   # 2026-10-20, the last columns
+TITLE_CHECKS = "sale_title_checks.csv"   # history/sale_title_check.py's answers: (item_id, asset_id, grade) -> status
+TITLE_STATUSES = ("ok", "mismatch", "unclear", "unavailable")
 
 
 def d(s):
@@ -680,25 +715,63 @@ def single_flag(newest, last, singles):
     return 1 if (newest[0], newest[1]) in singles else 0
 
 
-def sale_status(raw):
-    """last_sale_status for one card and grade (2026-10-18) from its raw sales (date, price,
-    source, sale_type, status, url), every status included: the state of the newest sale
-    alt.xyz lists (SALE_STATUS). A not-completed sale dated on the newest day wins the tie,
-    in NOT_COMPLETED order. Blank when there are no sales, or the newest day's statuses are
-    all ones SALE_STATUS does not know."""
-    if not raw:
-        return ""
-    newest_day = max(t[0] for t in raw)
-    states = {t[4] for t in raw if t[0] == newest_day}
+def newest_listed(raw):
+    """The newest sale alt.xyz lists for one card and grade, from its raw sales (date, price,
+    source, sale_type, status, url), every status but REMOVED (NOT_LISTED: ingest's mark for a
+    sale alt.xyz dropped outright, so it cannot be the newest listed one). Returns
+    (last_sale_status, newer): the status per SALE_STATUS, a not-completed sale dated on the
+    newest day winning the tie in NOT_COMPLETED order; newer = that not-completed sale (the
+    highest-priced one when several share the day and state) when the status is not
+    completed, else None (2026-10-18; newer added 2026-10-20 for last_sale_newer_*). Status
+    blank when there are no listed sales, or the newest day's statuses are all ones
+    SALE_STATUS does not know."""
+    listed = [t for t in raw if t[4] not in NOT_LISTED]
+    if not listed:
+        return "", None
+    newest_day = max(t[0] for t in listed)
+    top = [t for t in listed if t[0] == newest_day]
+    states = {t[4] for t in top}
     for st in NOT_COMPLETED:
         if st in states:
-            return SALE_STATUS[st]
-    return SALE_STATUS["ok"] if "ok" in states else ""
+            return SALE_STATUS[st], max((t for t in top if t[4] == st), key=lambda t: t[1])
+    return (SALE_STATUS["ok"] if "ok" in states else ""), None
 
 
-def status_counts(rows, col):
-    """summary.json: how many rows carry each last_sale_status value (blank rows not counted)."""
-    return {s: sum(1 for r in rows if r[col] == s) for s in ("completed", "pending", "unpaid", "relisted")}
+def sale_status(raw):
+    """last_sale_status for one card and grade (2026-10-18): see newest_listed."""
+    return newest_listed(raw)[0]
+
+
+def newer_cols(raw, prefix=""):
+    """last_sale_status plus last_sale_newer_price / last_sale_newer_date (2026-10-20, Sid's
+    ask: the pending sale's price and date in the row, not only in the dropdown): the newer,
+    not-completed sale behind a status of pending / unpaid / relisted; both blank when the
+    status is completed or blank."""
+    status, newer = newest_listed(raw)
+    return {prefix + "last_sale_status": status,
+            prefix + "last_sale_newer_price": fmt(newer[1]) if newer else "",
+            prefix + "last_sale_newer_date": newer[0].isoformat() if newer else ""}
+
+
+def load_title_checks(store):
+    """history/sale_title_checks.csv (sale_title_check.py): (item_id, asset_id, grade) -> status."""
+    path = store / TITLE_CHECKS
+    return {(r["item_id"], r["asset_id"], r["grade"]): r["status"] for r in read_csv(path)} if path.exists() else {}
+
+
+def title_check(newest, aid, grade, checks):
+    """last_sale_title_check (2026-10-20): what eBay's title of the sold item said about the
+    sale in last_sale_* (newest = that raw sale; its URL carries the eBay item id). Blank when
+    the sale is not an eBay item or has not been asked about."""
+    if not newest or not checks:
+        return ""
+    iid = ebay_item_id(newest[5])
+    return checks.get((iid, aid, grade), "") if iid else ""
+
+
+def status_counts(rows, col, values=("completed", "pending", "unpaid", "relisted")):
+    """summary.json: how many rows carry each value of a status column (blank rows not counted)."""
+    return {s: sum(1 for r in rows if r[col] == s) for s in values}
 
 
 def pct(now, before):
@@ -722,7 +795,7 @@ def to_int(s):
         return None
 
 
-def psa9_cols(aid, num, scraped_day, s9, raw9, ref10, today, held9=None, singles9=None):
+def psa9_cols(aid, num, scraped_day, s9, raw9, ref10, today, held9=None, singles9=None, checks=None):
     """The PSA 9 columns for one card (PSA9_COLS and PSA9_WINDOW_COLS). pop_at_grade_9
     comes with every run (it is in the same pop response as PSA 10); the sale columns
     only exist for cards some run scraped with --also-grade 9 (psa9_scraped_date), so
@@ -730,8 +803,10 @@ def psa9_cols(aid, num, scraped_day, s9, raw9, ref10, today, held9=None, singles
     held9 = the PSA 9 sales the outlier filter still holds back on the high side: the
     change columns count them, exactly as the PSA 10 ones do (change_since). singles9 =
     the (date, price) of those held in the stale/thin band, for psa9_last_sale_single;
-    psa9_last_sale_status comes from raw9 (2026-10-18)."""
-    out = {c: "" for c in PSA9_COLS + PSA9_WINDOW_COLS + ["psa9_last_sale_single", "psa9_last_sale_status"]}
+    psa9_last_sale_status and the psa9_last_sale_newer_* pair come from raw9 (2026-10-18 /
+    10-20); checks = load_title_checks for psa9_last_sale_title_check (2026-10-20)."""
+    out = {c: "" for c in PSA9_COLS + PSA9_WINDOW_COLS + ["psa9_last_sale_single", "psa9_last_sale_status",
+                                                          "psa9_last_sale_newer_price", "psa9_last_sale_newer_date", "psa9_last_sale_title_check"]}
     out["pop_at_grade_9"] = num.get("pop_at_grade_9", "")
     if not scraped_day and not raw9:
         return out
@@ -744,7 +819,8 @@ def psa9_cols(aid, num, scraped_day, s9, raw9, ref10, today, held9=None, singles
     out["psa9_clean_last_sale_price"] = fmt(last[1]) if last else ""
     out["psa9_last_sale_unconfirmed"] = 1 if (newest and last and (newest[0], newest[1]) != (last[0], last[1]) and newest[0] >= last[0]) else 0
     out["psa9_last_sale_single"] = single_flag(newest, last, singles9 or ())          # 2026-10-18
-    out["psa9_last_sale_status"] = sale_status(raw9)
+    out.update(newer_cols(raw9, prefix="psa9_"))                                      # status + newer pair (2026-10-20)
+    out["psa9_last_sale_title_check"] = title_check(newest, aid, "9.0", checks or {})
     ref9 = ref_price(s9, today)
     out["psa9_median_last_3"] = fmt(ref9)
     # The window columns, by the PSA 10 functions over the PSA 9 sales (2026-10-17; before that
@@ -961,6 +1037,7 @@ def build(store=HERE, out=LATEST):
 
     live = load_live(store)
     ebay_live = load_ebay_live(store)
+    title_checks = load_title_checks(store)          # 2026-10-20
     # Newest numbers per asset, the first day each asset appears, and per grade the newest
     # successful live-listings check (a run whose check failed, or that never asked at that
     # grade, leaves the column blank).
@@ -1011,7 +1088,8 @@ def build(store=HERE, out=LATEST):
         newest = max(raw_ok) if raw_ok else None
         row["last_sale_unconfirmed"] = 1 if (newest and last and (newest[0], newest[1]) != (last[0], last[1]) and newest[0] >= last[0]) else 0
         row["last_sale_single"] = single_flag(newest, last, single_high.get(aid, ()))        # 2026-10-18
-        row["last_sale_status"] = sale_status(raw_sales.get(aid, []))
+        row.update(newer_cols(raw_sales.get(aid, [])))                                      # status + newer pair (2026-10-20)
+        row["last_sale_title_check"] = title_check(newest, aid, "10.0", title_checks)
         ref_now = ref_price(s, today)
         row["median_last_3"] = fmt(ref_now)
         # The change columns also count the sales the filter holds back on the
@@ -1060,7 +1138,7 @@ def build(store=HERE, out=LATEST):
         row["sales_total"] = len(s)
         row["history_days"] = (today - d(first_day[aid])).days
         row.update(psa9_cols(aid, num, psa9_day.get(aid), sales9.get(aid, []), raw_sales9.get(aid, []), ref_now, today,
-                             held_high9.get(aid), single_high9.get(aid)))
+                             held_high9.get(aid), single_high9.get(aid), title_checks))
         if row["psa9_last_sale_price"]:
             filled["psa9_last_sale_price"] += 1
         for c in ("psa9_price_chg_30d_pct", "psa9_price_chg_1y_pct", "psa9_chg_held_windows"):
@@ -1089,7 +1167,7 @@ def build(store=HERE, out=LATEST):
 
     out.mkdir(parents=True, exist_ok=True)
     with open(out / "cards.csv", "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=CARD_COLS + DERIVED_COLS + PSA9_COLS + LIVE_COLS + PSA9_LIVE_COLS + CAP_COLS + HELD_COLS + LISTING_AGE_COLS + EBAY_COLS + BIN_SUSPECT_COLS + BIN_REF_DATE_COLS + PSA9_WINDOW_COLS + SINGLE_COLS, extrasaction="ignore")
+        w = csv.DictWriter(f, fieldnames=CARD_COLS + DERIVED_COLS + PSA9_COLS + LIVE_COLS + PSA9_LIVE_COLS + CAP_COLS + HELD_COLS + LISTING_AGE_COLS + EBAY_COLS + BIN_SUSPECT_COLS + BIN_REF_DATE_COLS + PSA9_WINDOW_COLS + SINGLE_COLS + NEWER_COLS + TITLE_COLS, extrasaction="ignore")
         w.writeheader()
         w.writerows(rows)
 
@@ -1150,6 +1228,10 @@ def build(store=HERE, out=LATEST):
         "rows_psa9_single_last_sale": sum(1 for r in rows if r["psa9_last_sale_single"] == 1),
         "last_sale_status_counts": status_counts(rows, "last_sale_status"),
         "psa9_last_sale_status_counts": status_counts(rows, "psa9_last_sale_status"),
+        "rows_newer_sale": sum(1 for r in rows if r["last_sale_newer_price"]),          # 2026-10-20
+        "rows_psa9_newer_sale": sum(1 for r in rows if r["psa9_last_sale_newer_price"]),
+        "last_sale_title_check_counts": status_counts(rows, "last_sale_title_check", TITLE_STATUSES),
+        "psa9_last_sale_title_check_counts": status_counts(rows, "psa9_last_sale_title_check", TITLE_STATUSES),
         "rows_listings_checked": sum(1 for r in rows if r["listings_checked_at"]),
         "rows_with_live_auction": sum(1 for r in rows if r["live_auction_count"]),
         "rows_with_bin_listing": sum(1 for r in rows if r["lowest_bin_price"]),
