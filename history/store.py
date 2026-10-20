@@ -484,8 +484,12 @@ def stage(cfg):
     if cfg.read_state() is None:
         raise Precondition("history/sales + daily were not pulled in this checkout: nothing may be committed on top of them")
     subprocess.run(["git", "add", "latest"], check=True, cwd=ROOT)
-    excl = [f":!history/{sub}" for sub in STORE_DIRS]
-    subprocess.run(["git", "add", "--", "history", *excl], check=True, cwd=ROOT)
+    # history/sales and history/daily are gitignored since the untrack commit, so a plain add skips
+    # them; naming them as exclude pathspecs made git exit 1 ("paths are ignored", 2026-10-20 refresh
+    # 39350660318). On a checkout that still tracks them, the reset keeps their changes out.
+    subprocess.run(["git", "add", "--", "history"], check=True, cwd=ROOT)
+    if tracked:
+        subprocess.run(["git", "reset", "-q", "--", *[f"history/{sub}" for sub in STORE_DIRS]], check=True, cwd=ROOT)
     return 0
 
 
