@@ -1,6 +1,6 @@
 {
   "data_date": "2026-10-21",
-  "generated_at": "2026-10-21T08:59:07+00:00",
+  "generated_at": "2026-10-21T13:10:55+00:00",
   "daily_files": 39,
   "first_daily": "2026-09-11",
   "assets": 68238,
@@ -33,31 +33,31 @@
   "rows_newer_sale": 538,
   "rows_psa9_newer_sale": 216,
   "last_sale_title_check_counts": {
-    "ok": 0,
-    "mismatch": 0,
-    "unclear": 0,
-    "unavailable": 0
+    "ok": 158,
+    "mismatch": 47,
+    "unclear": 19,
+    "unavailable": 3
   },
   "psa9_last_sale_title_check_counts": {
-    "ok": 0,
-    "mismatch": 0,
-    "unclear": 0,
-    "unavailable": 0
+    "ok": 122,
+    "mismatch": 34,
+    "unclear": 16,
+    "unavailable": 1
   },
   "rows_listings_checked": 68231,
   "rows_with_live_auction": 6512,
-  "rows_with_bin_listing": 17741,
-  "rows_bin_ebay_verified": 14631,
-  "rows_psa9_bin_ebay_verified": 8021,
+  "rows_with_bin_listing": 17646,
+  "rows_bin_ebay_verified": 15184,
+  "rows_psa9_bin_ebay_verified": 8507,
   "rows_bin_suspect": 2399,
-  "rows_psa9_bin_suspect": 959,
-  "rows_bin_first_seen_known": 17741,
+  "rows_psa9_bin_suspect": 958,
+  "rows_bin_first_seen_known": 17646,
   "rows_next_auction_bid_suspect": 40,
-  "rows_psa9_bin_first_seen_known": 10443,
+  "rows_psa9_bin_first_seen_known": 10377,
   "rows_psa9_next_auction_bid_suspect": 23,
   "rows_psa9_listings_checked": 34742,
   "rows_with_psa9_live_auction": 3453,
-  "rows_with_psa9_bin_listing": 10443,
+  "rows_with_psa9_bin_listing": 10377,
   "rows_with": {
     "price_chg_30d_pct": 15438,
     "price_chg_90d_pct": 19978,
@@ -178,8 +178,8 @@
   },
   "files": {
     "cards.csv": {
-      "sha256": "58c3900c1e8cd839f85ed92b8f498907b53d97278eeefdb7b7d4a3075ff40568",
-      "bytes": 44025893,
+      "sha256": "fca840541e90f6e6bbdf004eba93b22a8fa9868876b92ae3c1b6ea30a36e368f",
+      "bytes": 44048097,
       "rows": 68238
     },
     "characters.csv": {
@@ -203,9 +203,9 @@
       "rows": 27015
     },
     "watchlist_listings.csv": {
-      "sha256": "b01387b9bb74a39b991a016e5c42c72184e97b64e9e0fea3dc10e6fa94517546",
-      "bytes": 34413,
-      "rows": 168
+      "sha256": "00ff6d35884d8f71f819cafbe6e207b3e67d0797c675594cc1dd78d55e4be615",
+      "bytes": 36211,
+      "rows": 177
     },
     "all_grades/grades.csv": {
       "sha256": "484336f2c0d070335d76420dce3c1cadd6dc470bb1ab1d549679d8708b228bc1",
