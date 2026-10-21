@@ -357,13 +357,22 @@ def pull(cfg, force=False):
     if tarball.exists() and ptr.get("sha256") and file_sha256(tarball) == ptr["sha256"]:
         log(f"generation {gen}: using the cached {asset}")
     else:
-        log(f"generation {gen}: downloading {asset}")
-        backend.download(asset, tarball)
-        if ptr.get("sha256"):
-            got = file_sha256(tarball)
-            if got != ptr["sha256"]:
-                tarball.unlink()
-                raise StoreError(f"{asset} downloaded with sha256 {got[:12]}, pointer says {ptr['sha256'][:12]}")
+        # Into a name of this process's own, verified, then renamed into place (2026-10-21): two pulls
+        # at once (two sessions on one checkout) wrote the same path and each read the other's half,
+        # so the checksum failed with a different value every time while the asset itself was fine.
+        # One retry covers a dropped connection.
+        part = tarball.with_name(f"{asset}.part-{os.getpid()}")
+        for attempt in (1, 2):
+            log(f"generation {gen}: downloading {asset}" + (" (retry)" if attempt == 2 else ""))
+            backend.download(asset, part)
+            got = file_sha256(part) if ptr.get("sha256") else None
+            if got is None or got == ptr["sha256"]:
+                os.replace(part, tarball)
+                break
+            part.unlink()
+            if attempt == 2:
+                raise StoreError(f"{asset} downloaded with sha256 {got[:12]}, pointer says {ptr['sha256'][:12]} (twice)")
+            log(f"generation {gen}: {asset} came down with sha256 {got[:12]}, pointer says {ptr['sha256'][:12]}: once more")
     extract_tarball(tarball, cfg.history)
     content = content_hash(cfg.history)
     if ptr.get("content") and content != ptr["content"]:
