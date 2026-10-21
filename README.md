@@ -21,14 +21,17 @@ snapshots/            raw per-run output (gitignored, hundreds of MB)
 ## The data PokeSniper gets
 
 `latest/cards.csv` is the scraper's `cards.csv` (one row per alt.xyz asset, newest
-numbers per asset) plus history-derived columns. Blank always means "the data can't
+numbers per asset) plus history-derived columns. A row stays once alt.xyz drops the record
+from its index: its `scraped_at` then predates the last weekly full run (27 rows on
+2026-10-20, 14 of them with a literal `last_sale_*` and nothing in the store), so a row
+whose `scraped_at` is older than the newest Sunday is a card alt.xyz no longer lists. Blank always means "the data can't
 say", never 0:
 
 | column | meaning |
 |---|---|
-| `pop_at_grade`, `company_total_pop` | PSA 10 pop and all-PSA-grades pop from the card's population table. **Blank when alt.xyz has no PSA rows for the record** (CGC/BGS only); `0` when PSA rows exist and the 10 count is zero (since 2026-09-18 such cards are in the feed, with no sales, instead of being skipped). |
+| `pop_at_grade`, `company_total_pop` | PSA 10 pop and all-PSA-grades pop from the card's population table. **Blank when alt.xyz has no PSA rows for the record** (CGC/BGS only); `0` when PSA rows exist and the 10 count is zero (since 2026-09-18 such cards are in the feed instead of being skipped). Usually such a card has no PSA 10 sales, but not always: 38 rows on 2026-10-20 carry clean PSA 10 sales under a pop of 0 (alt.xyz split or duplicate pop records, e.g. the 1999 Base Set 1st Edition Holo Alakazam: pop 0, PSA 9 pop 510, 8 sales of $8,100-$14,400); the sales are real, the pop is what alt.xyz shows, so a market cap from pop x price is 0 there. |
 | `index_total_pop`, `index_transaction_count` | alt.xyz search-index counts. `index_total_pop`: graded copies across every company and grade, present even when the pop columns are blank (67,856 of 67,859 rows). `index_transaction_count`: the index's per-asset transaction counter, which alt.xyz fills for exactly one card (the 2023 Obsidian Flames Charizard ex, 1 row of 67,859 on 2026-10-17), so treat it as blank; it is kept because the skip-unchanged rule would use it if alt.xyz ever filled it. |
-| `last_sale_price/date/source` | alt.xyz's literal newest PSA 10 sale. |
+| `last_sale_price/date/source` | the newest PSA 10 sale alt.xyz lists for the card that it does not itself flag (RELISTED / NOT_PAID / PENDING, or REMOVED): the sale `last_sale_unconfirmed`, `last_sale_single` and `last_sale_title_check` are about, same as `psa9_last_sale_*`. Until 2026-10-21 these were alt.xyz's own last-sale field as scraped, which lags the card's sale list on a few cards a day (7 of 67,859 on 2026-10-20), so the flags could describe a newer sale than the one shown; a card whose every listed sale is flagged keeps the scraped field. |
 | `num_sales`, `avg_last_3_sales`, `highest_sale`, `lowest_sale` | the scraper's own PSA 10 sale summary at scrape time, over every sale alt.xyz returned for the card minus the ones alt.xyz itself flags (RELISTED / NOT_PAID / PENDING): how many, the mean price of the newest 3, the highest and the lowest price ever. Literal alt.xyz figures with no outlier filter and no mirror rule: a mislabeled $15 lot is a card's `lowest_sale`, a PWCC lot listed twice counts twice. For anything shown or ranked, use `sales_total`, `median_last_3`, the `clean_*` columns and `cap_price`, which are built from the clean sales. (Documented 2026-10-17; the columns have been there from the start.) |
 | `scraped_at` | when this card's row was fetched from alt.xyz. **UTC with offset (`2026-10-17T02:14:09+00:00`) from the 2026-10-17 nightly on**; rows written before that carry naive local time with no offset (UTC on GitHub Actions, Pacific on the laptop fallback) and sort before any new stamp as text. The listings refresh can move `listings_checked_at` past it (see *Listings refresh*). |
 | `alt_url`, `alt_public_url` | `alt_url` is the card's alt.xyz research page (`alt.xyz/research/<asset_id>`: pops and the full sale history; needs a free alt.xyz account since 2026-10-02). `alt_public_url` is the public page of one of the card's live external listings at the check (`alt.xyz/itm/<listing id>/external`, viewable without an account), blank when the card had no live listing then (filled on 19,031 of 67,859 rows on 2026-10-17); a listing page, so it can outlive the listing. |
@@ -157,7 +160,11 @@ cards both match; the docstring has the rules and the differences).
 
 `latest/card_catalog.csv` (same script, from 2026-10-02) is the card list PokeSniper builds
 from instead of PokemonPriceTracker: one row per card, every English TCG row of `cards.csv`
-plus every TCGplayer English single no row is matched to, each with a `status` that says what
+plus every TCGplayer English single no row is matched to (so a TCGplayer product can appear on
+several `linked` rows: 6,724 are the Normal and Reverse Holo rows of one product, told apart by
+`print_run`, and 1,276 are alt.xyz duplicate records with the same `print_run`, e.g. Expedition
+Bulbasaur #94 as `0cd601e4` pop 206 and `edd1e397` pop 8, both Reverse Holo; counted 2026-10-20,
+a `duplicate_of` marker is on the list), each with a `status` that says what
 it is. The image of a row with a `tcgplayer_id` is
 `https://tcgplayer-cdn.tcgplayer.com/product/<tcgplayer_id>_in_800x800.jpg`; no id, no image.
 
@@ -325,7 +332,12 @@ alt.xyz dropped the record outright, which until then left the card showing an o
 price with "held back" (on 2026-10-16, 18 cards; e.g. a $9,852 Bandai Flareon sale alt.xyz
 removed on 10-13 while the store still held it as settled). A REMOVED sale is out of every
 number like NOT_PAID, is not a listed sale for `last_sale_status`, appears in `recent_sales/`
-with that status, and comes back as alt.xyz's version if a later run lists it again.
+with that status, and comes back as alt.xyz's version if a later run lists it again. The run
+must list at least one sale at that grade (2026-10-21): an empty list marks nothing, because
+the scraper vouches for a grade whose pop table says zero copies without fetching it (379
+cards on 2026-10-20, three of them holding 152 clean PSA 9 sales on split records) and an
+empty answer for a card that had sales the day before is as often a record change or a
+lagging replica as a removal; such a list lifts a REMOVED mark at that grade instead.
 
 Laptop fallback: `nightly/com.samaygodika.altscrape.plist` runs the same script at
 02:00 via launchd (a closed lid still sleeps; launchd resumes on wake). The

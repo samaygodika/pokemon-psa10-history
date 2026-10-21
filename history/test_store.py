@@ -128,6 +128,11 @@ def test_moved_and_local_changes():
         (Path(a["STORE_DIR"]) / "daily" / "2026-10-16.csv").write_text("asset_id,pop_at_grade\nA,7\n")
         code, out = run(a, "push")
         assert code == 0 and "generation 3 is current" in out, out
+        # b never changed its store since it pushed generation 2: nothing of its to push, whatever the release
+        # did meanwhile (2026-10-21: the eBay verify died here with exit 3 whenever a generation landed during its run)
+        code, out = run(b, "push")
+        assert code == 0 and "unchanged since the pull of generation 2 (the release is at 3)" in out, out
+        assert not any("-g4" in q.name for q in (root / "release").iterdir())
 
 
 def test_prune_keeps_recent_and_first_of_month():

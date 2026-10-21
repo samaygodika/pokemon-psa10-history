@@ -433,8 +433,14 @@ def summarise(asset, pops, sales, company, grade, source_input, listing, public_
     # e.g. the SWSH061 Shining Fates Pikachu V with 14,005 graded copies in the index.)
     pops_known = any(p["gradingCompany"] == company for p in pops)
 
-    # Exclude sales Alt itself flags as skipped (outliers, bad data) from the stats.
-    clean = [s for s in sales if s.get("price") and not s.get("consolidatedSkippedReason")]
+    # Exclude sales Alt itself flags as skipped (outliers, bad data) from the stats, and (2026-10-21)
+    # sales of another grade or company: alt.xyz's grade-filtered answer sometimes carries a row of
+    # another grade (a 2000 Black Star Promo Venusaur's PSA 10 list held a PSA 9 $275,000 PWCC lot,
+    # which became the row's last_sale_* unflagged while sales.csv filed it, rightly, under 9.0).
+    def at_grade(s):
+        a = s.get("attributes") or {}
+        return (a.get("gradingCompany") or company) == company and str(a.get("gradeNumber") or grade) == str(grade)
+    clean = [s for s in sales if s.get("price") and not s.get("consolidatedSkippedReason") and at_grade(s)]
     clean.sort(key=lambda s: s["date"], reverse=True)
     prices = [float(s["price"]) for s in clean]
     last = clean[0] if clean else None

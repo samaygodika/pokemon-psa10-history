@@ -154,7 +154,7 @@ def _dedupe_mirrors(rows):
 def clean_sales(sales):
     """Sequential outlier filter, re-implemented from the README description.
     Returns (kept, dropped, held_highs, singles): singles = the {(date, price)} of the held
-    highs rejected while the reference was the stale or thin one (2026-10-18)."""
+    highs on a rarely traded card: fewer than OUT_MIN_ACCEPTED accepted sales in the year before (2026-10-18, count-based since 2026-10-21)."""
     accepted, kept = [], []
     rejected = {}   # position -> (sale, side, band) for every rejection; confirmed runs are removed
     run_side, run, run_pos = None, [], []
@@ -181,7 +181,11 @@ def clean_sales(sales):
                 if run_side != side:
                     run_side, run, run_pos = side, [], []
                 run.append((sale, listing))
-                rejected[n] = (sale, side, band)
+                # single = a rarely traded card: fewer than OUT_MIN_ACCEPTED accepted sales in the year before
+                # this one, over every accepted sale (2026-10-21; was the band, which is "normal" from one
+                # in-year sale on after a confirmed move)
+                rare = sum(1 for a in accepted[-OUT_REF_N:] if (sd - a[0]).days <= OUT_REF_MAX_AGE) < OUT_MIN_ACCEPTED
+                rejected[n] = (sale, side, rare)
                 run_pos.append(n)
                 need = OUT_THIN_RUN if few else OUT_RUN_LOW if side == "low" else OUT_RUN_HIGH
                 if len({lst for _, lst in run}) >= need:
@@ -200,7 +204,7 @@ def clean_sales(sales):
         accepted.append(sale)
     kept.sort(key=lambda t: (t[0], t[1], t[2]))
     highs = sorted((sale for sale, side, _ in rejected.values() if side == "high"), key=lambda t: (t[0], t[1], t[2]))
-    singles = {(sale[0], sale[1]) for sale, side, band in rejected.values() if side == "high" and band != "normal"}
+    singles = {(sale[0], sale[1]) for sale, side, rare in rejected.values() if side == "high" and rare}
     return kept, dropped, highs, singles
 
 

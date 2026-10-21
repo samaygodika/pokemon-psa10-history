@@ -395,6 +395,14 @@ def push(cfg, note=""):
         cfg.write_state(remote_gen, ptr["asset"], ptr.get("sha256"), local)
         log(f"unchanged since generation {remote_gen}: nothing to push")
         return 0
+    if state["generation"] >= 1 and local == state.get("content"):
+        # This checkout never changed the store since it pulled: nothing of ours to push, whatever the
+        # release has done meanwhile (2026-10-21: the eBay verify, which runs beside the nightly and the
+        # refreshes since it got its own concurrency group and never touches the store, died here with
+        # exit 3 whenever a generation landed during its 15 minutes, and its day's answers stayed in
+        # the artifact). A changed local store on a moved release is still refused below.
+        log(f"unchanged since the pull of generation {state['generation']} (the release is at {remote_gen}): nothing to push")
+        return 0
     if remote_gen != state["generation"]:
         raise Moved(f"the release is at generation {remote_gen}, this checkout pulled {state['generation']}: "
                     "`pull --force`, re-ingest the run, push again")

@@ -3,7 +3,8 @@
 key, URL rules cover rows stored before the id existed, edits arrive, repeat sales on one
 eBay listing are kept, twins alt.xyz no longer lists are dropped, untouched months are not
 rewritten; and (2026-10-20) a sale a fully fetched card no longer lists at all is marked
-REMOVED, comes back when listed again, and is left alone for cards the run did not fetch.
+REMOVED, comes back when listed again, is left alone for cards the run did not fetch, and (2026-10-21)
+is never marked from an empty list, which lifts a mark there instead.
 
     python3 history/test_ingest_sales.py
 
@@ -96,13 +97,13 @@ def test_merge_sales():
         assert rows_for(sep, "u/brand-new") == [("2026-09-20", "70", "", "id-7")]
         assert os.stat(sd / "2026-06.csv").st_mtime == june_mtime, "untouched month not rewritten"
         assert stats == {"sales_added": 5, "sales_updated": 5, "sales_moved": 1, "sales_dropped": 3,
-                         "sales_removed": 0, "sales_month_files_rewritten": 3}, stats
+                         "sales_removed": 0, "sales_unmarked": 0, "sales_month_files_rewritten": 3}, stats
         # A second identical run changes nothing and rewrites nothing.
         sep_m = os.stat(sd / "2026-09.csv").st_mtime
         time.sleep(0.02)
         stats2 = ingest.merge_sales(sd, incoming)
         assert stats2 == {"sales_added": 0, "sales_updated": 0, "sales_moved": 0, "sales_dropped": 0,
-                          "sales_removed": 0, "sales_month_files_rewritten": 0}, stats2
+                          "sales_removed": 0, "sales_unmarked": 0, "sales_month_files_rewritten": 0}, stats2
         assert os.stat(sd / "2026-09.csv").st_mtime == sep_m
         # With allow_drop=False (a run cut short by --max-sales) the same store keeps every unmatched row.
         write(sd / "2026-07.csv", [row(url="u/multi", date="2026-07-04", price="90")])
@@ -144,7 +145,7 @@ def test_removed():
         assert rows_for(ingest.read_csv(sd / "2026-08.csv"), "u/b-aug") == [("2026-08-10", "100", "REMOVED", "id-b2")]
         assert os.stat(sd / "2026-07.csv").st_mtime == july_m
         assert stats == {"sales_added": 0, "sales_updated": 0, "sales_moved": 0, "sales_dropped": 0,
-                         "sales_removed": 3, "sales_month_files_rewritten": 2}, stats
+                         "sales_removed": 3, "sales_unmarked": 0, "sales_month_files_rewritten": 2}, stats
         # the same run again: nothing to mark, nothing rewritten
         sep_m = os.stat(sd / "2026-09.csv").st_mtime
         time.sleep(0.02)
@@ -164,7 +165,9 @@ def test_removed():
 
 def test_ingest_fetched_set():
     """ingest() derives the fetched set from the run's cards.csv: sales_fetched 0 (carried) and the
-    grades the run did not ask are out; a --max-sales run marks nothing."""
+    grades the run did not ask are out; a grade the run vouches for but lists no sale at marks nothing
+    and lifts a REMOVED mark there instead (2026-10-21: the scraper vouches for a known-zero PSA 9
+    without fetching it, and an empty answer is not a removal); a --max-sales run marks nothing."""
     import contextlib
     import io
     with tempfile.TemporaryDirectory() as d:
@@ -173,37 +176,50 @@ def test_ingest_fetched_set():
         (store / "daily").mkdir()
         ingest.write_csv_atomic(store / "assets.csv", ingest.ASSET_COLS, [])
         write(store / "sales" / "2026-09.csv", [
-            row(asset_id="A", url="u/a", alt_tx_id="id-a"),                                  # A fetched -> REMOVED
-            row(asset_id="A", grade="9.0", url="u/a9", alt_tx_id="id-a9"),                  # A's PSA 9 also fetched -> REMOVED
+            row(asset_id="A", url="u/a", alt_tx_id="id-a"),                                  # A fetched, run lists another PSA 10 sale -> REMOVED
+            row(asset_id="A", grade="9.0", url="u/a9", alt_tx_id="id-a9"),                  # A's PSA 9 also fetched and listed -> REMOVED
             row(asset_id="B", url="u/b", alt_tx_id="id-b"),                                  # B carried -> stays
-            row(asset_id="C", url="u/c", alt_tx_id="id-c"),                                  # C fetched, PSA 10 only
+            row(asset_id="C", url="u/c", alt_tx_id="id-c"),                                  # C fetched, empty answer -> stays
+            row(asset_id="C", url="u/c-old", date="2026-09-02", skipped_reason="REMOVED", alt_tx_id="id-c0"),   # ... and a mark there is lifted
             row(asset_id="C", grade="9.0", url="u/c9", alt_tx_id="id-c9"),                  # C's PSA 9 not asked -> stays
+            row(asset_id="D", url="u/d", skipped_reason="REMOVED", alt_tx_id="id-d"),       # D not in the run: its mark stays
+            row(asset_id="E", grade="9.0", url="u/e9", date="2026-09-03", alt_tx_id="id-e9"),   # E: PSA 9 known zero (in extra_grades, never fetched) -> stays
+            row(asset_id="E", grade="9.0", url="u/e9-old", date="2026-09-04", skipped_reason="REMOVED", alt_tx_id="id-e9o"),  # ... and its mark is lifted
         ])
         run = Path(d) / "run"
         run.mkdir()
         cols = ["asset_id", "grading_company", "grade", "num_sales", "scraped_at", "extra_grades", "sales_fetched"] + \
                [c for c in ingest.IDENTITY_COLS + ingest.DAILY_COLS if c not in ("asset_id",)]
         cols = list(dict.fromkeys(cols))
-        cards = [{"asset_id": "A", "grading_company": "PSA", "grade": "10.0", "num_sales": "0", "scraped_at": "2026-10-20T01:00:00+00:00", "extra_grades": "9.0", "sales_fetched": "1"},
+        cards = [{"asset_id": "A", "grading_company": "PSA", "grade": "10.0", "num_sales": "1", "scraped_at": "2026-10-20T01:00:00+00:00", "extra_grades": "9.0", "sales_fetched": "1"},
                  {"asset_id": "B", "grading_company": "PSA", "grade": "10.0", "num_sales": "1", "scraped_at": "2026-10-20T01:00:00+00:00", "extra_grades": "", "sales_fetched": "0"},
-                 {"asset_id": "C", "grading_company": "PSA", "grade": "10.0", "num_sales": "0", "scraped_at": "2026-10-20T01:00:00+00:00", "extra_grades": "", "sales_fetched": "1"}]
+                 {"asset_id": "C", "grading_company": "PSA", "grade": "10.0", "num_sales": "0", "scraped_at": "2026-10-20T01:00:00+00:00", "extra_grades": "", "sales_fetched": "1"},
+                 {"asset_id": "E", "grading_company": "PSA", "grade": "10.0", "num_sales": "1", "scraped_at": "2026-10-20T01:00:00+00:00", "extra_grades": "9.0", "sales_fetched": "1"}]
         ingest.write_csv_atomic(run / "cards.csv", cols, cards)
-        ingest.write_csv_atomic(run / "sales.csv", ingest.SALE_COLS, [])
+        ingest.write_csv_atomic(run / "sales.csv", ingest.SALE_COLS, [
+            row(asset_id="A", url="u/a-new", date="2026-09-15", alt_tx_id="id-a-new"),
+            row(asset_id="A", grade="9.0", url="u/a9-new", date="2026-09-16", alt_tx_id="id-a9-new"),
+            row(asset_id="E", url="u/e", date="2026-09-17", alt_tx_id="id-e"),
+        ])
         ingest.write_csv_atomic(run / "listings.csv", ingest.LIVE_COLS, [])
         with contextlib.redirect_stdout(io.StringIO()):
             st = ingest.ingest(run, "2026-10-20", store)
-        got = {(r["asset_id"], r["grade"]): r["skipped_reason"] for r in ingest.read_csv(store / "sales" / "2026-09.csv")}
-        assert got == {("A", "10.0"): "REMOVED", ("A", "9.0"): "REMOVED", ("B", "10.0"): "", ("C", "10.0"): "REMOVED", ("C", "9.0"): ""}, got
-        assert st["sales_removed"] == 3, st
-        # a run cut short by --max-sales (fewer rows than num_sales for some card) marks nothing
+        got = {(r["asset_id"], r["grade"], r["url"]): r["skipped_reason"] for r in ingest.read_csv(store / "sales" / "2026-09.csv")}
+        want = {("A", "10.0", "u/a"): "REMOVED", ("A", "9.0", "u/a9"): "REMOVED", ("A", "10.0", "u/a-new"): "", ("A", "9.0", "u/a9-new"): "",
+                ("B", "10.0", "u/b"): "", ("C", "10.0", "u/c"): "", ("C", "10.0", "u/c-old"): "", ("C", "9.0", "u/c9"): "",
+                ("D", "10.0", "u/d"): "REMOVED", ("E", "9.0", "u/e9"): "", ("E", "9.0", "u/e9-old"): "", ("E", "10.0", "u/e"): ""}
+        assert got == want, {k: (got.get(k), want.get(k)) for k in set(got) | set(want) if got.get(k) != want.get(k)}
+        assert st["sales_removed"] == 2 and st["sales_unmarked"] == 2, st
+        # a run cut short by --max-sales (fewer rows than num_sales for some card) marks and lifts nothing
         cards[2]["num_sales"] = "5"
         ingest.write_csv_atomic(run / "cards.csv", cols, cards)
-        write(store / "sales" / "2026-09.csv", [row(asset_id="A", url="u/a", alt_tx_id="id-a")])
+        write(store / "sales" / "2026-09.csv", [row(asset_id="A", url="u/a", alt_tx_id="id-a"),
+                                                row(asset_id="C", url="u/c-old", skipped_reason="REMOVED", alt_tx_id="id-c0")])
         with contextlib.redirect_stdout(io.StringIO()):
             st = ingest.ingest(run, "2026-10-20", store)
-        assert st["sales_removed"] == 0 and ingest.read_csv(store / "sales" / "2026-09.csv")[0]["skipped_reason"] == "", st
+        sep = {r["url"]: r["skipped_reason"] for r in ingest.read_csv(store / "sales" / "2026-09.csv")}
+        assert st["sales_removed"] == 0 and st["sales_unmarked"] == 0 and sep["u/a"] == "" and sep["u/c-old"] == "REMOVED", (st, sep)
         print("ingest fetched set ok")
-
 
 if __name__ == "__main__":
     test_merge_sales()

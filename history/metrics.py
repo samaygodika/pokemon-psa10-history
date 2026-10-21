@@ -600,8 +600,8 @@ def drop_outliers(sales, held_high=None, held_single=None):
     the past year, a held-back low one 17%).
 
     held_single: pass a list to also get the subset of those held-back high
-    sales at which the filter was in its stale or thin band (fewer than 4
-    accepted sales in the year before the sale), as (date, price, source)
+    sales on a rarely traded card (fewer than OUTLIER_MIN_ACCEPTED accepted
+    sales in the year before the sale), as (date, price, source)
     tuples in date order: one real-looking sale on a rarely traded card, held
     only for want of a second (last_sale_single, 2026-10-18; measured 90% real
     against 31% for a held high in the normal band)."""
@@ -646,7 +646,13 @@ def drop_outliers(sales, held_high=None, held_single=None):
                     run = []
                 else:
                     dropped += 1
-                    held[i] = (side, sale, band)
+                    # single: fewer than OUTLIER_MIN_ACCEPTED accepted sales in the year before this one,
+                    # counted over every accepted sale (2026-10-21; until then the filter's band, which
+                    # after a confirmed move is "normal" from one in-year sale on, so 10 held highs on
+                    # cards with 1-3 sales that year were single = 0: Black Star Promo Groudon ex
+                    # $96,000 after $9,100 / $12,000 / $45,000). README: "fewer than 4 clean sales".
+                    liquid = sum(1 for a in accepted[-OUTLIER_REF:] if sale[0] - a[0] <= OUTLIER_REF_MAX_AGE) >= OUTLIER_MIN_ACCEPTED
+                    held[i] = (side, sale, not liquid)
                 continue
         run = []
         keep.append(sale)
@@ -655,7 +661,7 @@ def drop_outliers(sales, held_high=None, held_single=None):
     if held_high is not None:
         held_high.extend(sorted(s for side, s, _ in held.values() if side == "high"))
     if held_single is not None:
-        held_single.extend(sorted(s for side, s, band in held.values() if side == "high" and band != "normal"))
+        held_single.extend(sorted(s for side, s, single in held.values() if side == "high" and single))
     return keep, dropped
 
 
@@ -1086,6 +1092,15 @@ def build(store=HERE, out=LATEST):
         # the literal newest unflagged sale, from the raw list (newest of status ok)
         raw_ok = [t for t in raw_sales.get(aid, []) if t[4] == "ok"]
         newest = max(raw_ok) if raw_ok else None
+        if newest and (row["last_sale_date"], to_float(row["last_sale_price"])) != (newest[0].isoformat(), newest[1]):
+            # last_sale_* = this sale, the one every flag below is about (2026-10-21; as psa9_cols has
+            # always done). Until then the three columns were alt.xyz's own last-sale field from the
+            # scrape, which lags the card's sale list on a few cards a day (7 on 2026-10-20: Base Set 2
+            # Bill #118 showed its clean 07-23 $86.55 sale as last_sale_* with last_sale_single = 1,
+            # while the single sale behind the flag was a held 09-03 $976 Goldin lot) and once carried a
+            # sale of another grade (a PSA 9 $275,000 lot as a Venusaur promo's PSA 10 last sale).
+            # Written the scraper's way (a float, "302.0") so the column's format does not change.
+            row["last_sale_price"], row["last_sale_date"], row["last_sale_source"] = str(float(newest[1])), newest[0].isoformat(), newest[2]
         row["last_sale_unconfirmed"] = 1 if (newest and last and (newest[0], newest[1]) != (last[0], last[1]) and newest[0] >= last[0]) else 0
         row["last_sale_single"] = single_flag(newest, last, single_high.get(aid, ()))        # 2026-10-18
         row.update(newer_cols(raw_sales.get(aid, [])))                                      # status + newer pair (2026-10-20)

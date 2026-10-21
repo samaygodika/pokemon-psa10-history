@@ -47,7 +47,12 @@ Store layout (all plain CSV, all append/merge-friendly so git diffs stay small):
                                   such a sale as settled, e.g. a $9,852 Bandai
                                   Flareon alt.xyz removed on 10-13). It is out of
                                   every number like NOT_PAID, and a later run
-                                  that lists the sale again restores it. Only
+                                  that lists the sale again restores it. A list
+                                  the run shows EMPTY marks nothing (an empty
+                                  answer is a record change or a lagging replica
+                                  as often as a removal, and a known-zero grade
+                                  is in extra_grades without a fetch) and lifts
+                                  a REMOVED mark at that grade (2026-10-21). Only
                                   month files with a change are rewritten
                                   (merge_sales, 2026-09-26; before that the
                                   store was append-only and never saw a flip).
@@ -273,22 +278,32 @@ def ingest(run_dir, day, store=HERE):
     if truncated:
         print(f"  sales: {len(truncated)} card(s) have fewer sale rows than num_sales (a --max-sales run?): "
               "no stored sale is dropped this time")
-    # Which (asset, grading company, grade) sale lists this run fetched in full: a stored sale of theirs
+    # Which (asset, grading company, grade) sale lists this run holds in full: a stored sale of theirs
     # that the run no longer lists anywhere is marked REMOVED (merge_sales, 2026-10-20). A card whose
     # sales were carried over (sales_fetched 0) says nothing about its stored rows, and a --max-sales
-    # run says nothing about anyone's (the same caution as allow_drop).
-    fetched = set()
+    # run says nothing about anyone's (the same caution as allow_drop). A list the run vouches for
+    # but shows EMPTY says nothing either (2026-10-21): the scraper puts a grade with PSA rows but
+    # zero copies into extra_grades without fetching it (379 cards on 2026-10-20 said "PSA 9: 0"
+    # while the store held 152 clean PSA 9 sales on three of them, split records), and an empty
+    # answer for a card that had sales yesterday is as likely a record change or a lagging replica
+    # as a removal. Such a list instead UNMARKS: a stored REMOVED row at that grade gets its settled
+    # status back (the first REMOVED run could have marked it from exactly such a list).
+    fetched, unmark = set(), set()
     if not truncated:
+        listed = {(s["asset_id"], s.get("grading_company") or "PSA", s.get("grade") or "")
+                  for rows in incoming.values() for s in rows}
         for r in cards:
             if r.get("sales_fetched", "1") == "0":
                 continue
             for g in [r.get("grade") or ""] + (r.get("extra_grades") or "").split():
                 if g:
-                    fetched.add((r["asset_id"], r.get("grading_company") or "PSA", g))
-    stats = merge_sales(sales_dir, incoming, allow_drop=not truncated, fetched=fetched)
+                    key = (r["asset_id"], r.get("grading_company") or "PSA", g)
+                    (fetched if key in listed else unmark).add(key)
+    stats = merge_sales(sales_dir, incoming, allow_drop=not truncated, fetched=fetched, unmark=unmark)
     print(f"  sales: {n_in} rows in run, {stats['sales_added']} new, {stats['sales_updated']} changed in place, "
           f"{stats['sales_moved']} moved to another month, {stats['sales_dropped']} dropped (no longer listed by alt.xyz), "
           f"{stats['sales_removed']} marked REMOVED (a fully fetched card no longer lists them), "
+          f"{stats['sales_unmarked']} REMOVED marks lifted (the run shows an empty list at that grade), "
           f"{stats['sales_month_files_rewritten']} month files rewritten")
 
     live = ingest_live(run_dir, cards, store, day)
@@ -317,7 +332,7 @@ def copy_run_stats(run_dir, store):
     return True
 
 
-def merge_sales(sales_dir, incoming, allow_drop=True, fetched=None):
+def merge_sales(sales_dir, incoming, allow_drop=True, fetched=None, unmark=None):
     """Fold {month: [sale rows]} into sales/<month>.csv (see the module doc).
 
     Two facts drive this. (1) alt.xyz keeps editing sales after it first lists them: about
@@ -350,8 +365,11 @@ def merge_sales(sales_dir, incoming, allow_drop=True, fetched=None):
     grading_company, grade): the run fetched that card's complete sale list and alt.xyz no longer
     lists the sale, so its skipped_reason becomes REMOVED (2026-10-20; the row stays, out of every
     number like NOT_PAID, and a later run that lists the sale again replaces it with alt.xyz's
-    version through the id / URL rules above). Every month file is read twice (URL counts, then
-    the merge) but only changed ones are rewritten."""
+    version through the id / URL rules above). `unmark` (2026-10-21) holds the keys whose list the
+    run vouches for but shows empty: ingest keeps those out of `fetched` (an empty answer is not a
+    removal), and a stored REMOVED row there is set back to settled, since only such a list could
+    have marked it wrongly. Every month file is read twice (URL counts, then the merge) but only
+    changed ones are rewritten."""
     def fine_key(s):
         return (s.get("date") or "", s.get("price") or "")
 
@@ -372,7 +390,7 @@ def merge_sales(sales_dir, incoming, allow_drop=True, fetched=None):
             if sale_key(r) in inc_rows:
                 store_count[sale_key(r)] += 1
 
-    added = updated = moved = dropped = removed = rewritten = 0
+    added = updated = moved = dropped = removed = unmarked = rewritten = 0
     for month in months:
         path = sales_dir / f"{month}.csv"
         existing = read_csv(path)
@@ -393,12 +411,18 @@ def merge_sales(sales_dir, incoming, allow_drop=True, fetched=None):
 
         def unlisted(r):
             """The run does not list stored row r (its URL is absent, or under another grade only): as it was,
-            or marked REMOVED when the run fetched the card's complete list at that grade."""
-            nonlocal removed, changed
-            if (fetched and (r["asset_id"], r.get("grading_company"), r.get("grade")) in fetched
-                    and (r.get("skipped_reason") or "") != REMOVED):
+            marked REMOVED when the run holds the card's complete list at that grade, or, when the run's
+            list at that grade is empty (`unmark`), its REMOVED mark lifted."""
+            nonlocal removed, unmarked, changed
+            key = (r["asset_id"], r.get("grading_company"), r.get("grade"))
+            reason = r.get("skipped_reason") or ""
+            if fetched and key in fetched and reason != REMOVED:
                 kept.append({**r, "skipped_reason": REMOVED})
                 removed += 1
+                changed = True
+            elif unmark and key in unmark and reason == REMOVED:
+                kept.append({**r, "skipped_reason": ""})
+                unmarked += 1
                 changed = True
             else:
                 kept.append(r)
@@ -463,7 +487,7 @@ def merge_sales(sales_dir, incoming, allow_drop=True, fetched=None):
             added += len(fresh)
             rewritten += 1
     return {"sales_added": added, "sales_updated": updated, "sales_moved": moved, "sales_dropped": dropped,
-            "sales_removed": removed, "sales_month_files_rewritten": rewritten}
+            "sales_removed": removed, "sales_unmarked": unmarked, "sales_month_files_rewritten": rewritten}
 
 
 def to_int(s):

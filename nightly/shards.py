@@ -50,6 +50,16 @@ def split(scope, n, out):
     return [len(p) for p in shards]
 
 
+def ends_with_newline(path):
+    """False when the file's last byte is not a newline (a row the writer never finished)."""
+    with open(path, "rb") as f:
+        f.seek(0, 2)
+        if f.tell() == 0:
+            return True
+        f.seek(-1, 2)
+        return f.read(1) == b"\n"
+
+
 def merge(out):
     out = Path(out)
     dirs = sorted((d for d in out.glob("shard-*") if d.is_dir()), key=lambda d: (len(d.name), d.name))
@@ -59,7 +69,7 @@ def merge(out):
             print(f"WARNING: {d.name} has no cards.csv (its job wrote nothing); its cards are not in this run", file=sys.stderr)
     if not present:
         sys.exit(f"merge: no shard under {out} has a cards.csv")
-    counts = {}
+    counts, merged_cards = {}, {}
     for name in FILES:
         rows = 0
         with open(out / name, "w", newline="", encoding="utf-8") as w:
@@ -77,12 +87,27 @@ def merge(out):
                         w.write(first)
                     elif first != header:
                         sys.exit(f"merge: {p} has a different header than the first shard")
-                    shutil.copyfileobj(r, w)
+                    if ends_with_newline(p):
+                        shutil.copyfileobj(r, w)
+                        dropped = 0
+                    else:
+                        # A shard killed mid-write (the job's timeout) leaves a last line without its newline,
+                        # and the next shard's first row would be glued onto it (2026-10-21): that line is
+                        # dropped (its card is "not in the run", like one whose requests failed; a quoted
+                        # field with a newline inside is a complete line, the scraper flushes whole rows).
+                        body = r.read()
+                        cut = body.rfind("\n") + 1
+                        print(f"merge: {p} ends mid-row, dropped its last {len(body) - cut} bytes", file=sys.stderr)
+                        w.write(body[:cut])
+                        dropped = 1
+                if name == "cards.csv":
+                    with open(p, newline="", encoding="utf-8") as f:
+                        merged_cards[d.name] = max(sum(1 for _ in csv.reader(f)) - 1 - dropped, 0)
         counts[name] = rows
     for name in FILES:
         with open(out / name, newline="", encoding="utf-8") as f:
             counts[name] = max(sum(1 for _ in csv.reader(f)) - 1, 0)
-    per_shard = {d.name: max(sum(1 for _ in csv.reader(open(d / "cards.csv", newline="", encoding="utf-8"))) - 1, 0) for d in present}
+    per_shard = {d.name: merged_cards.get(d.name, 0) for d in present}   # the rows of each shard that made it into the merge
     print(f"merged {len(present)} of {len(dirs)} shard(s) into {out}: " + ", ".join(f"{k} {v} rows" for k, v in counts.items())
           + " (" + ", ".join(f"{k} {v}" for k, v in per_shard.items()) + ")")
     return counts, per_shard, len(dirs) - len(present)

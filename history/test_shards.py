@@ -77,6 +77,13 @@ def test_merge_concatenates_and_reports_missing():
         sales = list(csv.DictReader(open(d / "sales.csv", newline="")))
         assert [r["price"] for r in sales] == ["10", "11"]
         assert list(csv.DictReader(open(d / "listings.csv", newline=""))) == [{"asset_id": "c", "date": "", "price": "5"}]
+        # a shard killed mid-row (no newline at the end): that half row is dropped, the next shard's rows stay whole
+        with open(d / "shard-0" / "cards.csv", "a", newline="") as f:
+            f.write("b,Card B,4")
+        counts, per_shard, missing = shards.merge(d)
+        cards = list(csv.DictReader(open(d / "cards.csv", newline="")))
+        assert [(r["asset_id"], r["num_sales"]) for r in cards] == [("a", "2"), ("c", "0")], cards
+        assert counts["cards.csv"] == 2 and per_shard["shard-0"] == 1, (counts, per_shard)
         # the CLI: no shard output at all is a failure, not an empty run
         for i in (0, 2):
             for name in shards.FILES:

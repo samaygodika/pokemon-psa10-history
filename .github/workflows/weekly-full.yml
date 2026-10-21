@@ -6,12 +6,14 @@
 # a 350 min timeout, and GitHub stops any job at 360. `scope` lists the index and deals it into
 # NIGHTLY_SHARDS slices, one `scrape` job per slice runs at the same time (the workers are split
 # between them: 3 x 2 = the 6 one job used, so alt.xyz sees the same request rate), `assemble`
-# merges, ingests, rebuilds latest/ and commits. Same shape as nightly.yml, without the cron guard
-# (one slot). A manual run with `limit` set is a smoke test: N cards, no history, no commit.
+# merges, ingests, rebuilds latest/ and commits. Same shape as nightly.yml, with the same cron guard
+# (two slots since 2026-10-21: GitHub dropped two of the nightly's three slots on 10-16 and 10-20, and a
+# dropped Sunday left the ~31k weekly-only cards two weeks stale and aged their Buy It Nows out of
+# live_listings.csv after 7 days). A manual run with `limit` set is a smoke test: N cards, no history, no commit.
 name: weekly scrape (full index)
 on:
   schedule:
-    - cron: "0 9 * * 0"   # Sunday 09:00 UTC, after that day's nightly run
+    - cron: "0 9,13 * * 0"   # Sunday 09:00 UTC, after that day's nightly run; 13:00 only if 09:00 never landed
   workflow_dispatch:
     inputs:
       limit:
@@ -31,23 +33,32 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     outputs:
+      skip: ${{ steps.guard.outputs.skip }}
       day: ${{ steps.scope.outputs.day }}
       out: ${{ steps.scope.outputs.out }}
-      shards: ${{ steps.scope.outputs.shards || '[0]' }}
+      shards: ${{ steps.scope.outputs.shards || '[0]' }}   # valid JSON even when the guard skipped the scope
     steps:
       - uses: actions/checkout@v4
+      - name: stop if an earlier cron slot already landed this week's full run
+        id: guard
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: nightly/already_ran.sh "weekly full $(date -u +%F)" && echo "skip=1" >> "$GITHUB_OUTPUT" || true
       - uses: actions/setup-python@v5
+        if: steps.guard.outputs.skip != '1'
         with:
           python-version: "3.12"
       - name: index listing, dealt into shards
         id: scope
+        if: steps.guard.outputs.skip != '1'
         env:
           ALT_SESSION_TOKEN: ${{ secrets.ALT_SESSION_TOKEN }}   # alt.xyz login (README, 'Login')
           NIGHTLY_STAGE: scope
           NIGHTLY_LIMIT: ${{ inputs.limit }}
         run: nightly/run_nightly.sh
       - name: hand the scope to the scrape jobs
-        if: always()
+        if: always() && steps.guard.outputs.skip != '1'
         uses: actions/upload-artifact@v4
         with:
           name: scope
@@ -55,6 +66,7 @@ jobs:
           retention-days: 7
   scrape:
     needs: scope
+    if: needs.scope.outputs.skip != '1'
     runs-on: ubuntu-latest
     timeout-minutes: 340
     strategy:
@@ -92,7 +104,7 @@ jobs:
     # Runs even when a shard job failed or timed out: the other shards' cards are still the week's
     # data (a card not in the run is simply not refreshed), and a shard that died mid-way still
     # uploaded what it had. Not on a cancelled run.
-    if: ${{ !cancelled() && needs.scope.result == 'success' }}
+    if: ${{ !cancelled() && needs.scope.result == 'success' && needs.scope.outputs.skip != '1' }}
     runs-on: ubuntu-latest
     timeout-minutes: 150
     steps:
