@@ -125,11 +125,16 @@ last column `pops_by_grade`), the sales land in the store like any other, and:
   `pop_9`, `pop_10`, `pop_total`, `scraped_at`) is the pop history at every grade. 0 = alt.xyz's
   pop table lists no copies at that grade; a card is absent on a night its scrape failed.
 - `latest/all_grades/grades.csv` (`history/all_grades.py`, step 5b) has **one row per card and
-  grade** (18 grades per card): identity (`asset_id`, `card_name`, `year`, `set`, `card_number`,
-  `subject`, `variety`), `grading_company`, `grade` (`1.0` … `10.0`), `pop`, `pop_date`,
-  `pop_30d_ago`, `pop_chg_30d` (blank until there are 30 days of pops), `scraped_date` (the night
-  the card was asked at every grade: a row with a `scraped_date` and no sale columns means
-  collected, none sold), and the PSA 10 sale columns of `cards.csv` applied to that grade's sales
+  grade** (18 grades per card) for every card of the category (the same `card_type` rule over
+  `history/assets.csv`, plus any card that ever had a `grade_pops.csv` row): identity (`asset_id`,
+  `card_name`, `year`, `set`, `card_number`, `subject`, `variety`), `grading_company`, `grade`
+  (`1.0` … `10.0`), `pop`, `pop_date` (0 = alt.xyz's pop table lists no copies at the grade;
+  **blank = the pop table has no PSA rows for the record at all**, 60 of the 161 on 2026-10-21,
+  foreign-language and deck-reprint records: unknown, never zero), `pop_30d_ago`, `pop_chg_30d`
+  (blank until there are 30 days of pops), `scraped_date` (the night the card was asked at every
+  grade: a row with a `scraped_date` and no sale columns means collected, none sold; blank
+  together with the pop, and the sale columns then show what the store holds for the card at that
+  grade, fetched on the weekly full run), and the PSA 10 sale columns of `cards.csv` applied to that grade's sales
   with the same rules (`sales_total`, `last_sale_price/date/source`, `last_sale_status`,
   `last_sale_newer_price/date`, `last_sale_unconfirmed`, `last_sale_single`,
   `clean_last_sale_price`, `median_last_3`, `cap_price` and `cap_price_<w>_ago`, `volume_<w>`,

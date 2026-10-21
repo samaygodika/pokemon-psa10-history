@@ -11,18 +11,28 @@ grade (history/grade_pops.csv, from cards.csv pops_by_grade); the sales land in 
 any other. This step reads both and writes:
 
   latest/all_grades/grades.csv   one row per card and PSA grade (18 grades: 1, 1.5, ..., 8.5, 9, 10),
-                                 for every card that has a history/grade_pops.csv row. The columns are
-                                 the feed's own, with the same meaning as the PSA 10 ones in
+                                 for every card of the category: flags.ALL_GRADES_TYPES by flags.card_type
+                                 over history/assets.csv (the rule nightly/all_grades_scope.py selects the
+                                 scrape list with), plus any card that has a history/grade_pops.csv row
+                                 (collected once, so it stays visible if the rule changes). The columns
+                                 are the feed's own, with the same meaning as the PSA 10 ones in
                                  latest/cards.csv (README) applied to that grade's sales:
       asset_id, card_name, year, set, card_number, subject, variety   identity (history/assets.csv)
       grading_company, grade          PSA, "1.0" .. "10.0"
       pop, pop_date                   the pop at that grade from the newest grade_pops row, and its day.
-                                      0 = alt.xyz's pop table lists no copies at the grade (a real zero)
+                                      0 = alt.xyz's pop table lists no copies at the grade (a real zero).
+                                      BLANK = alt.xyz's pop table has no PSA rows for the record at all
+                                      (60 of 161 Gold Star records on 2026-10-21, foreign-language and
+                                      deck-reprint records): the scraper then writes no pops_by_grade,
+                                      so there is no grade_pops row. Unknown, never zero.
       pop_30d_ago, pop_chg_30d        the pop from the newest grade_pops row at least 30 days old, and
                                       the difference; blank until there is one
       scraped_date                    = pop_date: the night the card was asked at every grade (the pops
                                       and the sales come from the same scrape), so blank sale columns
-                                      with a scraped_date mean "collected, none sold"
+                                      with a scraped_date mean "collected, none sold". Blank with the
+                                      pop (no PSA rows): the sale columns then show whatever the store
+                                      holds for the card at that grade (its ladder grades are fetched on
+                                      the weekly full run; the nightly carries such dormant cards)
       sales_total                     clean sales at the grade (after alt.xyz's own flags, the PWCC
                                       mirror rule and the outlier filter, exactly as cards.csv)
       last_sale_price/date/source     the newest settled sale alt.xyz lists at the grade
@@ -59,6 +69,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+import flags  # noqa: E402
 import metrics  # noqa: E402
 from ingest import GRADE_POPS, POP_GRADES, pop_col  # noqa: E402
 
@@ -108,14 +119,22 @@ def load_sales(store, assets):
     return {g: metrics.clean_grade(g, raw[g]) for g in GRADES}
 
 
+def category_assets(assets, card_types=flags.ALL_GRADES_TYPES):
+    """The asset ids of the category in history/assets.csv (its rows carry the fields card_type reads)."""
+    return {aid for aid, a in assets.items() if flags.card_type(a) in card_types}
+
+
 def grade_row(ident, grade, pops, clean, raw, held, singles, outliers, today):
     """One grades.csv row: the card's identity, its pop at the grade, and the feed's sale columns
-    over that grade's sales (metrics.psa9_cols's rules, column names without the prefix)."""
-    newest_pop, old_pop = pops
+    over that grade's sales (metrics.psa9_cols's rules, column names without the prefix). pops =
+    (newest grade_pops row, row at least 30 days old or None), or None when the card has no
+    grade_pops row (alt.xyz has no PSA pop rows for it): pop, pop_date and scraped_date stay blank."""
     row = {c: "" for c in GRADE_COLS}
     row.update({c: ident.get(c, "") for c in IDENTITY})
-    row.update({"grading_company": "PSA", "grade": grade, "pop": newest_pop.get(pop_col(grade), ""), "pop_date": newest_pop["data_date"],
-                "scraped_date": newest_pop["data_date"]})
+    row.update({"grading_company": "PSA", "grade": grade})
+    newest_pop, old_pop = pops if pops else (None, None)
+    if newest_pop is not None:
+        row.update({"pop": newest_pop.get(pop_col(grade), ""), "pop_date": newest_pop["data_date"], "scraped_date": newest_pop["data_date"]})
     if old_pop is not None:
         then, now = metrics.to_int(old_pop.get(pop_col(grade))), metrics.to_int(newest_pop.get(pop_col(grade)))
         row["pop_30d_ago"] = metrics.fmt(then)
@@ -160,15 +179,17 @@ def build(store=HERE, out=LATEST, today=None):
     if not pops:
         print(f"all_grades: no {GRADE_POPS} in {store} yet (no run has asked a card at every grade), nothing written")
         return None
-    by_grade = load_sales(store, set(pops))
+    # The category by the scope's own rule over every asset the feed knows, plus whatever has a pops row
+    cards = category_assets(assets) | set(pops)
+    by_grade = load_sales(store, cards)
     rows, sale_rows = [], []
     n_sales = 0
-    for aid in sorted(pops):
+    for aid in sorted(cards):
         ident = assets.get(aid, {"asset_id": aid})
         for g in GRADES:
             clean_by, _, outliers, raw_by, held_high, single_high = by_grade[g]
             clean, raw = clean_by.get(aid, []), raw_by.get(aid, [])
-            rows.append(grade_row(ident, g, pops[aid], clean, raw, held_high.get(aid, []), single_high.get(aid, set()),
+            rows.append(grade_row(ident, g, pops.get(aid), clean, raw, held_high.get(aid, []), single_high.get(aid, set()),
                                   outliers.get(aid, 0), today))
             clean_keys = {(t[0], t[1]) for t in clean}
             for sd, price, src, stype, status, url in sorted(raw, reverse=True):
@@ -186,13 +207,13 @@ def build(store=HERE, out=LATEST, today=None):
         w.writerows(sale_rows)
     dates = sorted(p[0]["data_date"] for p in pops.values())
     summary = {"data_date": today.isoformat(), "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-               "cards": len(pops), "grades": GRADES, "grade_rows": len(rows), "sales": n_sales,
+               "cards": len(cards), "cards_with_pops": len(pops), "grades": GRADES, "grade_rows": len(rows), "sales": n_sales,
                "clean_sales": sum(r["sales_total"] for r in rows), "pops_date_oldest": dates[0], "pops_date_newest": dates[-1],
                "rows_with_a_sale": sum(1 for r in rows if r["sales_total"]), "rows_with_pop": sum(1 for r in rows if metrics.to_int(r["pop"]))}
     with open(out / "summary.json", "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2)
         f.write("\n")
-    print(f"all_grades: {len(pops)} card(s) x {len(GRADES)} grades -> {out}/grades.csv ({len(rows)} rows), "
+    print(f"all_grades: {len(cards)} card(s) ({len(pops)} with a pop table) x {len(GRADES)} grades -> {out}/grades.csv ({len(rows)} rows), "
           f"sales.csv ({n_sales} rows, {summary['clean_sales']} clean); pops as of {dates[0]}..{dates[-1]}")
     return summary
 

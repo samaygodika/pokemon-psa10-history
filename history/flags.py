@@ -50,6 +50,11 @@ FLAGS_PATH = HERE / "psa9_flags.csv"
 MOVES_PATH = HERE / "psa9_category_moves.csv"
 TRACK_PATH = ROOT / "nightly" / "track_assets.txt"
 
+# The card types the nightly asks at EVERY PSA grade (2026-10-21, Samay + Sid's Gold Star buy): the one
+# list behind nightly/all_grades_scope.py (which cards the scraper pulls) and history/all_grades.py
+# (which cards latest/all_grades/ shows), so the two cannot drift. card_type() below decides membership.
+ALL_GRADES_TYPES = ("Gold Star",)
+
 TOP_N, BLUE_CHIP_N = 50, 10           # Sid's app: Blue Chip = top 10 Pokemon by market cap
 UP_LEVELS = (50, 100)
 CAT_LEVELS = (15, 30, 50, 70, 100)

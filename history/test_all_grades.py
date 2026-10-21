@@ -119,9 +119,13 @@ def test_build():
         store, out = Path(d) / "history", Path(d) / "latest"
         (store / "sales").mkdir(parents=True)
         (store / "daily").mkdir()
-        ingest.write_csv_atomic(store / "assets.csv", ingest.ASSET_COLS,
-                                [{"asset_id": A, "card_name": INDEX[A]["name"], "alt_url": "", "year": "2006", "set": INDEX[A]["brand"],
-                                  "card_number": "100", "subject": "Charizard", "variety": "", "grading_company": "PSA", "grade": "10.0", "first_seen": "2026-09-11"}])
+        def asset(aid):
+            d = INDEX[aid]
+            return {"asset_id": aid, "card_name": d["name"], "alt_url": "", "year": str(d["year"]), "set": d["brand"], "card_number": d["cardNumber"],
+                    "subject": d["subject"], "variety": "", "grading_company": "PSA", "grade": "10.0", "first_seen": "2026-09-11"}
+        # A: Gold Star with a pop table; E: Gold Star alt.xyz has no PSA pop rows for (no grade_pops row, 2026-10-21's
+        # 60 of 161); D: an LV.X with sales, not the category; B (the Staryu) is not even in assets.csv
+        ingest.write_csv_atomic(store / "assets.csv", ingest.ASSET_COLS, [asset(A), asset(E), asset(D)])
         (store / "daily" / "2026-10-21.csv").write_text("asset_id\n")
         ingest.ingest_grade_pops([card(A, "0.0:30 1.0:912 7.0:573 9.0:554 10.0:98", scraped_at="2026-09-20T05:00:00+00:00")], store, "2026-09-20")
         ingest.ingest_grade_pops([card(A, "0.0:30 1.0:915 7.0:580 9.0:554 10.0:98")], store, "2026-10-21")
@@ -131,11 +135,20 @@ def test_build():
             sale(A, "7.0", "2026-10-19", 500),                 # 1/40th of the reference: held back (low side)
             sale(A, "7.0", "2026-10-20", 22000, status="PENDING"),
             sale(A, "10.0", "2026-10-02", 150000), sale(A, "9.0", "2026-10-03", 60000),
-            sale(A, "1.0", "2026-10-04", 3000), sale(B, "7.0", "2026-10-04", 1),   # B has no grade_pops row: not in the output
+            sale(A, "1.0", "2026-10-04", 3000), sale(B, "7.0", "2026-10-04", 1),   # B is not in assets.csv: not in the output
+            sale(E, "7.0", "2026-10-06", 700), sale(E, "4.0", "2026-10-07", 400, status="NOT_PAID"),   # E: no pops, sales from the store
+            sale(D, "7.0", "2026-10-06", 70),                                                         # D: LV.X, not the category
         ])
         summary = all_grades.build(store, out, today=date(2026, 10, 21))
-        assert summary["cards"] == 1 and summary["grade_rows"] == 18 and summary["sales"] == 10 and summary["clean_sales"] == 8, summary
-        rows = {r["grade"]: r for r in ingest.read_csv(out / "grades.csv")}
+        assert (summary["cards"], summary["cards_with_pops"], summary["grade_rows"], summary["sales"], summary["clean_sales"]) == (2, 1, 36, 12, 9), summary
+        all_rows = ingest.read_csv(out / "grades.csv")
+        assert [r["asset_id"] for r in all_rows] == [A] * 18 + [E] * 18, "sorted by asset, 18 grades each; D and B absent"
+        e = {r["grade"]: r for r in all_rows if r["asset_id"] == E}
+        assert (e["7.0"]["card_name"], e["7.0"]["pop"], e["7.0"]["pop_date"], e["7.0"]["scraped_date"], e["7.0"]["pop_30d_ago"]) == (INDEX[E]["name"], "", "", "", ""), e["7.0"]
+        assert (e["7.0"]["sales_total"], e["7.0"]["last_sale_price"], e["7.0"]["median_last_3"], e["7.0"]["last_sale_status"]) == ("1", "700", "700", "completed")
+        assert (e["4.0"]["sales_total"], e["4.0"]["last_sale_price"], e["4.0"]["last_sale_status"], e["4.0"]["pop"]) == ("0", "", "unpaid", ""), e["4.0"]
+        assert (e["2.0"]["sales_total"], e["2.0"]["pop"]) == ("0", ""), "blank pop = unknown, 0 sales = none in the store"
+        rows = {r["grade"]: r for r in all_rows if r["asset_id"] == A}
         assert list(rows) == all_grades.GRADES
         r7 = rows["7.0"]
         assert (r7["card_name"], r7["subject"], r7["pop"], r7["pop_date"], r7["pop_30d_ago"], r7["pop_chg_30d"], r7["scraped_date"]) \
@@ -152,7 +165,9 @@ def test_build():
         assert (r2["pop"], r2["sales_total"], r2["last_sale_price"], r2["scraped_date"]) == ("0", "0", "", "2026-10-21"), "pop 0 and no sales: still a row"
         assert (r10["pop"], r10["sales_total"], r10["last_sale_price"]) == ("98", "1", "150000")
         sales = list(csv.DictReader(open(out / "sales.csv")))
-        assert [s["grade"] for s in sales] == ["1.0"] + ["7.0"] * 7 + ["9.0", "10.0"]
+        assert [s["grade"] for s in sales] == ["1.0"] + ["7.0"] * 7 + ["9.0", "10.0", "4.0", "7.0"]
+        assert [(s["asset_id"], s["status"]) for s in sales[-2:]] == [(E, "NOT_PAID"), (E, "ok")]
+        sales = sales[:-2]
         s7 = [s for s in sales if s["grade"] == "7.0"]
         assert [s["date"] for s in s7] == sorted((s["date"] for s in s7), reverse=True), "newest first"
         assert [(s["date"], s["status"], s["outlier"]) for s in s7[:3]] == [("2026-10-20", "PENDING", "0"), ("2026-10-19", "ok", "1"), ("2026-10-18", "ok", "0")]

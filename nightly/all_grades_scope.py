@@ -25,7 +25,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE.parent / "history"))
 import flags  # noqa: E402
 
-CARD_TYPES = ("Gold Star",)   # Samay + Sid's own buy (2026-10-21): the category tracked at every grade
+CARD_TYPES = flags.ALL_GRADES_TYPES   # ("Gold Star",): the one list, shared with history/all_grades.py
 
 
 def as_card(doc):
