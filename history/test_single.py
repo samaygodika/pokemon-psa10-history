@@ -178,6 +178,12 @@ def test_build_writes_the_four_columns_last():
         daily = [{"asset_id": v, "pop_at_grade": "10", "pop_at_grade_9": "20", "num_sales": "1", "scraped_at": f"{TODAY}T10:00:00+00:00",
                   "extra_grades": "" if v == h else "9.0", "sales_fetched": "1"} for v in IDS.values()]
         _write(store / "daily" / f"{TODAY}.csv", ingest.DAILY_COLS, daily)
+        # records alt.xyz no longer indexes (2026-10-21): seen 20 days ago -> left out; 10 days ago -> still in
+        gone, kept = "zz000000-0000-0000-0000-000000000001", "yy000000-0000-0000-0000-000000000002"
+        for aid, ago in ((gone, metrics.DROPPED_AFTER_DAYS + 6), (kept, metrics.DROPPED_AFTER_DAYS - 4)):
+            d0 = TODAY - timedelta(days=ago)
+            _write(store / "daily" / f"{d0}.csv", ingest.DAILY_COLS,
+                   [{"asset_id": aid, "pop_at_grade": "5", "num_sales": "0", "scraped_at": f"{d0}T10:00:00+00:00", "sales_fetched": "1"}])
         _write(store / metrics.TITLE_CHECKS, ["item_id", "asset_id", "grade", "status", "reason", "title", "bid_count", "unique_bidders", "ebay_price", "end_date", "checked_at"], checks)
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             summary = metrics.build(store, Path(tmp) / "latest")
@@ -187,6 +193,7 @@ def test_build_writes_the_four_columns_last():
             feed = {r["asset_id"]: r for r in rd}
         recent_a = [r for r in csv.DictReader(open(Path(tmp) / "latest" / "recent_sales" / f"{a[:2]}.csv", newline="", encoding="utf-8")) if r["asset_id"] == a]
     assert header[-10:] == metrics.SINGLE_COLS + metrics.NEWER_COLS + metrics.TITLE_COLS, header[-12:]
+    assert gone not in feed and kept in feed and summary["rows_dropped_unlisted"] == 1, (gone in feed, kept in feed, summary.get("rows_dropped_unlisted"))
     col = lambda k, c: feed[IDS[k]][c]
     assert (col("a", "last_sale_unconfirmed"), col("a", "last_sale_single"), col("a", "last_sale_status")) == ("1", "1", "completed"), feed[a]
     assert (col("a", "clean_last_sale_price"), col("a", "last_sale_newer_price"), col("a", "last_sale_newer_date")) == ("502", "", ""), "the REMOVED sale is not listed: not a newer sale, not a price"

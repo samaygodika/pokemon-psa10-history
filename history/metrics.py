@@ -359,6 +359,7 @@ RECENT_N = 10
 CLEAN_SALES_COLS = ["asset_id", "grade", "sales"]
 
 LOOKBACK_DAYS = 180
+DROPPED_AFTER_DAYS = 14   # a record not seen in any daily file for longer leaves cards.csv (2026-10-21): two missed Sundays
 OUTLIER_LOW, OUTLIER_HIGH = 0.25, 6.0          # band around the running reference (asymmetric: junk is mostly low)
 OUTLIER_REF, OUTLIER_MIN_ACCEPTED = 12, 4       # reference = median of the last 12 accepted sales, needs 4
 OUTLIER_RESET_RUN_LOW, OUTLIER_RESET_RUN_HIGH = 5, 2   # consecutive same-side rejections that confirm a real move
@@ -1055,6 +1056,16 @@ def build(store=HERE, out=LATEST):
             for g, col in LIVE_CHECK_COLS.items():
                 if row.get(col):
                     checked_at[g][aid] = max(checked_at[g].get(aid, ""), row[col])
+    # A record alt.xyz no longer indexes leaves the feed (2026-10-21, Sid: a stale "English Holo" twin of
+    # the Delta Species Groudon Star, last seen 09-11, made his matcher skip the card). Every live asset
+    # is refreshed within 7 days (the nightly scope nightly, the rest on Sunday's full run), so one that
+    # has not been seen for more than DROPPED_AFTER_DAYS (two missed Sundays) is gone from alt.xyz's
+    # index: renamed, merged into another record or removed. The row comes back by itself if the record
+    # reappears; its sales stay in the store. 18 of 68,189 on the 10-20 feed.
+    dropped_unlisted = sorted(aid for aid, (day, _) in latest_row.items() if (today - d(day)).days > DROPPED_AFTER_DAYS)
+    for aid in dropped_unlisted:
+        del latest_row[aid]
+    print(f"  {len(dropped_unlisted)} record(s) alt.xyz has not listed for more than {DROPPED_AFTER_DAYS} days left out", file=sys.stderr)
     # Newest run that also pulled PSA 9 sales, per asset (--also-grade 9).
     psa9_day = {}
     for day in days:
@@ -1240,6 +1251,7 @@ def build(store=HERE, out=LATEST):
         "rows_chg_counts_held_high": filled["chg_held_windows"],
         "rows_psa9_chg_counts_held_high": filled["psa9_chg_held_windows"],          # 2026-10-17
         "rows_single_last_sale": sum(1 for r in rows if r["last_sale_single"] == 1),          # 2026-10-18
+        "rows_dropped_unlisted": len(dropped_unlisted),                                      # 2026-10-21: records alt.xyz no longer indexes, left out
         "rows_psa9_single_last_sale": sum(1 for r in rows if r["psa9_last_sale_single"] == 1),
         "last_sale_status_counts": status_counts(rows, "last_sale_status"),
         "psa9_last_sale_status_counts": status_counts(rows, "psa9_last_sale_status"),

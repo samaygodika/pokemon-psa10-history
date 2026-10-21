@@ -21,10 +21,13 @@ snapshots/            raw per-run output (gitignored, hundreds of MB)
 ## The data PokeSniper gets
 
 `latest/cards.csv` is the scraper's `cards.csv` (one row per alt.xyz asset, newest
-numbers per asset) plus history-derived columns. A row stays once alt.xyz drops the record
-from its index: its `scraped_at` then predates the last weekly full run (27 rows on
-2026-10-20, 14 of them with a literal `last_sale_*` and nothing in the store), so a row
-whose `scraped_at` is older than the newest Sunday is a card alt.xyz no longer lists. Blank always means "the data can't
+numbers per asset) plus history-derived columns. A record alt.xyz no longer indexes
+(renamed, merged into another record, removed) leaves the file once it has not been seen
+for more than 14 days (2026-10-21; every live asset is refreshed within 7 days, so that is
+two missed Sundays): 18 rows on the 10-20 feed, e.g. the stale "English Holo" twin of the
+2005 Delta Species Groudon Star that made PokeSniper's matcher skip the card. The row comes
+back by itself if the record reappears; its sales stay in the store. A row whose
+`scraped_at` is between 7 and 14 days old is on its way out unless Sunday's run finds it. Blank always means "the data can't
 say", never 0:
 
 | column | meaning |
