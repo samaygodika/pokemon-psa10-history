@@ -90,7 +90,7 @@ def start(out, day, scope):
 
 
 SUM_KEYS = ("scope", "ok", "failed", "skipped", "carried", "listings_asked", "listings_failed",
-            "psa9_listings_asked", "psa9_listings_failed")
+            "psa9_listings_asked", "psa9_listings_failed", "all_grades_cards", "all_grades_requests")
 
 
 def scope_size(path):
@@ -110,7 +110,8 @@ def account_from_files(d):
     scope = scope_size(d / "scope.txt")
     return {"scope": scope, "ok": len(rows), "failed": max(scope - len(rows), 0), "skipped": 0, "carried": 0, "passes": 0,
             "listings_asked": len(rows), "listings_failed": sum(1 for r in rows if not r.get("listings_checked_at")),
-            "psa9_listings_asked": 0, "psa9_listings_failed": 0, "unfinished": True}
+            "psa9_listings_asked": 0, "psa9_listings_failed": 0,
+            "all_grades_cards": sum(1 for r in rows if r.get("pops_by_grade")), "all_grades_requests": 0, "unfinished": True}
 
 
 def merge_shards(out):

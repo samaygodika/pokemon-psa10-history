@@ -56,6 +56,16 @@ Store layout (all plain CSV, all append/merge-friendly so git diffs stay small):
                                   month files with a change are rewritten
                                   (merge_sales, 2026-09-26; before that the
                                   store was append-only and never saw a flip).
+    history/grade_pops.csv        (2026-10-21) the pop at EVERY PSA grade, one row per run day
+                                  and asset, for the cards the scraper was asked at every
+                                  grade (--all-grades-for, the Gold Star category: nightly/
+                                  all_grades_scope.py): data_date, asset_id, grading_company,
+                                  pop_0 (alt.xyz's "0.0" row: Authentic / altered), pop_1,
+                                  pop_1_5, ... pop_9, pop_10, pop_total, scraped_at, parsed
+                                  from cards.csv's pops_by_grade. Append-only across days;
+                                  the same (day, asset) is merged, newest scraped_at wins.
+                                  Committed (a few hundred rows a night). history/all_grades.py
+                                  reads it for latest/all_grades/grades.csv.
     history/last_run.json         the newest nightly's account of itself (the run's
                                   run_stats.json, written by alt_scraper.py and
                                   nightly/run_stats.py: cards asked / ok / failed /
@@ -186,6 +196,13 @@ BIN_MAX_AGE_DAYS = 7   # a Buy It Now row survives this long without alt.xyz sho
 # grade (blank = not asked, or the request failed); live rows are replaced per (asset, grade)
 LIVE_CHECK_COLS = {"10.0": "listings_checked_at", "9.0": "psa9_listings_checked_at"}
 ALT_SOURCE = "Alt"   # source of the rows from alt.xyz's own auctions / marketplace (ingest_alt)
+# history/grade_pops.csv (2026-10-21): the pop at every PSA grade for the --all-grades-for cards. The
+# grade ladder as alt.xyz keys it, 0.0 (Authentic / altered) then 1, 1.5, ... 9, 10; a pop-table row at
+# any other key (none seen for PSA) is folded into pop_total only.
+GRADE_POPS = "grade_pops.csv"
+POP_GRADES = ["0.0"] + [f"{n / 2:.1f}" for n in range(2, 19)] + ["10.0"]
+GRADE_POP_COLS = (["data_date", "asset_id", "grading_company"] + [f"pop_{g.rstrip('0').rstrip('.').replace('.', '_')}" for g in POP_GRADES]
+                  + ["pop_total", "scraped_at"])
 
 DATE_RX = re.compile(r"\d{4}-\d{2}-\d{2}")
 
@@ -254,6 +271,8 @@ def ingest(run_dir, day, store=HERE):
     write_csv_atomic(daily_path, DAILY_COLS, sorted(daily.values(), key=lambda d: d["asset_id"]))
     print(f"  daily/{day}.csv: {len(daily)} rows ({replaced} replaced by a newer scrape of the same asset)")
 
+    n_grade_pops = ingest_grade_pops(cards, store, day)
+
     # --- sales/<month>.csv: keyed by alt_tx_id (URL rules for older rows); see merge_sales ---------
     sales_dir = store / "sales"
     incoming = defaultdict(list)
@@ -312,7 +331,63 @@ def ingest(run_dir, day, store=HERE):
     if (run_dir / "fanatics_listings.csv").exists():
         live.update(ingest_fanatics(run_dir / "fanatics_listings.csv", store, day))
     live["last_run"] = copy_run_stats(run_dir, store)
-    return {"assets": len(assets), "new_assets": new_assets, "daily_rows": len(daily), **stats, **live}
+    return {"assets": len(assets), "new_assets": new_assets, "daily_rows": len(daily), "grade_pops_rows": n_grade_pops,
+            **stats, **live}
+
+
+def pop_col(grade):
+    """'1.5' -> 'pop_1_5', '10.0' -> 'pop_10', '0.0' -> 'pop_0' (the GRADE_POP_COLS names)."""
+    return "pop_" + grade.rstrip("0").rstrip(".").replace(".", "_")
+
+
+def grade_pops_row(r, day):
+    """A history/grade_pops.csv row from a cards.csv row whose pops_by_grade is set ("0.0:30 1.0:912 ...
+    10.0:98", alt_scraper.py pops_by_grade), or None when it is blank (not an all-grades card, or the pop
+    table has no rows for the company: unknown, never zero). Grades of the ladder the string lacks are
+    0 (the pop table lists only grades with copies); a key outside the ladder counts in pop_total only."""
+    text = (r.get("pops_by_grade") or "").strip()
+    if not text:
+        return None
+    row = {"data_date": day, "asset_id": r["asset_id"], "grading_company": r.get("grading_company") or "PSA",
+           "scraped_at": r.get("scraped_at") or ""}
+    for g in POP_GRADES:
+        row[pop_col(g)] = 0
+    total = 0
+    for part in text.split():
+        g, _, n = part.partition(":")
+        n = to_int(n)
+        if n is None:
+            continue
+        total += n
+        if g in POP_GRADES:
+            row[pop_col(g)] = n
+    row["pop_total"] = total
+    return row
+
+
+def ingest_grade_pops(cards, store, day):
+    """cards.csv rows with pops_by_grade -> history/grade_pops.csv (see the module doc): one row per
+    (day, asset, company), merged newest scraped_at wins, every other day's rows kept. Returns the rows
+    of this day in the file after the merge (0 when the run had no all-grades cards: the file is then
+    left as it is, not even rewritten)."""
+    fresh = [row for row in (grade_pops_row(r, day) for r in cards) if row]
+    if not fresh:
+        return 0
+    path = store / GRADE_POPS
+    kept = {(r["data_date"], r["asset_id"], r["grading_company"]): r for r in read_csv(path)}
+    replaced = 0
+    for row in fresh:
+        key = (row["data_date"], row["asset_id"], row["grading_company"])
+        prev = kept.get(key)
+        if prev is None or (row["scraped_at"] or "") >= (prev.get("scraped_at") or ""):
+            replaced += prev is not None
+            kept[key] = row
+    rows = sorted(kept.values(), key=lambda r: (r["data_date"], r["asset_id"], r["grading_company"]))
+    write_csv_atomic(path, GRADE_POP_COLS, rows)
+    today = sum(1 for r in rows if r["data_date"] == day)
+    print(f"  grade_pops.csv: {len(fresh)} card(s) with a pop at every grade in the run ({replaced} replaced an earlier "
+          f"scrape of the same day), {today} row(s) for {day}, {len(rows)} in all")
+    return today
 
 
 def copy_run_stats(run_dir, store):

@@ -8,7 +8,8 @@
 # Steps:
 #   1. index listing  -> snapshots/<date>/all_pokemon_cards.{txt,json}   (~260 requests, ~25 min)
 #   2. scope filter   -> snapshots/<date>/scope.txt (+ .json sidecar)
-#                        (+ shard-<i>/scope.{txt,json} when NIGHTLY_SHARDS > 1, nightly/shards.py)
+#                        (2c: + all_grades.txt, the Gold Star cards asked at every PSA grade, nightly/all_grades_scope.py;
+#                        + shard-<i>/scope.{txt,json} when NIGHTLY_SHARDS > 1, nightly/shards.py)
 #   3. scrape         -> snapshots/<date>/cards.csv, sales.csv, listings.csv, run.log, run_stats.json
 #                        (retries failed cards twice: the scraper exits 2 when cards failed)
 #                        (sharded: each shard into shard-<i>/, merged back into the run folder by nightly/shards.py;
@@ -22,6 +23,8 @@
 #                        (daily/ and sales/ are the store: pulled from the release just before this step, pushed by
 #                        nightly/commit_results.sh; history/store.py)
 #   5. metrics        -> latest/cards.csv, latest/series/*.csv, latest/recent_sales{,_psa9}/*.csv, latest/summary.json
+#   5b. all grades    -> latest/all_grades/{grades,sales}.csv (the Gold Star category at every PSA grade, 2026-10-21:
+#                        history/all_grades.py over history/grade_pops.csv + the store; the list comes from step 2c)
 #   6. coverage       -> latest/characters.csv (per-character alt-side market cap and coverage)
 #   7. flags          -> history/psa9_flags.csv, history/psa9_category_moves.csv (Sid's PSA 9 buy conditions, logged forward)
 #   8. tcgplayer ids  -> latest/tcgplayer_ids.csv (each English card's TCGplayer product id + image URL, from
@@ -47,7 +50,8 @@
 # Env knobs: NIGHTLY_FANATICS_BUDGET (max requests for the direct Fanatics Collect Buy Now pull; empty =
 # off), NIGHTLY_MIN_SCRAPED_PCT (90) and NIGHTLY_MAX_LISTINGS_FAILED_PCT (20) (the gate, see
 # nightly/run_stats.py), NIGHTLY_SCOPE (top60 = the subjects lists | full), NIGHTLY_ALSO_GRADE (9 on the nightly scope,
-# empty on full; "" turns it off), NIGHTLY_ALSO_LISTINGS (1 = also fetch the live listings at the
+# empty on full; "" turns it off), NIGHTLY_ALL_GRADES (1: the Gold Star category at every PSA grade, both scopes;
+# 0 turns it off), NIGHTLY_ALSO_LISTINGS (1 = also fetch the live listings at the
 # --also-grade grade, i.e. PSA 9 listings; default empty = off, and never on the full run, which
 # has no --also-grade), NIGHTLY_WORKERS (4), NIGHTLY_DELAY
 # (0.25 s per worker between requests), NIGHTLY_LIMIT (scrape only the first N
@@ -114,6 +118,19 @@ stage_scope() {
     # roster candidates (nightly/subjects.txt) at every year, plus the vintage-checklist species at <= 2013
     $PY nightly/filter_subjects.py "$OUT/all_pokemon_cards.json" nightly/subjects.txt "$OUT/scope.txt" "${NIGHTLY_LIMIT:-0}" nightly/vintage_species.txt 2013
   fi
+  # The cards asked at EVERY PSA grade (2026-10-21, Samay + Sid's Gold Star buy): the Gold Star category by the
+  # feed's own card-type rule -> $OUT/all_grades.txt (+ .json), which the scrape stage passes as --all-grades-for
+  # (~160 cards, ~2,500 more sale requests a night). On the nightly scope the few whose subject the species
+  # lists miss are appended to scope.txt first (before the shard split). NIGHTLY_ALL_GRADES=0 turns it off;
+  # a NIGHTLY_LIMIT smoke run writes the list but does not widen its scope.
+  if [ "${NIGHTLY_ALL_GRADES-1}" = "1" ]; then
+    echo "--- 2c/8 every PSA grade for the Gold Star category ---"
+    if [ "$SCOPE" = "full" ] || [ -n "${NIGHTLY_LIMIT:-}" ]; then
+      $PY nightly/all_grades_scope.py "$OUT/all_pokemon_cards.json" "$OUT/all_grades.txt"
+    else
+      $PY nightly/all_grades_scope.py "$OUT/all_pokemon_cards.json" "$OUT/all_grades.txt" --add-to "$OUT/scope.txt"
+    fi
+  fi
   if [ "$SHARDS" -gt 1 ]; then
     echo "--- 2b/8 deal the scope into $SHARDS shards ---"
     local LIST; LIST=$(SHARDS=1 scope_list)
@@ -156,6 +173,9 @@ stage_scrape() {   # $1 = list file, $2 = folder for cards.csv / sales.csv / lis
   local SCRAPE=($PY alt_scraper.py --workers "${NIGHTLY_WORKERS:-4}" --delay "${NIGHTLY_DELAY:-0.25}" --max-sales 0 --keep-empty --out "$SOUT")
   if [ -n "$ALSO_GRADE" ]; then SCRAPE+=(--also-grade "$ALSO_GRADE"); fi
   if [ -n "$ALSO_GRADE" ] && [ "$ALSO_LISTINGS" = "1" ]; then SCRAPE+=(--also-listings); fi
+  # --all-grades-for: the scope stage's list of cards asked at every PSA grade (step 2c; absent when
+  # NIGHTLY_ALL_GRADES=0 there). Both scopes: the weekly full run refetches these at every grade too.
+  if [ -f "$OUT/all_grades.txt" ]; then SCRAPE+=(--all-grades-for "$OUT/all_grades.txt"); fi
   # NIGHTLY_SKIP_UNCHANGED=1: pass the previous run's daily file (newest history/daily/*.csv
   # dated before DAY; the names are YYYY-MM-DD so lexical order is date order). Never on the
   # full scope, which is what refetches every carried card once a week.
@@ -237,6 +257,9 @@ stage_assemble() {
 
   echo "--- 5/8 rebuild latest/ ---"
   $PY history/metrics.py
+
+  echo "--- 5b/8 every PSA grade for the Gold Star category -> latest/all_grades/ ---"
+  $PY history/all_grades.py   # from history/grade_pops.csv + the store; a no-op until the first run with the list
 
   echo "--- 6/8 per-character coverage ---"
   $PY history/coverage.py

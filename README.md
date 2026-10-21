@@ -13,7 +13,7 @@ nightly/              scheduled run: index listing -> scope -> scrape -> ingest 
 history/              the store: assets.csv, live_listings.csv and the check files (committed); daily/<date>.csv and
                       sales/<month>.csv (1.2 GB, rewritten nightly) live on the GitHub release tagged `store`, one
                       gzip tarball per generation, pulled and pushed by history/store.py (2026-10-17)
-latest/               what the server reads: cards.csv, series/<xx>.csv, recent_sales/<xx>.csv, recent_sales_psa9/<xx>.csv, clean_sales/<month>.csv, characters.csv, tcgplayer_ids.csv, card_catalog.csv, tcgplayer_sets.csv, watchlist_listings.csv, summary.json (with the sha256 of each)  (committed)
+latest/               what the server reads: cards.csv, series/<xx>.csv, recent_sales/<xx>.csv, recent_sales_psa9/<xx>.csv, clean_sales/<month>.csv, characters.csv, tcgplayer_ids.csv, card_catalog.csv, tcgplayer_sets.csv, watchlist_listings.csv, all_grades/{grades,sales}.csv (the Gold Star category at every PSA grade), summary.json (with the sha256 of each)  (committed)
 snapshots/            raw per-run output (gitignored, hundreds of MB)
 .github/workflows/    GitHub Actions cron: nightly roster candidates + vintage checklist, weekly full index
 ```
@@ -101,6 +101,53 @@ instead of ~300 MB. PSA 9 sales
 exist only for the nightly scope (from 2026-09-23). alt.xyz's not-yet-final sales
 (`subject_to_change`, a few thousand, all in the current month) are included, as
 everywhere else in the feed.
+
+### Every PSA grade for the Gold Star category (2026-10-21)
+
+Samay and Sid bought a Gold Star and want the whole category tracked at every grade, not only
+the PSA 10 / PSA 9 the feed carries for every card. Each night (and on the weekly full run) the
+scrape asks every **Gold Star** card at PSA 1, 1.5, 2, … 8.5, 9 and 10 and records its pop at
+every grade. The category is the feed's own card-type rule (`history/flags.py` `card_type`, the
+one `history/psa9_category_moves.csv` uses): a card dated 2008 or earlier named "… Gold Star …"
+or "… Star #n" / "… Star Holo", every language — 161 records on 2026-10-20; the 2021
+Celebrations / 25th-anniversary reprints are not the category. `nightly/all_grades_scope.py`
+picks them out of the index listing (the list travels as `snapshots/<day>/all_grades.txt`; the
+few whose subject the species lists miss, e.g. the German "Glurak-Holo" record of the Dragon
+Frontiers Charizard, are added to the nightly scope), `alt_scraper.py --all-grades-for` does the
+pulls (one sale request per grade the pop table shows copies at, ~2,500 a night; `cards.csv`'s
+last column `pops_by_grade`), the sales land in the store like any other, and:
+
+- `history/grade_pops.csv` (committed, one row per card and night: `data_date`, `asset_id`,
+  `grading_company`, `pop_0` (alt.xyz's "0.0" row: Authentic / altered), `pop_1`, `pop_1_5`, …
+  `pop_9`, `pop_10`, `pop_total`, `scraped_at`) is the pop history at every grade. 0 = alt.xyz's
+  pop table lists no copies at that grade; a card is absent on a night its scrape failed.
+- `latest/all_grades/grades.csv` (`history/all_grades.py`, step 5b) has **one row per card and
+  grade** (18 grades per card): identity (`asset_id`, `card_name`, `year`, `set`, `card_number`,
+  `subject`, `variety`), `grading_company`, `grade` (`1.0` … `10.0`), `pop`, `pop_date`,
+  `pop_30d_ago`, `pop_chg_30d` (blank until there are 30 days of pops), `scraped_date` (the night
+  the card was asked at every grade: a row with a `scraped_date` and no sale columns means
+  collected, none sold), and the PSA 10 sale columns of `cards.csv` applied to that grade's sales
+  with the same rules (`sales_total`, `last_sale_price/date/source`, `last_sale_status`,
+  `last_sale_newer_price/date`, `last_sale_unconfirmed`, `last_sale_single`,
+  `clean_last_sale_price`, `median_last_3`, `cap_price` and `cap_price_<w>_ago`, `volume_<w>`,
+  `price_chg_<w>_pct` for 30d / 60d / 90d / 180d / 1y, `chg_held_windows`, `highest_sale`,
+  `lowest_sale`, `sales_first_date`, `outliers_excluded`). Built with `history/metrics.py`'s own
+  functions, so a figure here equals the one `cards.csv` would show for the same sales. Live
+  listings are not asked at the lower grades (`cards.csv`'s PSA 10 / PSA 9 listing columns still
+  cover those two).
+- `latest/all_grades/sales.csv`: **every** sale alt.xyz lists for those cards at every grade,
+  newest first within a card and grade: `asset_id`, `grade`, `date`, `price`, `source`,
+  `sale_type`, `status` (`ok`, alt.xyz's `RELISTED` / `NOT_PAID` / `PENDING`, or `REMOVED`),
+  `outlier` (1 = an `ok` sale the filter holds back), `url`. PWCC mirror copies dropped, like
+  `recent_sales/`. The first run collects each grade's full history (alt.xyz returns every sale).
+- `latest/all_grades/summary.json`: cards, grade rows, sales, the pops' date range,
+  `generated_at`. Both CSVs are hashed into `latest/summary.json` `files`.
+
+`NIGHTLY_ALL_GRADES=0` turns the step off; another category is one line in
+`nightly/all_grades_scope.py` (`CARD_TYPES`). A 5-card live check on 2026-10-21: the Dragon
+Frontiers Charizard Gold Star alone had 1,374 sales at 16 ladder grades (PSA 7: pop 573, 206
+clean sales, last $20,000, +409% over a year), and a German record with no PSA 10 copies still
+had 7 sales at PSA 1–8.
 
 `latest/summary.json` is the sync check (PokeSniper's server fetches it hourly and downloads
 the rest only when `generated_at` moved) and the run's counts:
@@ -345,7 +392,9 @@ Laptop fallback: `nightly/com.samaygodika.altscrape.plist` runs the same script 
 primary schedule.
 
 Env knobs: `NIGHTLY_SCOPE` (top60 = the subjects lists | full), `NIGHTLY_ALSO_GRADE` (9 on the
-nightly scope, empty on full), `NIGHTLY_ALSO_LISTINGS` (PSA 9 live listings too, needs an
+nightly scope, empty on full), `NIGHTLY_ALL_GRADES` (1: the Gold Star category at every PSA
+grade on both scopes, see *Every PSA grade for the Gold Star category*; 0 turns it off),
+`NIGHTLY_ALSO_LISTINGS` (PSA 9 live listings too, needs an
 also-grade; on by default since 2026-09-26, 0 turns it off), `NIGHTLY_WORKERS` (4; the Actions
 workflows use 6 in total, split over the scrape jobs), `NIGHTLY_DELAY` (0.25 s per worker; Actions
 uses 0.05), `NIGHTLY_LIMIT`, `NIGHTLY_DATE`, `NIGHTLY_SKIP_HISTORY=1`, `NIGHTLY_SKIP_UNCHANGED=1`,
@@ -381,6 +430,10 @@ sale's own eBay/Goldin/Alt link; `--max-sales N` keeps the newest N), plus
 `listings.csv` (what is for sale right now at PSA 10). `--also-grade 9` adds PSA 9
 sales; `--also-listings` then adds the PSA 9 live listings too, one more request per
 card with any PSA 9s, its check time in `psa9_listings_checked_at` (on by default in the nightly since 2026-09-26).
+`--all-grades-for FILE` (2026-10-21) asks the cards listed in FILE at every PSA grade from 1 to 10
+(half grades too): their sales at each grade the pop table shows copies at go to `sales.csv`, and
+their pop at every grade to `cards.csv`'s last column `pops_by_grade` (`0.0:30 1.0:912 ... 10.0:98`;
+blank for every other card). Live listings stay at PSA 10 and the `--also-grade` grades.
 Rows are written as each card finishes; `--resume` skips cards already in `cards.csv`.
 `--list` also writes a `.json` sidecar the scraper uses to skip per-card lookups.
 Low-pop cards are the interesting ones, so nothing is filtered by population

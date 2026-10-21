@@ -84,7 +84,8 @@ def card_type(r):
     ex_card = re.search(r"\bex\b", subj, re.I) is not None
     if yr is None:
         yr = 0
-    if yr <= 2008 and re.search(r"Gold Star|\bStar\b(?= #| Holo)", name):
+    # \bGold Star\b: "Gold Staryu" (a 2004 Clash of the Blue Sky Staryu) matched the bare "Gold Star" (2026-10-21)
+    if yr <= 2008 and re.search(r"\bGold Star\b|\bStar\b(?= #| Holo)", name):
         return "Gold Star"
     if 2006 <= yr <= 2010 and re.search(r"\bLv\.?\s?X\b|\bLV\.X\b", name, re.I) \
             and not re.search(r"Lv\.?\s?X (?:Deck|Collection)", name, re.I):

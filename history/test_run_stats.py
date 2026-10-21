@@ -145,7 +145,7 @@ def test_merge_shards():
         assert merged["started_at"] == "2026-10-17T01:30:00+00:00" and merged["finished_at"] == "2026-10-17T04:10:00+00:00"
         assert set(merged["shards"]) == {"shard-0", "shard-1", "shard-2"} and merged["shards"]["shard-1"]["unfinished"] is True
         assert merged["shards"]["shard-2"] == dict(scope=3, ok=0, failed=3, skipped=0, carried=0, passes=0, listings_asked=0, listings_failed=0,
-                                                   psa9_listings_asked=0, psa9_listings_failed=0, unfinished=True), merged["shards"]["shard-2"]
+                                                   psa9_listings_asked=0, psa9_listings_failed=0, all_grades_cards=0, all_grades_requests=0, unfinished=True), merged["shards"]["shard-2"]
         st = run_stats.load(out)
         assert st["day"] == "2026-10-17" and st["scrape"] == merged, "the run-level fields from `start` are kept"
         with contextlib.redirect_stdout(io.StringIO()):

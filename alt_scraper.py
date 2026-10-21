@@ -16,6 +16,9 @@ Usage
   python3 alt_scraper.py --list charizard --min-pop 100   # ...only cards with 100+ graded copies
   python3 alt_scraper.py --skip-unchanged-sales history/daily/2026-09-25.csv cards.txt
                                                    # don't refetch sales that cannot have changed since that run
+  python3 alt_scraper.py --also-grade 9 --all-grades-for gold_star.txt cards.txt
+                                                   # ...and for the cards listed in gold_star.txt, the sales at EVERY
+                                                   # PSA grade 1-10 (half grades too) + their pop at every grade
   python3 alt_scraper.py --alt-listings --out DIR  # Alt's own auctions + marketplace -> DIR/alt_listings.csv
   python3 alt_scraper.py --fanatics-listings --out DIR   # Fanatics Collect's Buy Now marketplace -> DIR/fanatics_listings.csv
 
@@ -30,8 +33,11 @@ Accepted inputs (one per line, blank lines and # comments ignored):
   search: 1999 Pokemon Base Set Charizard #4   top search hit is used (check the log!)
 
 Outputs (written next to this script unless --out is given):
-  cards.csv        one row per card: population + price summary
-  sales.csv        one row per recorded sale at the chosen grade (and at any --also-grade)
+  cards.csv        one row per card: population + price summary (pops_by_grade, the last column, holds
+                   the card's pop at every grade of --company for the --all-grades-for cards: "0.0:30
+                   1.0:912 ... 10.0:98"; blank otherwise, and blank when the pop table has no such rows)
+  sales.csv        one row per recorded sale at the chosen grade (and at any --also-grade; for the
+                   --all-grades-for cards at every PSA grade from 1 to 10)
   listings.csv     one row per listing live right now at the chosen grade (eBay / Fanatics
                    Collect / CardHobby via alt.xyz): Buy It Now price, or auction end time,
                    bid count and current bid. With --also-listings, also at each --also-grade
@@ -423,7 +429,8 @@ def normalise_grade(g):
     return f"{float(g):.1f}"
 
 
-def summarise(asset, pops, sales, company, grade, source_input, listing, public_url="", extra_grades=(), listings_checked_at=""):
+def summarise(asset, pops, sales, company, grade, source_input, listing, public_url="", extra_grades=(), listings_checked_at="",
+              all_grades=False):
     pop_by = {(p["gradingCompany"], p["gradeNumber"]): p["count"] for p in pops}
     company_total = sum(c for (co, _), c in pop_by.items() if co == company)
     # No rows at all for the chosen company means "alt.xyz has no <company> data for this
@@ -484,6 +491,10 @@ def summarise(asset, pops, sales, company, grade, source_input, listing, public_
         # UTC time the live listings were fetched (they go to listings.csv); blank when
         # that request failed, i.e. unknown, not "nothing listed".
         "listings_checked_at": listings_checked_at,
+        # The card's pop at every grade of the company (--all-grades-for cards only, 2026-10-21):
+        # "0.0:30 1.0:912 1.5:32 ... 10.0:98" from the same cardPops answer. Blank for every other
+        # card, and blank (unknown) when the pop table has no rows for the company.
+        "pops_by_grade": pops_by_grade(pops, company) if all_grades else "",
     }
     for g in extra_grades:
         row[also_listings_col(g)] = ""   # set by the caller once --also-listings has asked at that grade
@@ -496,7 +507,7 @@ CARD_COLS = ["input", "asset_id", "card_name", "alt_url", "alt_public_url", "yea
              "grading_company", "grade", "pop_at_grade", "company_total_pop", "index_total_pop", "index_transaction_count", "num_sales",
              "last_sale_price", "last_sale_date", "last_sale_source", "avg_last_3_sales",
              "highest_sale", "lowest_sale", "scraped_at", "pop_at_grade_9", "extra_grades", "listings_checked_at",
-             "psa9_listings_checked_at", "sales_fetched"]
+             "psa9_listings_checked_at", "sales_fetched", "pops_by_grade"]
 # The sale-summary columns of a card row: what --skip-unchanged-sales copies from the previous
 # daily row when a card's sales are not refetched. Everything else in the row (pops, listing,
 # index counts, scraped_at) is fresh either way.
@@ -634,6 +645,39 @@ def load_prev_daily(path):
 
 def pop_count(pops, company, grade):
     return sum(p["count"] for p in pops if p["gradingCompany"] == company and p["gradeNumber"] == grade)
+
+
+# --------------------------------------------------------------------------
+# --all-grades-for: every PSA grade for a few cards (the Gold Star category, 2026-10-21)
+# --------------------------------------------------------------------------
+# PSA's grade ladder as alt.xyz keys it: 1, 1.5, 2, ... 8.5, 9, 10 (no 9.5; alt.xyz's "0.0" row is
+# Authentic / altered and is kept in pops_by_grade but never asked for sales).
+PSA_GRADES = [f"{n / 2:.1f}" for n in range(2, 19)] + ["10.0"]
+
+
+def ladder_grades(grade, also_grades=()):
+    """The extra grades an --all-grades-for card is asked at: the PSA ladder without the main
+    grade and the --also-grade grades (those are asked anyway)."""
+    return [g for g in PSA_GRADES if g != grade and g not in also_grades]
+
+
+def pops_by_grade(pops, company):
+    """'0.0:30 1.0:912 1.5:32 ... 10.0:98': the company's rows of the pop table, by grade; '' when
+    it has none (unknown, not zero). history/ingest.py keeps it in history/grade_pops.csv."""
+    rows = sorted(((p["gradeNumber"], p["count"]) for p in pops if p["gradingCompany"] == company), key=lambda t: float(t[0]))
+    return " ".join(f"{g}:{n}" for g, n in rows)
+
+
+def read_all_grades(paths):
+    """The asset ids in the --all-grades-for list files (the scraper's own list format:
+    'asset:<id>   # comment', or bare ids; blank lines and comments ignored)."""
+    ids = set()
+    for p in paths:
+        for line in Path(p).read_text(encoding="utf-8").splitlines():
+            line = strip_comment(line)
+            if line:
+                ids.add(line.split(":", 1)[-1].strip())
+    return ids
 
 
 SKIP_INDEX, SKIP_DORMANT = "index count unchanged", "dormant"
@@ -1310,6 +1354,12 @@ def main():
                     help="with --also-grade: also fetch the live listings at each of those grades into listings.csv "
                          "(one more request per card that has copies at the grade) and record the check time in "
                          "psa9_listings_checked_at. Off by default")
+    ap.add_argument("--all-grades-for", action="append", default=[], metavar="FILE",
+                    help="for the cards listed in FILE (the scraper's list format), also pull the sales at EVERY PSA "
+                         "grade from 1 to 10 (half grades included) into sales.csv, one request per grade the pop table "
+                         "shows copies at, and write the card's pop at every grade in cards.csv's pops_by_grade. The "
+                         "nightly's Gold Star category (nightly/all_grades_scope.py; history/ingest.py keeps the pops "
+                         "in history/grade_pops.csv, history/all_grades.py builds latest/all_grades/). Repeatable")
     ap.add_argument("--listings-only", action="store_true",
                     help="fetch only the live listings at --grade (no pops, no sales): one request per card, for the "
                          "listings refresh between nightlies (nightly/run_listings_refresh.sh). cards.csv then carries "
@@ -1443,8 +1493,12 @@ def main():
 
     inputs, sidecar = read_inputs(args.inputs)
     n, started = len(inputs), utc_now()
+    all_grades = read_all_grades(args.all_grades_for) if args.all_grades_for else set()
+    if all_grades and args.listings_only:
+        ap.error("--listings-only fetches one grade's listings and nothing else; drop --all-grades-for")
     print(f"{n} card(s) to fetch, {company} {grade}" + (" live listings only" if args.listings_only else "")
           + "".join(f" + {g} sales{' and listings' if args.also_listings else ''}" for g in also_grades)
+          + (f" (+ every {company} grade 1-10 for the {len(all_grades)} card(s) in {', '.join(args.all_grades_for)})" if all_grades else "")
           + f", {args.workers} worker(s), {DELAY_SECONDS}s pause"
           + (f", {len(sidecar)} card details preloaded" if sidecar else "") + "\n")
     prev_daily = None
@@ -1462,6 +1516,7 @@ def main():
     counts = {"ok": 0, "skipped": 0, "done": 0, "failed": 0}
     carried = {SKIP_INDEX: 0, SKIP_DORMANT: 0}   # cards whose sales were not refetched, by reason
     also_stats = {"asked": 0, "failed": 0}       # the --also-listings requests (PSA 9), counted in the workers
+    ladder_stats = {"cards": 0, "requests": 0}   # --all-grades-for: cards seen, sale requests at the ladder grades
 
     def handle(i, raw):
         """Fetch one card. Runs in a worker thread; returns (status, message, row, sale rows, listing rows,
@@ -1520,13 +1575,19 @@ def main():
             checked_at = datetime.now(timezone.utc).isoformat(timespec="seconds") if listings is not None else ""
             extra_sales, extra_lrows, pulled = [], [], []   # pulled: the extra grades this run can vouch for (fetched, or a known zero)
             also_checked = {}                                # grade -> check time of its --also-listings request
-            for g in also_grades:
+            # --all-grades-for: this card is also asked at every other grade of the PSA ladder (sales only;
+            # the live listings stay at --grade and the --also-grade grades, whose check-time columns exist)
+            ladder = ladder_grades(grade, also_grades) if asset["id"] in all_grades else []
+            if ladder:
+                with lock:
+                    ladder_stats["cards"] += 1
+            for g in also_grades + ladder:
                 copies = pop_count(pops, company, g) > 0
                 # a pop table that has this company's rows but no copies at g can't have sales or listings at g
                 if company_rows and not copies:
                     pulled.append(g)
                     continue
-                if args.also_listings:
+                if args.also_listings and g in also_grades:
                     # Live listings are today's state, not history, so they are fetched even when the
                     # card's sales are carried. Checked whenever the request succeeded (an empty answer
                     # is "nothing listed at this grade"); blank when it failed or the card was skipped above.
@@ -1542,7 +1603,11 @@ def main():
                     continue
                 pulled.append(g)
                 extra_sales += list(sale_rows(asset, fetch_sales(asset["id"], company, g), args.max_sales))
-            row = summarise(asset, pops, sales, company, grade, raw, listing, public_page_url(listings), pulled, checked_at)
+                if g in ladder:
+                    with lock:
+                        ladder_stats["requests"] += 1
+            row = summarise(asset, pops, sales, company, grade, raw, listing, public_page_url(listings), pulled, checked_at,
+                            all_grades=bool(ladder))
             for g, checked_g in also_checked.items():
                 row[also_listings_col(g)] = checked_g
             if carry:
@@ -1555,7 +1620,10 @@ def main():
             pop_label = row["pop_at_grade"] if company_rows else f"unknown (no {company} rows in the pop table; index says {row['index_total_pop']} graded across all companies)"
             msg = (header + f"\n        {company} {grade} pop: {pop_label}   sales: {row['num_sales']}"
                    f"   last: ${row['last_sale_price']} on {row['last_sale_date']}"
-                   + (f"   (sales not refetched: {carry}; summary carried from the previous run)" if carry else ""))
+                   + (f"   (sales not refetched: {carry}; summary carried from the previous run)" if carry else "")
+                   + (f"\n        every grade: {sum(1 for s in extra_sales if s['grade'] in ladder)} sale(s) at "
+                      f"{sum(1 for g in ladder if g in pulled and pop_count(pops, company, g) > 0)} ladder grade(s) with copies"
+                      f"   pops: {row['pops_by_grade'] or 'unknown'}" if ladder else ""))
             return "ok", msg, row, list(sale_rows(asset, sales, args.max_sales)) + extra_sales, lrows, extra_lrows
         except Exception as e:  # keep going on a bad line
             return "failed", f"[{i}/{n}] FAILED {raw}: {e}", None, [], [], []
@@ -1604,6 +1672,9 @@ def main():
               f"{counts['ok'] - n_carried} card(s) had their sales fetched")
     if skipped:
         print(f"  {skipped} card(s) skipped because no {company} {grade} copies exist")
+    if all_grades:
+        print(f"  --all-grades-for: {ladder_stats['cards']} card(s) asked at every {company} grade 1-10, "
+              f"{ladder_stats['requests']} sale request(s) at the ladder grades")
     if failures:
         print(f"  {failures} card(s) failed, rerun with --resume to retry just those")
     # The run's account of itself (run_stats.json, see update_run_stats). The counts add up across
@@ -1618,6 +1689,10 @@ def main():
         "listings_asked": prev.get("listings_asked", 0) + asked, "listings_failed": prev.get("listings_failed", 0) + stats.failed,
         "psa9_listings_asked": prev.get("psa9_listings_asked", 0) + also_stats["asked"],
         "psa9_listings_failed": prev.get("psa9_listings_failed", 0) + also_stats["failed"],
+        # --all-grades-for (2026-10-21): cards asked at every PSA grade this pass + before, and the sale
+        # requests that took at the ladder grades
+        "all_grades_cards": prev.get("all_grades_cards", 0) + ladder_stats["cards"],
+        "all_grades_requests": prev.get("all_grades_requests", 0) + ladder_stats["requests"],
         "company": company, "grade": grade, "also_grades": also_grades, "listings_only": bool(args.listings_only),
         "started_at": prev.get("started_at") or started, "finished_at": utc_now()})
     return 2 if failures else 0   # 2 = some cards failed; nightly/run_nightly.sh retries those with --resume on it

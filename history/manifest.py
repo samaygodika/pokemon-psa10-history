@@ -49,7 +49,7 @@ LATEST = HERE.parent / "latest"
 
 # the CSVs the server downloads whole, in the order they appear in summary.json["files"]
 FILES = ["cards.csv", "characters.csv", "card_catalog.csv", "tcgplayer_sets.csv", "tcgplayer_ids.csv",
-         "watchlist_listings.csv"]
+         "watchlist_listings.csv", "all_grades/grades.csv", "all_grades/sales.csv"]   # the last two: history/all_grades.py (2026-10-21)
 SHARD_DIRS = ["series", "recent_sales", "recent_sales_psa9"]      # one manifest.json each, written here
 MANIFESTS = [f"{d}/manifest.json" for d in SHARD_DIRS] + ["clean_sales/manifest.json"]
 
