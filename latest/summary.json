@@ -1,9 +1,9 @@
 {
   "data_date": "2026-10-21",
-  "generated_at": "2026-10-21T15:11:58+00:00",
+  "generated_at": "2026-10-22T00:40:40+00:00",
   "daily_files": 39,
   "first_daily": "2026-09-11",
-  "assets": 68238,
+  "assets": 68220,
   "psa10_sales": 3290295,
   "outliers_excluded": 7182,
   "series_rows": 1181668,
@@ -12,20 +12,21 @@
   "psa9_recent_sales_rows": 147341,
   "clean_sales_months": 93,
   "clean_sales": 4870963,
-  "rows_with_psa9_last_sale": 19311,
+  "rows_with_psa9_last_sale": 19310,
   "rows_unconfirmed_last_sale": 1358,
   "rows_chg_counts_held_high": 1434,
   "rows_psa9_chg_counts_held_high": 515,
   "rows_single_last_sale": 1092,
+  "rows_dropped_unlisted": 18,
   "rows_psa9_single_last_sale": 221,
   "last_sale_status_counts": {
-    "completed": 35462,
+    "completed": 35461,
     "pending": 178,
     "unpaid": 78,
     "relisted": 282
   },
   "psa9_last_sale_status_counts": {
-    "completed": 19116,
+    "completed": 19115,
     "pending": 48,
     "unpaid": 30,
     "relisted": 138
@@ -44,27 +45,27 @@
     "unclear": 16,
     "unavailable": 1
   },
-  "rows_listings_checked": 68231,
-  "rows_with_live_auction": 6502,
-  "rows_with_bin_listing": 17679,
-  "rows_bin_ebay_verified": 14989,
-  "rows_psa9_bin_ebay_verified": 8419,
-  "rows_bin_suspect": 2399,
-  "rows_psa9_bin_suspect": 960,
-  "rows_bin_first_seen_known": 17679,
-  "rows_next_auction_bid_suspect": 38,
-  "rows_psa9_bin_first_seen_known": 10406,
-  "rows_psa9_next_auction_bid_suspect": 24,
-  "rows_psa9_listings_checked": 34742,
-  "rows_with_psa9_live_auction": 3438,
-  "rows_with_psa9_bin_listing": 10406,
+  "rows_listings_checked": 68220,
+  "rows_with_live_auction": 6554,
+  "rows_with_bin_listing": 17709,
+  "rows_bin_ebay_verified": 14887,
+  "rows_psa9_bin_ebay_verified": 8359,
+  "rows_bin_suspect": 2404,
+  "rows_psa9_bin_suspect": 959,
+  "rows_bin_first_seen_known": 17709,
+  "rows_next_auction_bid_suspect": 37,
+  "rows_psa9_bin_first_seen_known": 10419,
+  "rows_psa9_next_auction_bid_suspect": 26,
+  "rows_psa9_listings_checked": 34734,
+  "rows_with_psa9_live_auction": 3428,
+  "rows_with_psa9_bin_listing": 10419,
   "rows_with": {
-    "price_chg_30d_pct": 15438,
-    "price_chg_90d_pct": 19978,
-    "price_chg_1y_pct": 19322,
-    "mkt_cap_chg_30d_pct": 15117,
-    "psa9_price_chg_30d_pct": 9401,
-    "psa9_price_chg_1y_pct": 11134
+    "price_chg_30d_pct": 15437,
+    "price_chg_90d_pct": 19977,
+    "price_chg_1y_pct": 19321,
+    "mkt_cap_chg_30d_pct": 15116,
+    "psa9_price_chg_30d_pct": 9400,
+    "psa9_price_chg_1y_pct": 11133
   },
   "last_run": {
     "day": "2026-10-21",
@@ -178,9 +179,9 @@
   },
   "files": {
     "cards.csv": {
-      "sha256": "b77e6be894cdedbbc459bab4b2cff876bce00dbb835dd29bb9646f2dfc9c3f3a",
-      "bytes": 44039873,
-      "rows": 68238
+      "sha256": "4a5d39bd5e00cdb3209e283d2b2e76361130292050ad3c9013156acb9d652c36",
+      "bytes": 44039180,
+      "rows": 68220
     },
     "characters.csv": {
       "sha256": "b6180452c4963794d423419891f698c444dd7aff27291e746739da92c7068976",
