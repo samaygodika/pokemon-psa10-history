@@ -127,9 +127,10 @@ sys.path.insert(0, str(ROOT / "analysis"))
 from costs import CostModel  # noqa: E402
 
 OUT = ROOT / "analysis" / "out"
-MIN_SALES_180 = 3
+MIN_SALES_180 = 3         # universe: clean PSA 10 sales in (t-180d, t] (CLI --min-sales-180)
+MIN_SALES_60 = 1          # universe: sales in (t-60d, t] (CLI --min-sales-60; 0 admits cards whose last sale is up to 180 d old)
 MIN_FWD_SALES = 2
-MIN_TOTAL_SALES = 8       # skip assets that could never qualify anyway
+MIN_TOTAL_SALES = 8       # skip assets that could never qualify anyway (CLI --min-total-sales)
 REBALANCE_START = "2019-01-01"
 LOOKBACK = 180
 HORIZONS = (60, 90)
@@ -254,7 +255,7 @@ def build_panel(sales, assets, rebalance_dates, pops=None):
             if hi - lo180 < MIN_SALES_180:
                 continue
             lo60 = np.searchsorted(d, t - 60 * day, side="right")
-            if hi - lo60 < 1:
+            if hi - lo60 < MIN_SALES_60:
                 continue
             ref = ref_price(p, lo180, hi)
             row = {"asset_id": aid, "date": pd.Timestamp(t), "ref": ref, "log_price": np.log10(ref)}
@@ -391,7 +392,19 @@ def add_money_returns(panel, cost_model=None, haircut=ILLIQUID_HAIRCUT):
 
 
 def main():
+    global MIN_SALES_180, MIN_SALES_60, MIN_TOTAL_SALES, REBALANCE_START
+    import argparse
+    ap = argparse.ArgumentParser(description="point-in-time panel; defaults = the liquid universe used since 2026-09")
+    ap.add_argument("--min-sales-180", type=int, default=MIN_SALES_180)
+    ap.add_argument("--min-sales-60", type=int, default=MIN_SALES_60)
+    ap.add_argument("--min-total-sales", type=int, default=MIN_TOTAL_SALES)
+    ap.add_argument("--start", default=REBALANCE_START, help="first rebalance month")
+    ap.add_argument("--out", default="panel.csv", help="file name under analysis/out/")
+    a = ap.parse_args()
+    MIN_SALES_180, MIN_SALES_60, MIN_TOTAL_SALES, REBALANCE_START = a.min_sales_180, a.min_sales_60, a.min_total_sales, a.start
+    out_path = OUT / a.out
     OUT.mkdir(parents=True, exist_ok=True)
+    print(f"universe: >= {MIN_SALES_180} sales in 180 d, >= {MIN_SALES_60} in 60 d, assets with >= {MIN_TOTAL_SALES} sales; from {REBALANCE_START}; -> {out_path.name}")
     print("loading sales…")
     sales = load_clean_sales()
     assets = pd.read_csv(ROOT / "history" / "assets.csv", usecols=["asset_id", "subject", "year", "set", "variety"], dtype={"variety": str})
@@ -403,14 +416,14 @@ def main():
     print(f"{len(sales)} clean sales on {sales.asset_id.nunique()} assets (>= {MIN_TOTAL_SALES} sales each), data through {data_date.date()}")
     print(f"{len(dates)} monthly rebalance dates {dates[0].date()} .. {dates[-1].date()}")
     panel = build_panel(sales, assets, dates, pops)
-    panel.to_csv(OUT / "panel.csv", index=False)
+    panel.to_csv(out_path, index=False)
     liquid = panel.groupby("date").size()
     print(f"panel: {len(panel)} asset-months, {panel.asset_id.nunique()} assets; liquid universe per month min {liquid.min()} median {int(liquid.median())} max {liquid.max()}")
     print(f"rows with fwd60 target: {panel.fwd60.notna().sum()}, fwd90: {panel.fwd90.notna().sum()}")
     for h in MONEY_HORIZONS:
         f = panel[f"exit_flag{h}"].value_counts()
         print(f"money target {h}d: {int(panel[f'mny{h}'].notna().sum())} rows; exits ok {int(f.get('ok', 0))}, extended {int(f.get('extended', 0))}, illiquid marks {int(f.get('illiquid', 0))}")
-    print(f"wrote {OUT / 'panel.csv'}")
+    print(f"wrote {out_path}")
 
 
 if __name__ == "__main__":

@@ -885,6 +885,134 @@ within two months.
   60-day level on any day of such a month") next to the spike's give-back
   base rate. Full tables in `out/psa9_spike.md` (and `_age180`).
 
+## Reference price v2 (2026-10-21)
+
+Step 2 of the buy-model plan. `refprice.py` asks whether a venue- and sale-type-adjusted,
+smoothed reference beats the app's median of the last three raw sales (`history/metrics.py`).
+595,709 English card-months with a sale in the prior 180 days (monthly anchors 2021-03 →
+2026-08, 15,296 cards), 370,993 with a next clean sale within 60 days; 3.27M clean PSA 10
+sales. Category = sale type on eBay, venue elsewhere; factors estimated within (card, month)
+groups with ≥ 2 categories on demeaned dummies, by price tier, from the years before the one
+they are applied in. References: med3 (the app's), med5, adj3 (adjusted sales), ewma (half-life
+45 d), kalman (local level over every adjusted sale, daily sd 0.02, observation sd by tier
+0.21 / 0.15 / 0.12), carried (adj3 moved with an era × language index). Outputs
+`out/refprice.md`, `out/refprice_factors.csv`, `out/refprice_rows.csv`.
+
+```bash
+analysis/.venv/bin/python analysis/refprice.py                  # ~8 min first run (sales cached in out/refprice_sales.pkl), ~6 min after
+analysis/.venv/bin/python analysis/refprice.py --q-daily 0.04 --tag _q04
+```
+
+**Factors** (log vs eBay auction, applied in 2026, tiers < $100 / $100–500 / $500–2k /
+$2k+): eBay Buy It Now +0.21 / +0.10 / +0.06 / +0.05; best offer +0.15 / +0.07 / +0.04 /
++0.03; PWCC fixed price +0.18 / +0.14 / +0.09 / +0.08; PWCC auctions ≈ 0; Alt −0.05 to
+−0.07; CardHobby −0.10; Goldin / Heritage −0.03 to −0.05. Premiums shrink with price and
+drifted down over the years; the average next print carries +0.07 over the auction level
+(mix 41% auction, 26% offer, 23% BIN, 6% PWCC auction).
+
+**Reversion** (own-lag slope of monthly log changes, 525,947 pairs): med3 −0.07 overall but
+−0.22 on cards with 8+ sales in 180 d, where 26% of ≥ 30% rises gave back half the next
+month; for cards with ≤ 7 sales the median-of-3 barely moves monthly (slopes within ±0.05
+for every reference), so the "half reverts" of the lag study (monthly bucket medians) is a
+liquid-card and bucket phenomenon. Kalman: +0.07 on liquid cards, giveback 11%, monthly sd
+0.218 → 0.170, share of ≥ 30% months 14.2% → 8.3%. EWMA over-smooths (+0.34: lag).
+
+**Against the next sale** (type-matched target): MAE med3 0.313, med5 0.311, adj3 0.306,
+ewma 0.304, **kalman 0.294** (RMSE 0.437 → 0.415, misses > 30% 44.2% → 41.1%, closer than
+med3 on 53% of rows), carried 0.305; kalman best in every tier (tie at $2k+), every
+liquidity bucket (8+ sales 0.236 → 0.209) and every year, ewma worse than med3 in
+2025–26. After a ≥ 30% jump in med3 (35,125 rows): med3 bias −0.137, MAE 0.329; kalman
+bias +0.031, MAE 0.281; 69% of such a jump prints next time (89% raw). **On the raw next
+print** (type unknown) the adjusted level gains nothing and loses in 2024–26 (MAE 0.330 vs
+0.317, bias +0.19 vs +0.11): an auction-terms level lags a rising market and sits under the
+BIN / offer prints; the lag's sign follows the regime (prints 7–9% below the level in
+2021–23 for tiers ≥ $100), so a constant mix premium does not fix it. Drift sensitivity: q 0.01 over-smooths (liquid-card slope 0.30, MAE 0.309), q 0.04 gives MAE 0.295 but lets the reversion back (slope -0.12); 0.02 stays the default. Next: a local-linear-
+trend filter; `panel.py --ref kalman` for the feature side; for the app, a level in auction
+terms with a BIN-equivalent beside it (Sid's call; the contract is unchanged).
+
+## Pump autopsy (2026-10-21)
+
+Step 1 of the buy-model plan (Sid's ask: a ranked buy list with a confidence score,
+backtested first). `autopsy.py` reads the point-in-time panel and asks, for every
+card-month that went on to win (net ≥ +30% under the money target), which candidate
+signals were on at the anchor, and for every signal how often the rows it flagged won.
+Universe: English liquid cards ≥ $150, anchors whose exit window closed before the panel's
+data end (2026-09-18), trades with an entry sale, other franchises excluded; 35,664
+card-months, 3,643 assets, 7,448 wins at 180 d (42,005 / 4,349 / 4,525 at 90 d). `t` is
+the month-paired t of (win rate of the flagged rows − that month's base), so the regime
+cancels. Outputs `out/autopsy_180.md`, `out/autopsy_90.md`, `out/autopsy_180_vintage.md`,
+the top-50 and liquid top-30 pump lists and a sales-path digest read by hand.
+
+```bash
+analysis/.venv/bin/python analysis/autopsy.py                 # ~2 min, 180 d; --horizon 90; --vintage; --no-sales skips the digest
+```
+
+**Base rates by anchor year (trades with an entry sale; an earlier figure that divided by
+every card-month was half of these)**: win at 180 d 2.1% (2021), 2.5%, 3.3%, 17.6% (2024),
+37.0% (2025), 46.7% (Jan–Feb 2026); at 90 d 2.6, 2.0, 2.4, 6.0, 15.4, 20.5%; vintage
+≤ 2013 at 180 d 2.6, 2.0, 2.2, 13.7, 49.1, 47.4%. Breadth (share of English liquid cards
+up > 5% in 30 d) was 0.15–0.30 in every month of 2021–24 and 0.37–0.62 from 2025-01; at
+≥ 35% breadth 36% of trades won against 21% overall. The regime is the forecast.
+
+**Avoid flags are the only robust cross-sectional signals** (lift = win rate of flagged
+rows / base; 180 d, then 90 d): ≥ 1 sd below the card's own 1-year band 0.23 (t −2.7, 47
+months) / 0.26; release-year card 0.45 (−3.2) / 0.58; own 30 d move ≤ −20% 0.68 (−2.8) /
+0.56; volume surge ≥ 2x 0.79 (−2.3) / 0.91; busy spike 0.88 (−3.4) / 0.93; dearest decile
+vs set-mates 0.82 (−2.0) / 0.83. "Buy the dip" is an avoid flag in this market.
+
+**Every buy-side price signal is the regime.** Pooled 180 d lifts of 1.3–1.7 for set
+momentum (other cards of the set up ≥ 20% in 90 d), era momentum, the set's chase cards
+having run, own 90 d momentum, character heat and "a set-mate doubled" all have
+month-paired t between −1.7 and +0.1 and beat the month's base in 37–46% of months; by
+year the lifts are ~1.0 in 2024–26. The share of wins with two or more buy signals on
+equals the share of all rows with two or more on, every year (2025: 57% vs 58%).
+
+**What survives inside a month is small**: reference price ≥ $1,000 1.44 (t 3.8; vintage
+4.9), mostly the fee schedule; ≥ 1 sd above the card's own band 1.55 (t 2.1), faded during
+the run; no sale in 30 d 1.15 (t 3.2, 68% of months) and quiet cards 1.05 (t 2.3); the
+character's Japanese cards up ≥ 15% in 30 d 1.35 (t 2.0, 58%) at 90 d only (the
+2026-09-15 review's IC +0.032 reproduced as a cut), nothing at 180 d; scarcity vs price
+with today's pop 1.30 (t 2.5) at 90 d, not point-in-time. Net medians of every buy signal
+are negative at 90 d and ≤ +8% at 180 d.
+
+**The pumps by hand** (top 50 by gross 180 d move, closed 2025+ anchors, one per card):
+35 exited on a mark or one or two sales; EX-era 2003–07 sets dominate (Delta Species ×5,
+Unseen Forces ×4, FRLG ×3, Holon Phantoms ×3, TRR ×2, Legend Maker ×2), then e-card, Base
+1st Edition, Topps, BW / DP era; Rayquaza ×5, Pikachu ×4, Mewtwo ×3, Gengar ×2. The
+largest moves are the long tail of a running set (reverse holos, commons, trainers, obscure
+promos at $150–350 with one or two sales a month); 17 of 50 showed anything in their own
+prices at the anchor, 33 were flat and moved one to four months later; no mislabeled card,
+a few single-sale noise prints, one Lorcana card (68 other-franchise assets now excluded).
+The long-tail-after-the-chase-cards cut reads lift 2.1–2.7 but on 0.3–0.8% coverage: the
+tail is below $150 or illiquid, outside this panel. Next: a `--min-price 50` panel with
+set-wide price ranks; the event calendar (Mega Gardevoir / Lucario reveals Feb 2025, Mega
+Evolution Sep 2025, 30th Celebration Jun 2026 precede several of the 50, as hypotheses);
+the pill replay for the PSA 9 side and intra-month spikes the monthly panel cannot see.
+
+**Set-wide, $50-floor test of the long tail (same day).** `panel.py` now takes
+`--min-sales-180 / --min-sales-60 / --min-total-sales / --start / --out` (defaults
+unchanged); `out/panel_loose.csv` = every card with a sale in the 180 days before the
+anchor (`1 / 0 / 4`, from 2021: 997,513 card-months, 26,720 assets, sales through
+2026-10-20). `autopsy.py --panel panel_loose.csv --data-end 2026-10-20 --min-price 50`
+(also `--horizon 90`, and `--min-price 150`) ranks each card's price within its set over
+every English card of the set priced at the anchor and crosses the tier with whether the
+set's top quartile ran ≥ 30% / 50% in 90 d. Result: the tail of a running set wins at
+1.8–1.9x the pooled base and at 0.9–1.2x its own year's base, no better than the chase
+cards of the same sets (tail − chase t between −1.1 and +1.4 over 13–17 months, ahead in
+43–54%); median net −3% to −7% at 180 d, −21% at 90 d. By set the $50 tail splits: Base
+Set commons at a median $70 won 9% of 354 rows, Team Rocket / Fossil / Jungle 21–28%,
+while Topps Chrome 89%, Skyridge 67%, Delta Species 52% followed; a quartile cut over all
+sets averages that away. The one cell that stands out is the tail of *expensive* sets
+(tail cards still ≥ $150): 173 rows on 130 cards, 57.8% wins vs 32.8% for their chase
+cards, lift 1.47 (2025) / 1.33 (2026), median net +42%, but 73% of exits are marks or
+extended windows and only four months carry ≥ 20 rows: a forward-log candidate, not a
+feature. The bigger universe sharpened the avoid flags (busy spike t −4.6, release-year
+−4.0, below own band −4.1) and made "no sale in 30 d" the most consistent cross-sectional
+positive (lift 1.12–1.17, t 3.5–3.7, 78–79% of months, every year but 2024, medians still
+−30%); character heat shows at 90 d for Japanese (1.62, t 2.4) and all-language (1.52,
+t 2.7) cuts, gone at 180 d; "the set's chase cards flat over 90 d" reads 0.48–0.60 lift
+pooled and 0.64–0.66 inside 2025, an avoid-flag candidate on one year of evidence.
+
 ## Findings (2026-09-15, seed history: newest 200 sales per card)
 
 - **Price/volume momentum predicts nothing at 2–3 months.** mom30/mom90 IC ≈ 0,

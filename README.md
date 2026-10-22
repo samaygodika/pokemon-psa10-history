@@ -275,6 +275,51 @@ rows were skipped: a card with no row *and* in `swept` had nothing live; a card 
 `not_swept` is unknown. Built by the daily eBay verify run when the watchlist secrets are set
 (see *Watchlist sweep* below); absent until then.
 
+### latest/buy_list.csv: the v0 "Claude buy" list (2026-10-21)
+
+Sid's ask (2026-10-21): the app should say what to buy, like the leaderboard, as a pill and a
+list ordered by most potential profit, no capital or price filter, with a reason, for PSA 10.
+`history/buy_list.py` (step 7b of the nightly) writes one row per qualifying English PSA 10
+card. **v0 is base-rate arithmetic, not a forecast model**: the score is the measured share of
+trades like this card (same market regime, era, price tier and liquidity, 2021–2026 under the
+all-in cost model: eBay fee, tax, shipping, auction premium, 40th-percentile exit) that netted
++30% or more within the horizon, moved by the two or three cuts the research found to hold
+inside a month, and turned into an expected net gain with the cell's typical win and loss.
+Everything the research found not to work is absent; what it found to lose is the avoid layer.
+The list exists so a track record starts now (`history/buy_ledger.csv`, read back after three
+and six months) and so the app has a file to build against while the model underneath is
+replaced. Expect the live hit rate to come in below the base rates (the research's own rule of
+thumb: half the backtest).
+
+| column | meaning |
+|---|---|
+| `rank` | position by `exp_net_usd_180`, "most potential profit"; `rank_pct` the position by `exp_net_pct_180`. In a hot market most priced cards qualify, so a pill belongs on the top of either ranking (say `rank <= 100` or `rank_pct <= 100`), the app's call |
+| `asset_id`, `card_name` | as in `cards.csv` |
+| `ref_price`, `ref_basis` | the reference price the row is scored at: `median_last_3` (`med3`) |
+| `p_win_180`, `p_low_180`, `p_high_180` | the share of trades in the card's cell that netted +30% or more within 180 days, moved by the cuts, with a 90% band (the cell's Wilson interval moved the same way); capped at 0.9 |
+| `exp_net_pct_180`, `exp_net_usd_180` | expected net gain after all costs: `p_win` × the median net of the cell's winners + (1 − `p_win`) × the mean net of its losers, as a % of `ref_price` and in dollars |
+| `base_rate_180` | the cell's win rate before the cuts |
+| `p_win_90`, `exp_net_pct_90`, `exp_net_usd_90`, `base_rate_90` | the same at 90 days |
+| `cell` | `regime|era|tier|liquidity`: regime = tonight's market breadth (share of English cards ≥ $150 with ≥ 3 sales in the past year whose 30-day change is above +5%: flat < 25%, warm 25–40%, hot ≥ 40%); era wotc ≤ 2003 / vintage ≤ 2013 / modern ≤ 2019 / current; tier < $50, $50–150, $150–500, $500–2k, $2k+; liquidity = clean PSA 10 sales in 90 days 0 / 1 / 2–3 / 4–7 / 8+ |
+| `cell_level`, `cell_n` | which table level the rates came from (the finest with ≥ 100 trades: `regime_era_tier_liq`, then without liquidity, then without era, then the regime alone) and its trade count |
+| `regime`, `breadth` | tonight's regime and the breadth behind it; the regime is most of the forecast, so the list is short in a flat market |
+| `cuts` | space-separated, the adjustments on: `stale30` (no clean sale in 30 days), `jp_heat` (the character's Japanese cards up ≥ 15% in 30 days), `band_high` (≥ 1 sd above the card's own 1-year band of weekly medians, reference ≥ $150) |
+| `avoid_flags` | warnings kept on the row, never a filter: `illiquid_exit` (≤ 2 sales in 180 days), `unconfirmed` (the newest sale is held back by the outlier filter). Cards with any of `release_year busy_spike vol_surge below_band dip chase_flat pending_sale title_mismatch` are not listed at all |
+| `live_bin_price`, `live_bin_url` | the lowest live eBay Buy It Now when one is eBay-verified and not suspect, else blank |
+| `reason` | the sentence for the row, in a fixed order: category leg (the set's chase cards' 90-day run; the character's other cards' 30-day change; Japanese copies), card leg (days without a sale, position vs own band, the live Buy It Now vs the level), the base rate of the cell in tonight's regime, then the warnings |
+| `model`, `data_date`, `scored_at` | `v0`; the data date; the UTC time the row was scored (the same row is in the ledger) |
+
+Rates: `history/buy_list_rates.csv` (cells, both horizons, every level) and `history/buy_list_lifts.csv`
+(the cuts' lifts and odds ratios by horizon and regime) from `analysis/buy_list_rates.py` over the
+loose panel (every card with a sale in the 180 days before a monthly anchor, sales through
+2026-10-20). The hot-regime cells at 180 days rest on three closed months (Aug and Oct 2025, Mar
+2026); the warm ones on twelve. `history/buy_ledger.csv` keeps, per data date, the top 200 listed
+cards by dollars and by percent and the top 200 `tail_lead` cards (bottom price quartile of a set
+whose top quartile ran ≥ 30% in 90 days, reference ≥ $150: the one promising cell of the pump
+autopsy, logged for a forward test, never scored), with the inputs behind each row; a rerun on
+the same data date replaces that date's rows. Blank = unknown, never 0. Research and verdicts:
+`analysis/README.md` (pump autopsy, reference price v2).
+
 ## Scheduled runs
 
 `nightly/run_nightly.sh` does everything: full index listing (~65k cards, ~25 min),

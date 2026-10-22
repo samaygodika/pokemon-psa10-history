@@ -267,6 +267,9 @@ stage_assemble() {
   echo "--- 7/8 PSA 9 buy-condition flags ---"
   $PY history/flags.py
 
+  echo "--- 7b/8 v0 buy list -> latest/buy_list.csv + history/buy_ledger.csv (2026-10-21) ---"
+  $PY history/buy_list.py
+
   echo "--- 8/8 TCGplayer ids + card images ---"
   # tcgcsv.com (TCGplayer's catalog, free, ~220 requests) into the snapshot, matched to latest/cards.csv.
   # If it's unreachable, yesterday's three files stay: the run doesn't fail over images.
