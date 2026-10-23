@@ -302,24 +302,29 @@ thumb: half the backtest).
 | `rank` | position by `exp_net_usd_180`, "most potential profit"; `rank_pct` the position by `exp_net_pct_180`. In a hot market most priced cards qualify, so a pill belongs on the top of either ranking (say `rank <= 100` or `rank_pct <= 100`), the app's call |
 | `asset_id`, `card_name` | as in `cards.csv` |
 | `ref_price`, `ref_basis` | the reference price the row is scored at: `median_last_3` (`med3`) |
-| `p_win_180`, `p_low_180`, `p_high_180` | the share of trades in the card's cell that netted +30% or more within 180 days, moved by the cuts, with a 90% band (the cell's Wilson interval moved the same way); capped at 0.9 |
+| `p_win_180`, `p_low_180`, `p_high_180` | the share of trades in the card's cell that netted +30% or more within 180 days, moved by the cuts, with a 90% band; capped at 0.9. The band (v0.1, 2026-10-22) is the wider of the cell's Wilson interval and its month-clustered one (anchor months as clusters, Student t: one market moves a month's trades together, so a cell's real sample is its months, `cell_months`), moved the same way; under two months, 0–1. Until v0.1 it was Wilson alone and read ±4–5 points on cells that rest on three months |
 | `exp_net_pct_180`, `exp_net_usd_180` | expected net gain after all costs: `p_win` × the median net of the cell's winners + (1 − `p_win`) × the mean net of its losers, as a % of `ref_price` and in dollars |
 | `base_rate_180` | the cell's win rate before the cuts |
 | `p_win_90`, `exp_net_pct_90`, `exp_net_usd_90`, `base_rate_90` | the same at 90 days |
 | `cell` | `regime|era|tier|liquidity`: regime = tonight's market breadth (share of English cards ≥ $150 with ≥ 3 sales in the past year whose 30-day change is above +5%: flat < 25%, warm 25–40%, hot ≥ 40%); era wotc ≤ 2003 / vintage ≤ 2013 / modern ≤ 2019 / current; tier < $50, $50–150, $150–500, $500–2k, $2k+; liquidity = clean PSA 10 sales in 90 days 0 / 1 / 2–3 / 4–7 / 8+ |
 | `cell_level`, `cell_n` | which table level the rates came from (the finest with ≥ 100 trades: `regime_era_tier_liq`, then without liquidity, then without era, then the regime alone) and its trade count |
 | `regime`, `breadth` | tonight's regime and the breadth behind it; the regime is most of the forecast, so the list is short in a flat market |
-| `cuts` | space-separated, the adjustments on: `stale30` (no clean sale in 30 days), `jp_heat` (the character's Japanese cards up ≥ 15% in 30 days), `band_high` (≥ 1 sd above the card's own 1-year band of weekly medians, reference ≥ $150) |
-| `avoid_flags` | warnings kept on the row, never a filter: `illiquid_exit` (≤ 2 sales in 180 days), `unconfirmed` (the newest sale is held back by the outlier filter). Cards with any of `release_year busy_spike vol_surge below_band dip chase_flat pending_sale title_mismatch` are not listed at all |
+| `cuts` | space-separated, the adjustments on: `stale30` (no clean sale in 30 days), `jp_heat` (the character's Japanese cards up ≥ 15% in 30 days), `band_high` (≥ 1 sd above the card's own 1-year band of weekly medians, reference ≥ $150), `thin_history` (v0.1: a card dated 2013 or earlier with no price a year back, `price_chg_1y_pct` blank, so how far it ran cannot be measured; measured against its own cell it won less in every regime, odds ratio 0.54–0.79, applied after the cap on the other cuts' product so stacked boosts cannot swallow it; the reason names the last price before the gap) |
+| `avoid_flags` | warnings kept on the row, never a filter: `illiquid_exit` (≤ 2 sales in 180 days), `unconfirmed` (the newest sale is held back by the outlier filter), `category_falling` (v0.1: the card's category is Correcting by PokeSniper's own rule, `lib/categoryPhase.js` of 2026-10-19, over `recent_sales/`: its cards with ≥ 3 completed sales in 75 days, the newest within 30, together ≥ 15% below their own highs and ≥ 35% of them 15%+ below, over ≥ 10 such cards; a warning because the rates' months hold almost no correcting category, so nothing measures it). Cards with any of `release_year busy_spike vol_surge below_band dip chase_flat pending_sale title_mismatch` are not listed at all |
 | `live_bin_price`, `live_bin_url` | the lowest live eBay Buy It Now when one is eBay-verified and not suspect, else blank |
-| `reason` | the sentence for the row, in a fixed order: category leg (the set's chase cards' 90-day run; the character's other cards' 30-day change; Japanese copies), card leg (days without a sale, position vs own band, the live Buy It Now vs the level), the base rate of the cell in tonight's regime, then the warnings |
-| `model`, `data_date`, `scored_at` | `v0`; the data date; the UTC time the row was scored (the same row is in the ledger) |
+| `reason` | the sentence for the row, in a fixed order: a correcting category first (v0.1), then the category leg (the set's chase cards' 90-day run; the character's other cards' 30-day change; Japanese copies), card leg (days without a sale, position vs own band, no price a year back with the last price before the gap, the live Buy It Now vs the level), the base rate of the cell in tonight's regime with its trades and months, then the other warnings |
+| `model`, `data_date`, `scored_at` | `v0.1` (from 2026-10-22; `v0` before); the data date; the UTC time the row was scored (the same row is in the ledger) |
+| `cell_months` | (v0.1, appended) the anchor months behind the 180-day cell: its real sample size. 3 on every hot-market row today |
+| `category`, `category_off_peak_pct`, `category_breadth_pct` | (v0.1, appended) the category `category_falling` reads (the card type for Gold Star / LV.X / Neo Shining / e-card Crystal / HGSS Prime/LEGEND / EX-era ex, else the set), how far its cards sit below their own 75-day highs together (%) and the share of them 15%+ below; blank when fewer than 10 of its cards have a reading |
 
 Rates: `history/buy_list_rates.csv` (cells, both horizons, every level) and `history/buy_list_lifts.csv`
 (the cuts' lifts and odds ratios by horizon and regime) from `analysis/buy_list_rates.py` over the
 loose panel (every card with a sale in the 180 days before a monthly anchor, sales through
 2026-10-20). The hot-regime cells at 180 days rest on three closed months (Aug and Oct 2025, Mar
-2026); the warm ones on twelve. `history/buy_ledger.csv` keeps, per data date, the top 200 listed
+2026); the warm ones on twelve. Each cell row carries `n_months`, `month_se` and `month_half90`
+(v0.1: the band's month-clustered half-width); the lifts file a `vs` column (`own_cell` for
+`thin_history`, measured against its own cells' rate; `rest` for the others, against the rest of
+the regime). `history/buy_ledger.csv` keeps, per data date, the top 200 listed
 cards by dollars and by percent and the top 200 `tail_lead` cards (bottom price quartile of a set
 whose top quartile ran ≥ 30% in 90 days, reference ≥ $150: the one promising cell of the pump
 autopsy, logged for a forward test, never scored), with the inputs behind each row; a rerun on

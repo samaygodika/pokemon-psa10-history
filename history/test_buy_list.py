@@ -18,7 +18,7 @@ import buy_list as bl  # noqa: E402
 def card(**kw):
     base = {"asset_id": kw.get("asset_id", "A"), "card_name": "2005 Pokemon Ex Delta Species Holo Mewtwo #12", "set": "Pokemon Ex Delta Species",
             "subject": "Mewtwo", "variety": "", "year": "2005", "grade": "10.0", "median_last_3": "600", "clean_last_sale_date": "2026-10-01",
-            "price_chg_30d_pct": "", "price_chg_90d_pct": "", "volume_30d": "1", "volume_90d": "3", "volume_180d": "5", "volume_1y": "8",
+            "price_chg_30d_pct": "", "price_chg_90d_pct": "", "price_chg_1y_pct": "50", "volume_30d": "1", "volume_90d": "3", "volume_180d": "5", "volume_1y": "8",
             "last_sale_status": "completed", "last_sale_title_check": "", "last_sale_unconfirmed": "0", "lowest_bin_price": "", "lowest_bin_verified_at": "", "lowest_bin_suspect": ""}
     base.update(kw)
     return base
@@ -79,7 +79,7 @@ def test_score_and_membership():
     assert r["cell"] == "warm|vintage|500-2k|2-3" and r["cell_level"] == "regime_era_tier_liq" and r["p_win_180"] == f"{b:.3f}" and r["base_rate_180"] == f"{b:.3f}"
     assert r["exp_net_pct_180"] == f"{100 * (b * 0.9 - (1 - b) * 0.3):.1f}" and r["exp_net_usd_180"] == f"{600 * (b * 0.9 - (1 - b) * 0.3):.0f}"
     assert r["cuts"] == "" and r["avoid_flags"] == "" and r["reason"].startswith("base 41% for vintage $500-2k with 2-3 sales/90 d in a warm market")
-    assert r["live_bin_price"] == "" and r["model"] == "v0" and r["data_date"] == "2026-10-21"
+    assert r["live_bin_price"] == "" and r["model"] == "v0.1" and r["data_date"] == "2026-10-21"
     assert r["rank_pct"] and int(r["rank_pct"]) >= 1
     assert float(r["p_low_180"]) < b < float(r["p_high_180"])
     led = [x for x in ledger if x["asset_id"] == "A"]
@@ -146,6 +146,75 @@ def test_jp_heat_and_live_bin_in_reason():
     assert r["reason"].startswith("Mewtwo's other cards +20% / 30 d; Japanese copies +20% / 30 d"), "character leg first, then the Japanese copies: " + r["reason"]
     assert "live eBay Buy It Now $510 (-15% vs level)" in r["reason"], r["reason"]
     assert r["live_bin_price"] == "510.00" and r["live_bin_url"].endswith("/1")
+
+
+def test_month_band_and_cell_months():
+    # v0.1: the band is the wider of Wilson and p +- the month-clustered half-width; under 2 months, 0..1
+    lo, hi = bl.wilson(0.6, 235)
+    assert bl.band(0.6, 235, None, None) == (lo, hi), "an old rates file: Wilson alone"
+    assert bl.band(0.6, 235, 3, 0.38) == (0.6 - 0.38, 0.6 + 0.38), "3 months at +-38 points: far wider than Wilson's +-5"
+    assert bl.band(0.8, 235, 3, 0.38)[1] == 1.0, "clipped at 1"
+    assert bl.band(0.6, 235, 40, 0.001) == (lo, hi), "never narrower than Wilson"
+    assert bl.band(0.6, 235, 1, None) == (0.0, 1.0)
+    r = rates()
+    for h in (90, 180):
+        r[(h, "regime_era_tier_liq", "warm", "vintage", "500-2k", "2-3")].update(n_months=3.0, month_half=0.30)
+    listed, ledger, _ = bl.compute([card()] + [card(asset_id=f"F{i}", set=f"Filler {i}", subject=f"S{i}", price_chg_30d_pct="12" if i < 10 else "0", volume_1y="6")
+                                               for i in range(30)], {}, r, {}, date(2026, 10, 21), "2026-10-21T07:00:00+00:00")
+    a = [x for x in listed if x["asset_id"] == "A"][0]
+    b = bl.shrunk_rate(500, 0.40, 0.42)
+    assert a["p_low_180"] == f"{b - 0.30:.3f}" and a["p_high_180"] == f"{b + 0.30:.3f}" and a["cell_months"] == "3", a
+    assert "n 500 over 3 months)" in a["reason"], a["reason"]
+    assert [x for x in ledger if x["asset_id"] == "A"][0]["cell_months"] == "3"
+
+
+def test_thin_history_cut():
+    # a 2013-or-earlier card with no price a year back: the cut, its odds ratio, and the last price before the gap in the reason
+    lifts = {(180, "thin_history", "warm"): 0.78, (90, "thin_history", "warm"): 0.8}
+    filler = [card(asset_id=f"F{i}", set=f"Filler {i}", subject=f"S{i}", price_chg_30d_pct="12" if i < 10 else "0", volume_1y="6") for i in range(30)]
+    listed, ledger, stats = bl.compute([card(price_chg_1y_pct="")] + filler, {}, rates(), lifts, date(2026, 10, 21), "t",
+                                       prior={"A": ("2024-12-09", 20.0)})
+    a = [x for x in listed if x["asset_id"] == "A"][0]
+    b = bl.shrunk_rate(500, 0.40, 0.42)
+    assert a["cuts"] == "thin_history" and a["p_win_180"] == f"{bl.odds_apply(b, 0.78):.3f}" and a["p_win_90"] == f"{bl.odds_apply(b, 0.8):.3f}"
+    assert "no price a year back to measure its run (last priced $20 the week of 2024-12-09, 30x since)" in a["reason"], a["reason"]
+    assert stats["listed_thin_history"] == 1 and [x for x in ledger if x["asset_id"] == "A"][0]["chg1y"] == ""
+    # stacked boosts over the cap of 3 do not swallow the penalty: it applies after the cap
+    lifts2 = {(180, "stale30", "warm"): 2.0, (180, "band_high", "warm"): 2.0, (180, "thin_history", "warm"): 0.78}
+    listed, _, _ = bl.compute([card(price_chg_1y_pct="", clean_last_sale_date="2026-09-01")] + filler, {"A": 1.4}, rates(), lifts2, date(2026, 10, 21), "t")
+    a = [x for x in listed if x["asset_id"] == "A"][0]
+    assert a["cuts"] == "stale30 band_high thin_history" and a["p_win_180"] == f"{bl.odds_apply(b, 3.0 * 0.78):.3f}", a["p_win_180"]
+    # a modern card with no year-back price is new, not thin; a vintage card with a 1-year change is measured
+    listed, _, _ = bl.compute([card(price_chg_1y_pct="", year="2016", card_name="2016 Pokemon XY Evolutions Holo Mewtwo #51")] + filler,
+                              {}, rates(), lifts, date(2026, 10, 21), "t")
+    assert all("thin_history" not in x["cuts"] for x in listed)
+    listed, _, _ = bl.compute([card(price_chg_1y_pct="5100")] + filler, {}, rates(), lifts, date(2026, 10, 21), "t")
+    assert [x for x in listed if x["asset_id"] == "A"][0]["cuts"] == ""
+
+
+def test_category_falling_warning():
+    # Sid's Correcting rule over recent sales: 10 LV.X cards, 6 of them 30% under their own 75-day high
+    today = date(2026, 10, 21)
+    lvx = [card(asset_id=f"L{i}", card_name=f"2008 Pokemon Diamond and Pearl Legends Awakened Holo Mewtwo Lv X #{140 + i}", year="2008",
+                set="Pokemon Diamond and Pearl Legends Awakened", subject=f"Lx{i}", volume_1y="2") for i in range(10)]   # out of breadth's liquid set
+    def sales(peak, now):
+        return [(date(2026, 9, 1), peak * 0.8, False), (date(2026, 9, 20), peak, False), (date(2026, 10, 15), now, False)]
+    recent = {f"L{i}": sales(1000, 700 if i < 6 else 990) for i in range(10)}
+    ph = bl.category_phases(lvx, recent, today)
+    assert set(ph) == {"LV.X"} and ph["LV.X"]["n"] == 10 and ph["LV.X"]["correcting"] and abs(ph["LV.X"]["breadth"] - 60) < 1e-9
+    assert abs(ph["LV.X"]["off"] - ((6 * 700 + 4 * 990) / 10000 - 1) * 100) < 1e-9
+    filler = [card(asset_id=f"F{i}", set=f"Filler {i}", subject=f"S{i}", price_chg_30d_pct="12" if i < 10 else "0", volume_1y="6") for i in range(30)]
+    me = card(card_name="2008 Pokemon Diamond and Pearl Legends Awakened Holo Palkia Lv X #150", set="Pokemon Diamond and Pearl Legends Awakened", year="2008")
+    listed, _, stats = bl.compute([me] + lvx + filler, {}, rates(), {}, today, "t", recent=recent)
+    a = [x for x in listed if x["asset_id"] == "A"][0]
+    assert "category_falling" in a["avoid_flags"].split() and a["category"] == "LV.X" and a["category_breadth_pct"] == "60.0", a
+    assert a["reason"].startswith("LV.X is correcting: -18% off its 75-day highs, 60% of 10 cards 15%+ below their own peak"), a["reason"]
+    assert stats["categories_correcting"] == 1, "a warning on the row, never a filter"
+    # 9 cards are too few (Sid's 10, so a thin week cannot flip a category); held-back lows do not count; a stale newest sale drops the card
+    assert bl.category_phases(lvx[:9], recent, today) == {}
+    assert bl.card_phase_reading([(date(2026, 9, 1), 100, False), (date(2026, 9, 10), 120, False), (date(2026, 10, 1), 5, True)], today) is None
+    assert bl.card_phase_reading([(date(2026, 8, 1), 100, False), (date(2026, 8, 10), 120, False), (date(2026, 9, 1), 110, False)], today) is None
+    assert bl.category_of(card(card_name="2005 Pokemon Ex Delta Species Holo Mewtwo #12")) == "Pokemon Ex Delta Species", "no special type: the set"
 
 
 def test_ledger_replaces_the_same_date_only():

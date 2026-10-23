@@ -27,6 +27,14 @@ winners' mean is carried by 2026's multi-baggers.
 Coarser fallbacks (without liquidity, then without era, then regime only) are written
 too; the nightly script takes the finest level with n >= MIN_N.
 
+Months (2026-10-22, v0.1): the trades of one anchor month are not independent draws -- one
+market moves them together -- so each cell also carries n_months (distinct anchor months),
+month_se (the cluster-robust standard error of the win rate, months as clusters: k/(k-1) x
+sum over months of (wins - rate x n)^2 / N^2) and month_half90 (Student t at k-1 degrees
+of freedom x month_se: the 90% half-width the nightly's band uses; blank under 2 months).
+Measured that day: the hot vintage $2k+ cell's 242 trades are 3 months at 25% / 63% / 80%,
+the hot wotc $2k+ cell's 428 are 3 at 67% / 59% / 46%; a Wilson band on n said +-4 points.
+
 Lifts: for the cuts the nightly script applies, the ratio of the win rate with the cut on
 to the win rate with it off, and the same as an odds ratio (what the nightly combines,
 capped at OR_CAP so a 64% base cannot be pushed to 90%), inside the same regime bucket,
@@ -37,12 +45,20 @@ rows beat the month's base.
   band_high  the card >= 1 sd above its own 1-year band, reference >= $150
   tail_lead  bottom price quartile of its set (set-wide, >= 8 cards) with the set's top
              quartile up >= 30% in 90 d, reference >= $150 (logged, not scored)
+  thin_history  (2026-10-22, v0.1, Sid: TRR Mudkip Star ranked #1 at ~$1M after one $20,400
+             sale in 2024-12 and nothing between) a card dated 2013 or earlier with no price a
+             year back (mom365 blank: no sale in the 180 days before the year-ago date), so how
+             far it ran cannot be measured. Its rows are compared with their OWN cells' win
+             rate (vs = own_cell), not with the rest of the regime: the cut is applied on top of
+             the cell base, and thin cards sit in thin cells that already score lower. At 180 d
+             it lost to its cells in every regime (flat -2.8, warm -5.5, hot -8.0 points).
 """
 import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from scipy import stats
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "analysis" / "out"
@@ -57,6 +73,21 @@ REGIME_LABELS = ["flat", "warm", "hot"]
 OTHER = r"lorcana|one piece|weiss schwarz|magic the gathering|yu-gi-oh|dragon ball|digimon|disney"
 LIFT_CAP = 1.5
 OR_CAP = 2.0      # the nightly combines cuts on the odds scale: odds x odds_ratio_capped per cut
+OWN_CELL_CUTS = ("thin_history",)   # measured against the flagged trades' own cells (win_off = their cells' mean rate)
+
+
+def month_band(w, keys):
+    """n_months, month_se, month_half90 per cell of `keys`: anchor months as clusters (module doc)."""
+    mm = w.groupby(keys + ["date"], observed=True).win.agg(wins="sum", n="size").reset_index()
+
+    def one(x):
+        k, big_n = len(x), x.n.sum()
+        if k < 2:
+            return pd.Series({"n_months": k, "month_se": np.nan, "month_half90": np.nan})
+        rate = x.wins.sum() / big_n
+        se = np.sqrt(k / (k - 1) * ((x.wins - rate * x.n) ** 2).sum() / big_n ** 2)
+        return pd.Series({"n_months": k, "month_se": se, "month_half90": stats.t.ppf(0.95, k - 1) * se})
+    return mm.groupby(keys, observed=True)[["wins", "n"]].apply(one).reset_index()
 
 
 def main():
@@ -95,6 +126,7 @@ def main():
     u["jp_heat"] = u.char_jp_mom30 >= 0.15
     u["band_high"] = (u.band_z >= 1) & (u.ref >= 150)
     u["tail_lead"] = (u.set_price_q <= 0.25) & (u.set_lead_mom90 >= 0.3) & (u.ref >= 150)
+    u["thin_history"] = u.mom365.isna() & u.era.isin(["wotc", "vintage"])
 
     cells, lifts, md = [], [], ["# v0 buy-list rate tables (from panel_loose.csv, sales through 2026-10-20)\n\n"]
     reg_hist = u.drop_duplicates("date")[["date", "breadth", "regime"]].sort_values("date")
@@ -113,21 +145,25 @@ def main():
             tab["win_net_median"] = g.apply(lambda x: x.net[x.win].median() if x.win.any() else np.nan, include_groups=False)
             tab["loss_net_mean"] = g.apply(lambda x: x.net[~x.win].mean() if (~x.win).any() else np.nan, include_groups=False)
             tab["loss_net_median"] = g.apply(lambda x: x.net[~x.win].median() if (~x.win).any() else np.nan, include_groups=False)
-            tab = tab.reset_index()
+            tab = tab.reset_index().merge(month_band(w, keys), on=keys, how="left")
             for k in ["regime", "era", "tier", "liq"]:
                 if k not in tab.columns:
                     tab[k] = ""
             tab["horizon"] = h
             tab["level"] = level
-            cells.append(tab[["horizon", "level", "regime", "era", "tier", "liq", "n", "win_rate", "win_net_mean", "win_net_median", "loss_net_mean", "loss_net_median", "net_median"]])
+            cells.append(tab[["horizon", "level", "regime", "era", "tier", "liq", "n", "win_rate", "win_net_mean", "win_net_median", "loss_net_mean", "loss_net_median", "net_median",
+                              "n_months", "month_se", "month_half90"]])
         rt = w.groupby(["regime", "tier"], observed=True).agg(n=("win", "size"), win=("win", "mean"), net_med=("net", "median")).reset_index()
         md.append("Win rate by regime x tier:\n\n| regime | tier | n | win | median net |\n|---|---|---|---|---|\n" + "".join(f"| {r.regime} | {r.tier} | {r.n:,} | {r.win:.1%} | {r.net_med:+.1%} |\n" for r in rt.itertuples()) + "\n")
-        for cutname in ("stale30", "jp_heat", "band_high", "tail_lead"):
+        # the win rate of each trade's finest cell, for the cuts measured against their own cells (OWN_CELL_CUTS)
+        w["cell_rate"] = w.groupby(["regime", "era", "tier", "liq"], observed=True).win.transform("mean")
+        for cutname in ("stale30", "jp_heat", "band_high", "tail_lead", "thin_history"):
+            own = cutname in OWN_CELL_CUTS
             for reg, g in w.groupby("regime", observed=True):
                 on = g[cutname].fillna(False).astype(bool)
                 if on.sum() < 50 or (~on).sum() < 50:
                     continue
-                p1, p0 = g.win[on].mean(), g.win[~on].mean()
+                p1, p0 = g.win[on].mean(), (g.cell_rate[on].mean() if own else g.win[~on].mean())
                 lift = p1 / p0 if p0 > 0 else np.nan
                 odds_ratio = (p1 / (1 - p1)) / (p0 / (1 - p0)) if 0 < p0 < 1 and 0 < p1 < 1 else np.nan
                 months, ahead = 0, 0
@@ -135,11 +171,11 @@ def main():
                     om = gm[cutname].fillna(False).astype(bool)
                     if om.sum() >= 20 and (~om).sum() >= 20:
                         months += 1
-                        ahead += gm.win[om].mean() > gm.win[~om].mean()
-                lifts.append({"horizon": h, "cut": cutname, "regime": reg, "n_on": int(on.sum()), "win_on": g.win[on].mean(), "win_off": g.win[~on].mean(),
+                        ahead += gm.win[om].mean() > (gm.cell_rate[om].mean() if own else gm.win[~om].mean())
+                lifts.append({"horizon": h, "cut": cutname, "regime": reg, "n_on": int(on.sum()), "win_on": g.win[on].mean(), "win_off": p0,
                               "lift": lift, "lift_capped": min(lift, LIFT_CAP) if pd.notna(lift) else np.nan,
                               "odds_ratio": odds_ratio, "odds_ratio_capped": min(odds_ratio, OR_CAP) if pd.notna(odds_ratio) else np.nan,
-                              "months": months, "months_ahead": ahead / months if months else np.nan})
+                              "months": months, "months_ahead": ahead / months if months else np.nan, "vs": "own_cell" if own else "rest"})
         lt = pd.DataFrame([x for x in lifts if x["horizon"] == h])
         md.append("Lifts by cut and regime:\n\n| cut | regime | n on | win on | win off | lift | odds ratio | months | ahead |\n|---|---|---|---|---|---|---|---|---|\n" + "".join(f"| {r.cut} | {r.regime} | {r.n_on:,} | {r.win_on:.1%} | {r.win_off:.1%} | {r.lift:.2f} | {r.odds_ratio:.2f} | {r.months} | {r.months_ahead:.0%} |\n" for r in lt.itertuples()) + "\n")
     cells = pd.concat(cells, ignore_index=True)

@@ -885,6 +885,35 @@ within two months.
   60-day level on any day of such a month") next to the spike's give-back
   base rate. Full tables in `out/psa9_spike.md` (and `_age180`).
 
+## Buy list v0.1: Sid's three critiques tested (2026-10-22)
+
+Sid on the v0 list (PR #1, 10-22): it does not know a card already ran (TRR Mudkip Star #1 at
+~$1M after one $20,400 sale in 2024-12; ~535 of 670 vintage rows up 3x+ on the year), it
+ignores category cycles (LV.X Correcting, yet its cards ranked #3 / #10), and the reference
+price can sit far from the newest sale. Tested on the loose panel under the money target, hot
+regime, English, era ≤ 2013, reference ≥ $150 (3,402 trades at 180 d):
+
+- **Already ran 3x+: no penalty in the data.** Win at 180 d by trailing 1-year change: up 0–100%
+  53.5%, up 2–3x 50.5%, up 3–5x 53.9%, up 5x+ 58.1% (vs own cell +4.1 / +0.3 / +0.8 / −2.5
+  points). In this market the runners kept running. Not a cut.
+- **No price a year back (the Mudkip case): a real penalty.** 49.6% vs 52.9%, −7.1 points vs
+  own cell at 180 d (n 490), −4.2 at 90 d (n 996); ≤ 2013 across regimes vs own cell: flat −2.8,
+  warm −5.5, hot −8.0 points, losing to its cell in 85% / 67% / 100% of months. Shipped as the
+  `thin_history` cut (≤ 2013 only: a newer card with no year-back price is new, not thin), odds
+  ratio vs own cell 0.54–0.79. "Ran 3x+ on ≤ 2 sales in the year" was too thin to use (n 68).
+- **Category cycles: not measurable from this history.** "Category ran 50%+ over 180 d and fell
+  over 30 d" covers 3 trades of the 3,402; the hot months held almost no correcting category.
+  The list cannot price one, so `category_falling` is a warning (Sid's own Correcting rule over
+  `recent_sales/`), not a cut. Our 30-day median change would not have caught LV.X anyway: it
+  read +38% while Sid's rule had LV.X 37% off its 75-day highs.
+- **The band was overconfident (our error).** Every hot-regime cell at 180 d rests on three
+  anchor months: the hot vintage $2k+ cell's 242 trades are 25% / 63% / 80% by month, wotc
+  $2k+ 67% / 59% / 46%. A Wilson band on trades said ±4 points; month-clustered it is ±38.
+  `buy_list_rates.py` now writes `n_months` / `month_se` / `month_half90`; the nightly band is
+  the wider of the two and `cell_months` is published.
+- Category-level and run-level backtests: scratch scripts of 2026-10-22, numbers above; the cut
+  and the band are reproduced by `buy_list_rates.py`.
+
 ## Reference price v2 (2026-10-21)
 
 Step 2 of the buy-model plan. `refprice.py` asks whether a venue- and sale-type-adjusted,

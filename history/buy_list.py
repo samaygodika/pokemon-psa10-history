@@ -43,8 +43,18 @@ at 2, the product at 3, applied on the odds scale so a 64% base cannot be pushed
   jp_heat     the character's Japanese cards (>= 2 with a value) up >= 15% over 30 days
   band_high   the card >= 1 sd above its own 1-year band (log weekly medians, >= 5 weeks),
               reference >= $150
-p_win = the base moved by the odds ratios (cap 0.9); the 90% band is the cell's Wilson
-interval moved the same way. exp_net_pct = p_win x the MEDIAN net of the cell's winners +
+  thin_history (v0.1) a card dated 2013 or earlier with no price a year back (cards.csv
+              price_chg_1y_pct blank: no sale in the 180 days before the year-ago date), so
+              how far it ran cannot be measured; measured against its own cell, odds ratio
+              0.54-0.79 (Sid 2026-10-22: TRR Mudkip Star #1 at ~$1M on top of one $20,400
+              sale from 2024-12; busy_spike needs 3 sales in 30 days and never saw it).
+              Applied after the product cap, so stacked boosts cannot swallow it
+p_win = the base moved by the odds ratios (cap 0.9). The 90% band (v0.1) is the wider of the
+cell's Wilson interval and its month-clustered one (shrunk rate +- month_half90 from the
+rates file: anchor months as clusters, Student t), moved the same way; a cell with fewer
+than two months gets 0..1. cell_months = the months behind the 180-day cell: on 2026-10-22
+every hot-market cell rested on 3 (the hot vintage $2k+ cell: 25% / 63% / 80%), so the band
+is honest about that where the Wilson one said +-4 points. exp_net_pct = p_win x the MEDIAN net of the cell's winners +
 (1 - p_win) x the mean net of its losers (the winners' mean is carried by 2026's
 multi-baggers); exp_net_usd = that x the reference price. Listed = no avoid flag,
 p_win(180) >= MIN_P_LIST and exp_net_pct(180) > 0; `rank` sorts by exp_net_usd(180), "most
@@ -63,7 +73,15 @@ Avoid layer (any one keeps the card off the list; all measured to lose in every 
   pending_sale   newest sale pending / unpaid / relisted
   title_mismatch the newest sale's eBay title doesn't match the card
 Warnings (kept on the row, never a filter): illiquid_exit (<= 2 sales in 180 days),
-unconfirmed (the newest sale is held back by the outlier filter). One more flag goes to
+unconfirmed (the newest sale is held back by the outlier filter), category_falling (v0.1:
+the card's category is Correcting by Sid's own rule, PokeSniper lib/categoryPhase.js of
+2026-10-19, over latest/recent_sales/: English PSA 10 cards with >= 3 completed sales in 75
+days and the newest within 30, held-back sales only above the card's clean median, a
+rolling median of 3 from 8 sales; Correcting = the category's cards together >= 15% below
+their own highs, value-weighted, and >= 35% of them 15%+ below, over >= 10 such cards. The
+category is the card type for Gold Star / LV.X / Neo Shining / e-card Crystal / HGSS
+Prime/LEGEND / EX-era ex, else the set. A warning, not a cut: the rates' months hold almost
+no correcting categories, so nothing measures what one does to p_win). One more flag goes to
 the ledger only, never to the list: tail_lead (bottom price quartile of its set while the
 set's top quartile ran >= 30% in 90 days, reference >= $150: the autopsy's one promising
 cell, logged for the forward test, not scored).
@@ -89,10 +107,12 @@ from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from flags import card_type
+
 ROOT = Path(__file__).resolve().parent.parent
 LATEST = ROOT / "latest"
 HISTORY = ROOT / "history"
-MODEL = "v0"
+MODEL = "v0.1"              # v0.1 (2026-10-22): month-clustered band + cell_months, thin_history cut, category_falling warning
 HORIZONS = (90, 180)
 MAIN_H = 180
 MIN_CELL_N = 100
@@ -111,13 +131,23 @@ LEVELS = ["regime_era_tier_liq", "regime_era_tier", "regime_tier", "regime"]
 LANGS = ("japanese", "german", "italian", "french", "spanish", "portuguese", "korean", "chinese", "dutch")
 OTHER_RX = re.compile(r"lorcana|one piece|weiss schwarz|magic the gathering|yu-gi-oh|dragon ball|digimon|disney", re.I)
 EXCLUDE = ("release_year", "busy_spike", "vol_surge", "below_band", "dip", "chase_flat", "pending_sale", "title_mismatch")
-WARN = ("illiquid_exit", "unconfirmed")      # shown on the row; tail_lead goes to the ledger only
+WARN = ("illiquid_exit", "unconfirmed", "category_falling")      # shown on the row; tail_lead goes to the ledger only
+THIN_ERAS = ("wotc", "vintage")     # thin_history: a card this old with no price a year back is thin, not new
+# Applied after OR_PRODUCT_CAP: the cap stops stacked boosts, and must not swallow a penalty (on 2026-10-22 data,
+# 16 thin_history rows with stale30 x jp_heat x band_high over the cap kept their v0 score)
+AFTER_CAP_CUTS = ("thin_history",)
+# Sid's category phase (PokeSniper pokesniper-app/src/lib/categoryPhase.js, 2026-10-19), the Correcting branch
+CATEGORY_TYPES = ("Gold Star", "LV.X", "Neo Shining", "e-card Crystal", "HGSS Prime/LEGEND", "EX-era ex")   # else the set
+PHASE_LOOKBACK_DAYS, PHASE_FRESH_DAYS, PHASE_MIN_SALES, PHASE_MIN_CARDS, PHASE_SMOOTH_MIN_SALES = 75, 30, 3, 10, 8
+PHASE_CORRECT_DROP_PCT, PHASE_BREADTH_MIN_PCT = 15, 35
 COLS = ["rank", "rank_pct", "asset_id", "card_name", "ref_price", "ref_basis", "p_win_180", "p_low_180", "p_high_180", "exp_net_pct_180", "exp_net_usd_180",
         "base_rate_180", "p_win_90", "exp_net_pct_90", "exp_net_usd_90", "base_rate_90", "cell", "cell_level", "cell_n", "regime", "breadth",
-        "cuts", "avoid_flags", "live_bin_price", "live_bin_url", "reason", "model", "data_date", "scored_at"]
+        "cuts", "avoid_flags", "live_bin_price", "live_bin_url", "reason", "model", "data_date", "scored_at",
+        "cell_months", "category", "category_off_peak_pct", "category_breadth_pct"]   # v0.1, appended last
 LEDGER_COLS = ["data_date", "scored_at", "model", "asset_id", "listed", "rank", "rank_pct", "ref_price", "p_win_180", "exp_net_pct_180", "exp_net_usd_180", "base_rate_180",
                "p_win_90", "exp_net_pct_90", "base_rate_90", "cell", "cell_level", "cell_n", "regime", "breadth", "cuts", "flags",
-               "chg30", "chg90", "vol30", "vol90", "vol180", "days_since", "band_z", "set_lead_chg90", "set_price_q", "jp_chg30", "char_chg30"]
+               "chg30", "chg90", "vol30", "vol90", "vol180", "days_since", "band_z", "set_lead_chg90", "set_price_q", "jp_chg30", "char_chg30",
+               "cell_months", "chg1y", "category", "category_off_peak_pct", "category_breadth_pct"]   # v0.1, appended last
 
 
 def fnum(s):
@@ -204,8 +234,19 @@ def load_rates(path):
     for r in read_csv(path):
         rates[(int(r["horizon"]), r["level"], r["regime"], r["era"], r["tier"], r["liq"])] = {
             "n": int(float(r["n"])), "win_rate": fnum(r["win_rate"]), "win_net": fnum(r.get("win_net_median")) if fnum(r.get("win_net_median")) is not None else fnum(r["win_net_mean"]),
-            "loss_net": fnum(r["loss_net_mean"])}
+            "loss_net": fnum(r["loss_net_mean"]), "n_months": fnum(r.get("n_months")), "month_half": fnum(r.get("month_half90"))}
     return rates
+
+
+def band(p, n, n_months, half):
+    """the 90% band around p: the wider of Wilson on n trades and p +- the month-clustered half-width.
+    A rates file without months (n_months None) gives Wilson alone; under two months, 0..1."""
+    lo, hi = wilson(p, n)
+    if n_months is None:
+        return lo, hi
+    if n_months < 2 or half is None:
+        return 0.0, 1.0
+    return max(0.0, min(lo, p - half)), min(1.0, max(hi, p + half))
 
 
 def load_lifts(path):
@@ -266,14 +307,95 @@ def band_zs(series_dir, data_date, refs):
     return out
 
 
+def prices_before(series_dir, cutoff, aids):
+    """asset -> (week_start, median_price) of its last week with a price on or before `cutoff` (the
+    thin_history reason: what the card last sold for before the gap)."""
+    out = {}
+    for p in sorted(Path(series_dir).glob("*.csv")):
+        with open(p, newline="", encoding="utf-8") as f:
+            for r in csv.DictReader(f):
+                aid, wk = r["asset_id"], r["week_start"]
+                m = fnum(r["median_price"])
+                if aid in aids and wk <= cutoff.isoformat() and m and (aid not in out or wk > out[aid][0]):
+                    out[aid] = (wk, m)
+    return out
+
+
+def load_recent(recent_dir, aids):
+    """asset -> [(date, price, held)] from latest/recent_sales/ (the last 10 PSA 10 sales a card has),
+    completed sales only, held = the outlier filter holds it back: what Sid's app reads as arbSales."""
+    out = defaultdict(list)
+    for p in sorted(Path(recent_dir).glob("*.csv")):
+        with open(p, newline="", encoding="utf-8") as f:
+            for r in csv.DictReader(f):
+                price = fnum(r.get("price"))
+                if r["asset_id"] in aids and r.get("status") == "ok" and price and price > 0:
+                    try:
+                        sd = datetime.strptime(r["date"][:10], "%Y-%m-%d").date()
+                    except ValueError:
+                        continue
+                    out[r["asset_id"]].append((sd, price, r.get("outlier") == "1"))
+    return out
+
+
+def median(xs):
+    a = sorted(xs)
+    n = len(a)
+    return None if not n else a[n // 2] if n % 2 else (a[n // 2 - 1] + a[n // 2]) / 2
+
+
+def card_phase_reading(sales, today):
+    """(newest, peak) for one card by Sid's cardPhaseReading, or None when it does not count."""
+    inwin = [s for s in sales if 0 <= (today - s[0]).days <= PHASE_LOOKBACK_DAYS]
+    clean = [s[1] for s in inwin if not s[2]]
+    if not clean:
+        return None
+    cm = median(clean)
+    xs = sorted((s for s in inwin if not s[2] or s[1] > cm), key=lambda s: s[0])
+    if len(xs) < PHASE_MIN_SALES or (today - xs[-1][0]).days > PHASE_FRESH_DAYS:
+        return None
+    now, peak = xs[-1][1], max(s[1] for s in xs)
+    if len(xs) >= PHASE_SMOOTH_MIN_SALES:
+        roll = [median([xs[i - 2][1], xs[i - 1][1], xs[i][1]]) for i in range(2, len(xs))]
+        now, peak = roll[-1], max(roll)
+    return now, peak
+
+
+def category_of(card):
+    t = card_type(card)
+    return t if t in CATEGORY_TYPES else (card.get("set") or "")
+
+
+def category_phases(cards, recent, today):
+    """category -> {off, breadth, n, correcting} over the cards with a phase reading, for categories with
+    >= PHASE_MIN_CARDS of them: off = their newest prices over their peaks together - 1 (%), breadth = the
+    share of them 15%+ below their own peak (%), correcting = Sid's Correcting rule."""
+    readings = defaultdict(list)
+    for c in cards:
+        r = card_phase_reading(recent.get(c["asset_id"], []), today)
+        if r:
+            readings[category_of(c)].append(r)
+    out = {}
+    for cat, rs in readings.items():
+        if len(rs) < PHASE_MIN_CARDS:
+            continue
+        off = (sum(a for a, _ in rs) / sum(b for _, b in rs) - 1) * 100
+        br = 100 * sum(1 for a, b in rs if a / b - 1 <= -PHASE_CORRECT_DROP_PCT / 100) / len(rs)
+        out[cat] = {"off": off, "breadth": br, "n": len(rs), "correcting": off <= -PHASE_CORRECT_DROP_PCT and br >= PHASE_BREADTH_MIN_PCT}
+    return out
+
+
 def pct(x, d=0):
     return "" if x is None else f"{x:+.{d}f}%"
 
 
-def compute(cards, zs, rates, lifts, data_date, now_iso):
-    """-> (listed rows sorted by exp_net_usd_180, ledger rows, stats)."""
+def compute(cards, zs, rates, lifts, data_date, now_iso, recent=None, prior=None):
+    """-> (listed rows sorted by exp_net_usd_180, ledger rows, stats). recent = load_recent (the category
+    phase), prior = prices_before (the thin_history reason); both optional."""
     today = data_date
-    stats = {"english_psa10": 0, "with_price": 0, "scored": 0, "excluded": 0, "listed": 0, "tail_lead": 0}
+    recent, prior = recent or {}, prior or {}
+    stats = {"english_psa10": 0, "with_price": 0, "scored": 0, "excluded": 0, "listed": 0, "tail_lead": 0,
+             "listed_thin_history": 0, "listed_category_falling": 0, "categories_correcting": 0}
     # pass 1: the universe and the group statistics
     univ = []
     for c in cards:
@@ -293,7 +415,7 @@ def compute(cards, zs, rates, lifts, data_date, now_iso):
             continue
         if c["_days"] > MAX_AGE_DAYS or c["_days"] < 0:
             continue
-        c["_chg30"], c["_chg90"] = fnum(c.get("price_chg_30d_pct")), fnum(c.get("price_chg_90d_pct"))
+        c["_chg30"], c["_chg90"], c["_chg1y"] = fnum(c.get("price_chg_30d_pct")), fnum(c.get("price_chg_90d_pct")), fnum(c.get("price_chg_1y_pct"))
         c["_vol30"], c["_vol90"], c["_vol180"], c["_vol1y"] = fint(c.get("volume_30d")), fint(c.get("volume_90d")), fint(c.get("volume_180d")), fint(c.get("volume_1y"))
         univ.append(c)
     en = [c for c in univ if c["_lang"] == "english"]
@@ -325,6 +447,9 @@ def compute(cards, zs, rates, lifts, data_date, now_iso):
         if c["_lang"] == "japanese":
             jp[c.get("subject") or ""].append(c["_chg30"])
         allc[c.get("subject") or ""].append((c["asset_id"], c["_chg30"]))
+    # category phase by Sid's rule (category_falling)
+    phases = category_phases(en, recent, today)
+    stats["categories_correcting"] = sum(1 for v in phases.values() if v["correcting"])
     # pass 2: score
     listed, ledger = [], []
     for c in en:
@@ -364,6 +489,10 @@ def compute(cards, zs, rates, lifts, data_date, now_iso):
             flags.append("unconfirmed")
         if q is not None and q <= 0.25 and lead is not None and lead >= 30 and ref >= 150:
             flags.append("tail_lead")
+        cat = category_of(c)
+        ph = phases.get(cat)
+        if ph and ph["correcting"]:
+            flags.append("category_falling")
         cuts = []
         if c["_days"] >= STALE_DAYS:
             cuts.append("stale30")
@@ -371,6 +500,8 @@ def compute(cards, zs, rates, lifts, data_date, now_iso):
             cuts.append("jp_heat")
         if z is not None and z >= 1 and ref >= 150:
             cuts.append("band_high")
+        if er in THIN_ERAS and c["_chg1y"] is None:
+            cuts.append("thin_history")
         score = {}
         for h in HORIZONS:
             row, level = lookup(rates, h, reg, er, ti, li)
@@ -379,13 +510,18 @@ def compute(cards, zs, rates, lifts, data_date, now_iso):
                 continue
             orp = 1.0
             for cut in cuts:
-                orp *= lifts.get((h, cut, reg), 1.0)
+                if cut not in AFTER_CAP_CUTS:
+                    orp *= lifts.get((h, cut, reg), 1.0)
             orp = min(orp, OR_PRODUCT_CAP)
+            for cut in cuts:
+                if cut in AFTER_CAP_CUTS:
+                    orp *= lifts.get((h, cut, reg), 1.0)
             p = min(odds_apply(row["win_rate"], orp), P_CAP)
-            lo, hi = wilson(row["win_rate"], row["n"])
+            lo, hi = band(row["win_rate"], row["n"], row.get("n_months"), row.get("month_half"))
             lo, hi = min(odds_apply(lo, orp), P_CAP), min(odds_apply(hi, orp), P_CAP)
             enet = p * row["win_net"] + (1 - p) * row["loss_net"]
-            score[h] = {"p": p, "lo": lo, "hi": hi, "base": row["win_rate"], "n": row["n"], "level": level, "enet": enet, "eusd": enet * ref}
+            score[h] = {"p": p, "lo": lo, "hi": hi, "base": row["win_rate"], "n": row["n"], "level": level, "enet": enet, "eusd": enet * ref,
+                        "months": row.get("n_months")}
         if score.get(MAIN_H) is None:
             continue
         stats["scored"] += 1
@@ -399,9 +535,16 @@ def compute(cards, zs, rates, lifts, data_date, now_iso):
             stats["tail_lead"] += 1
         bin_price = fnum(c.get("lowest_bin_price"))
         bin_ok = bin_price is not None and (c.get("lowest_bin_verified_at") or "") != "" and (c.get("lowest_bin_suspect") or "") != "1"
+        cat_cols = {"category": cat, "category_off_peak_pct": f"{ph['off']:.1f}" if ph else "", "category_breadth_pct": f"{ph['breadth']:.1f}" if ph else ""}
+        months = s180["months"]
         if is_listed:
             stats["listed"] += 1
+            stats["listed_thin_history"] += "thin_history" in cuts
+            stats["listed_category_falling"] += "category_falling" in flags
             parts = []
+            if "category_falling" in flags:
+                parts.append(f"{cat} is correcting: {ph['off']:+.0f}% off its 75-day highs, {ph['breadth']:.0f}% of {ph['n']} cards 15%+ below "
+                             f"their own peak (the rates never saw a correcting category)")
             if lead is not None and lead >= 30:
                 parts.append(f"set's chase cards {pct(lead)} / 90 d")
             if char_chg is not None and char_chg >= 15:
@@ -412,10 +555,14 @@ def compute(cards, zs, rates, lifts, data_date, now_iso):
                 parts.append(f"no sale in {c['_days']} d")
             if z is not None and abs(z) >= 1:
                 parts.append(f"{z:+.1f} sd vs own 1-y band")
+            if "thin_history" in cuts:
+                pb = prior.get(aid)
+                parts.append("no price a year back to measure its run" + (f" (last priced ${pb[1]:,.0f} the week of {pb[0]}, {ref / pb[1]:,.0f}x since)" if pb else ""))
             if bin_ok:
                 parts.append(f"live eBay Buy It Now ${bin_price:,.0f} ({pct(100 * (bin_price / ref - 1))} vs level)")
-            parts.append(f"base {100 * s180['base']:.0f}% for {er} ${ti} with {li} sales/90 d in a {reg} market (breadth {100 * breadth:.0f}%, n {s180['n']:,})")
-            parts.extend(w.replace("_", " ") for w in warn)
+            parts.append(f"base {100 * s180['base']:.0f}% for {er} ${ti} with {li} sales/90 d in a {reg} market (breadth {100 * breadth:.0f}%, n {s180['n']:,}"
+                         + (f" over {months:.0f} months" if months is not None else "") + ")")
+            parts.extend(w.replace("_", " ") for w in warn if w != "category_falling")
             listed.append({
                 "asset_id": aid, "card_name": c.get("card_name") or "", "ref_price": f"{ref:.2f}", "ref_basis": "med3",
                 "p_win_180": f"{s180['p']:.3f}", "p_low_180": f"{s180['lo']:.3f}", "p_high_180": f"{s180['hi']:.3f}",
@@ -426,6 +573,7 @@ def compute(cards, zs, rates, lifts, data_date, now_iso):
                 "cuts": " ".join(cuts), "avoid_flags": " ".join(warn), "live_bin_price": f"{bin_price:.2f}" if bin_ok else "",
                 "live_bin_url": (c.get("lowest_bin_url") or "") if bin_ok else "", "reason": "; ".join(parts), "model": MODEL,
                 "data_date": today.isoformat(), "scored_at": now_iso, "_eusd": s180["eusd"],
+                "cell_months": "" if months is None else f"{months:.0f}", **cat_cols,
             })
         if is_listed or "tail_lead" in flags:
             ledger.append({
@@ -438,6 +586,7 @@ def compute(cards, zs, rates, lifts, data_date, now_iso):
                 "vol30": str(c["_vol30"]), "vol90": str(c["_vol90"]), "vol180": str(c["_vol180"]), "days_since": str(c["_days"]),
                 "band_z": "" if z is None else f"{z:.2f}", "set_lead_chg90": "" if lead is None else f"{lead:.1f}", "set_price_q": "" if q is None else f"{q:.2f}",
                 "jp_chg30": "" if jp_chg is None else f"{jp_chg:.1f}", "char_chg30": "" if char_chg is None else f"{char_chg:.1f}", "_aid": aid,
+                "cell_months": "" if months is None else f"{months:.0f}", "chg1y": "" if c["_chg1y"] is None else f"{c['_chg1y']:.2f}", **cat_cols,
             })
     listed.sort(key=lambda r: (-float(r["exp_net_pct_180"]), -r["_eusd"]))
     rank_pct = {r["asset_id"]: str(i) for i, r in enumerate(listed, 1)}
@@ -490,13 +639,17 @@ def main():
     lifts = load_lifts(Path(a.rates) / "buy_list_lifts.csv")
     refs = {c["asset_id"]: fnum(c.get("median_last_3")) for c in cards if fnum(c.get("median_last_3")) and language(c) == "english" and fnum(c.get("grade")) == 10.0}
     zs = band_zs(latest / "series", data_date, refs)
-    listed, ledger, stats = compute(cards, zs, rates, lifts, data_date, now_iso)
+    recent = load_recent(latest / "recent_sales", set(refs))
+    thin = {c["asset_id"] for c in cards if c["asset_id"] in refs and era(c.get("year")) in THIN_ERAS and fnum(c.get("price_chg_1y_pct")) is None}
+    prior = prices_before(latest / "series", data_date - timedelta(days=365), thin)
+    listed, ledger, stats = compute(cards, zs, rates, lifts, data_date, now_iso, recent=recent, prior=prior)
     out_dir = Path(a.out) if a.out else latest
     out_dir.mkdir(parents=True, exist_ok=True)
     write_rows(out_dir / "buy_list.csv", COLS, listed)
     msg = (f"buy list {data_date}: breadth {100 * stats['breadth']:.1f}% ({stats['regime']}); {stats['english_psa10']:,} English PSA 10 cards, "
            f"{stats['with_price']:,} priced within {MAX_AGE_DAYS} d, {stats['scored']:,} scored, {stats['excluded']:,} excluded by the avoid layer, "
-           f"{stats['listed']:,} listed, {stats['tail_lead']:,} tail_lead rows -> {out_dir / 'buy_list.csv'}; ledger rows {stats['ledger_rows']}")
+           f"{stats['listed']:,} listed ({stats['listed_thin_history']:,} thin_history, {stats['listed_category_falling']:,} in "
+           f"{stats['categories_correcting']} correcting categories), {stats['tail_lead']:,} tail_lead rows -> {out_dir / 'buy_list.csv'}; ledger rows {stats['ledger_rows']}")
     if not a.no_ledger:
         n_old, n_new = update_ledger(a.ledger, ledger, data_date.isoformat())
         msg += f"; ledger {a.ledger}: {n_new} rows for {data_date} ({n_old} other rows kept)"
