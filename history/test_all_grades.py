@@ -125,8 +125,16 @@ def test_build():
                     "subject": d["subject"], "variety": "", "grading_company": "PSA", "grade": "10.0", "first_seen": "2026-09-11"}
         # A: Gold Star with a pop table; E: Gold Star alt.xyz has no PSA pop rows for (no grade_pops row, 2026-10-21's
         # 60 of 161); D: an LV.X with sales, not the category; B (the Staryu) is not even in assets.csv
-        ingest.write_csv_atomic(store / "assets.csv", ingest.ASSET_COLS, [asset(A), asset(E), asset(D)])
-        (store / "daily" / "2026-10-21.csv").write_text("asset_id\n")
+        # F: a Gold Star alt.xyz names without "Star" (POP Series 5 Espeon #16), in by its set's number (2026-10-22);
+        # G: the same rule's stale twin of the Groudon Star, last listed 09-11: out like cards.csv leaves it out
+        F, G = "f0000000-0000-0000-0000-000000000016", "60000000-0000-0000-0000-000000000111"
+        extra = [{"asset_id": F, "card_name": "2007 Pokemon Pop Series 5 Espeon #16", "alt_url": "", "year": "2007", "set": "Pokemon Pop Series 5",
+                  "card_number": "16", "subject": "Espeon", "variety": "", "grading_company": "PSA", "grade": "10.0", "first_seen": "2026-09-11"},
+                 {"asset_id": G, "card_name": "2005 Ex Delta Species English Holo Groudon #111", "alt_url": "", "year": "2005", "set": "Ex Delta Species",
+                  "card_number": "111", "subject": "Groudon", "variety": "", "grading_company": "PSA", "grade": "10.0", "first_seen": "2026-09-10"}]
+        ingest.write_csv_atomic(store / "assets.csv", ingest.ASSET_COLS, [asset(A), asset(E), asset(D)] + extra)
+        (store / "daily" / "2026-09-11.csv").write_text(f"asset_id\n{G}\n{F}\n")
+        (store / "daily" / "2026-10-21.csv").write_text(f"asset_id\n{F}\n")
         ingest.ingest_grade_pops([card(A, "0.0:30 1.0:912 7.0:573 9.0:554 10.0:98", scraped_at="2026-09-20T05:00:00+00:00")], store, "2026-09-20")
         ingest.ingest_grade_pops([card(A, "0.0:30 1.0:915 7.0:580 9.0:554 10.0:98")], store, "2026-10-21")
         ingest.write_csv_atomic(store / "sales" / "2026-10.csv", ingest.SALE_COLS, [
@@ -140,9 +148,10 @@ def test_build():
             sale(D, "7.0", "2026-10-06", 70),                                                         # D: LV.X, not the category
         ])
         summary = all_grades.build(store, out, today=date(2026, 10, 21))
-        assert (summary["cards"], summary["cards_with_pops"], summary["grade_rows"], summary["sales"], summary["clean_sales"]) == (2, 1, 36, 12, 9), summary
+        assert (summary["cards"], summary["cards_with_pops"], summary["grade_rows"], summary["sales"], summary["clean_sales"]) == (3, 1, 54, 12, 9), summary
         all_rows = ingest.read_csv(out / "grades.csv")
-        assert [r["asset_id"] for r in all_rows] == [A] * 18 + [E] * 18, "sorted by asset, 18 grades each; D and B absent"
+        assert [r["asset_id"] for r in all_rows] == [A] * 18 + [E] * 18 + [F] * 18, "sorted by asset, 18 grades each; D, B and the unlisted G absent"
+        all_rows = [r for r in all_rows if r["asset_id"] != F]
         e = {r["grade"]: r for r in all_rows if r["asset_id"] == E}
         assert (e["7.0"]["card_name"], e["7.0"]["pop"], e["7.0"]["pop_date"], e["7.0"]["scraped_date"], e["7.0"]["pop_30d_ago"]) == (INDEX[E]["name"], "", "", "", ""), e["7.0"]
         assert (e["7.0"]["sales_total"], e["7.0"]["last_sale_price"], e["7.0"]["median_last_3"], e["7.0"]["last_sale_status"]) == ("1", "700", "700", "completed")

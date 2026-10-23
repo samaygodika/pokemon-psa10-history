@@ -55,6 +55,18 @@ TRACK_PATH = ROOT / "nightly" / "track_assets.txt"
 # (which cards latest/all_grades/ shows), so the two cannot drift. card_type() below decides membership.
 ALL_GRADES_TYPES = ("Gold Star",)
 
+# Every Gold Star by its set's own number (2026-10-22, Sid: alt.xyz names POP Series 5 Espeon Star
+# "Pop Series 5 Espeon #16", no "Star", so the name rule missed it). The checklist is closed (none
+# printed after 2007) and taken from TCGplayer's 27 "<Pokemon> Star" products in latest/card_catalog.csv.
+# A record dated 2008 or earlier whose set names one of these and whose number is one of its stars is a
+# Gold Star whatever alt.xyz calls it; European printings keep the English numbers, Asian ones do not
+# (Japanese Holon Phantom #8 is a Gyarados Star, English #8 a plain holo), so those need the name rule.
+GOLD_STAR_NUMBERS = {"Team Rocket Returns": (107, 108, 109), "Deoxys": (105, 106, 107), "Unseen Forces": (113, 114, 115),
+                     "Delta Species": (111, 112, 113), "Legend Maker": (90, 91, 92), "Holon Phantoms": (102, 103, 104),
+                     "Crystal Guardians": (99, 100), "Dragon Frontiers": (100, 101), "Power Keepers": (100, 101, 102),
+                     "Pop Series 5": (16, 17)}
+ASIAN_NUMBERING = re.compile(r"Japanese|Chinese|Korean|Taiwan|Thai|Indonesian", re.I)
+
 TOP_N, BLUE_CHIP_N = 50, 10           # Sid's app: Blue Chip = top 10 Pokemon by market cap
 UP_LEVELS = (50, 100)
 CAT_LEVELS = (15, 30, 50, 70, 100)
@@ -91,6 +103,9 @@ def card_type(r):
         yr = 0
     # \bGold Star\b: "Gold Staryu" (a 2004 Clash of the Blue Sky Staryu) matched the bare "Gold Star" (2026-10-21)
     if yr <= 2008 and re.search(r"\bGold Star\b|\bStar\b(?= #| Holo)", name):
+        return "Gold Star"
+    if yr <= 2008 and num is not None and not ASIAN_NUMBERING.search(name) \
+            and any(num in nums and re.search(rf"\b{s}\b", st, re.I) for s, nums in GOLD_STAR_NUMBERS.items()):
         return "Gold Star"
     if 2006 <= yr <= 2010 and re.search(r"\bLv\.?\s?X\b|\bLV\.X\b", name, re.I) \
             and not re.search(r"Lv\.?\s?X (?:Deck|Collection)", name, re.I):

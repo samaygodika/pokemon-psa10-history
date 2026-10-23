@@ -112,6 +112,15 @@ def test_newer_cols():
     assert metrics.newer_cols(ok + [raw(day(5), 300.0, "RELISTED")])["last_sale_newer_price"] == ""
     assert metrics.newer_cols(ok + [raw(day(12), 300.0, "REMOVED")]) == {"last_sale_status": "completed", **blank}
     assert metrics.newer_cols([raw(day(0), 100.0, "NOT_PAID")], prefix="psa9_") == {"psa9_last_sale_status": "unpaid", "psa9_last_sale_newer_price": "100", "psa9_last_sale_newer_date": day(0).isoformat()}
+    # (2026-10-22, Sid's Base Set Charizard) an unpaid sale the filter would hold back LOW is another item:
+    # not the newest sale, so the status falls back to the completed one; a low inside the band and a far
+    # HIGH ask (the shill case) still count
+    big = [raw(day(i), p) for i, p in enumerate((28750.0, 35000.0, 33000.0, 40401.0, 36000.0))]
+    assert metrics.newer_cols(big + [raw(day(9), 169.0, "NOT_PAID"), raw(day(10), 169.0, "NOT_PAID")]) == {"last_sale_status": "completed", **blank}
+    assert metrics.newer_cols(big + [raw(day(9), 30000.0, "NOT_PAID")])["last_sale_newer_price"] == "30000"
+    assert metrics.newer_cols(big + [raw(day(9), 400000.0, "RELISTED")])["last_sale_newer_price"] == "400000"
+    # the junk low is skipped, a real pending sale before it still shows
+    assert metrics.newer_cols(big + [raw(day(8), 39000.0, "PENDING"), raw(day(9), 169.0, "NOT_PAID")])["last_sale_newer_price"] == "39000"
     print("newer_cols ok")
 
 

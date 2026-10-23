@@ -67,7 +67,9 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "history"))
 import psa9_lag as L  # noqa: E402
+import flags  # noqa: E402  (the Gold Star number table, shared with the nightly's card_type)
 
 ROOT = L.ROOT
 OUT = ROOT / "analysis" / "out"
@@ -95,8 +97,13 @@ def card_types(a):
     yr = a.year
     num = _num(a.card_number.fillna(""))
     ex_card = a.subject.fillna("").str.contains(r"\bex\b", case=False, regex=True)   # alt.xyz puts it in the subject: "Lugia Ex"
+    star_number = pd.Series(False, index=a.index)
+    for s, nums in flags.GOLD_STAR_NUMBERS.items():
+        star_number |= st.str.contains(rf"\b{s}\b", case=False, regex=True) & num.isin(nums)
+    star_number &= ~name.str.contains(flags.ASIAN_NUMBERING.pattern, case=False, regex=True)
     rules = [
-        ("Gold Star", (yr <= 2008) & name.str.contains(r"Gold Star|\bStar\b(?= #| Holo)", regex=True)),
+        # \bGold Star\b and the set-number table: history/flags.py card_type (2026-10-21, 2026-10-22)
+        ("Gold Star", (yr <= 2008) & (name.str.contains(r"\bGold Star\b|\bStar\b(?= #| Holo)", regex=True) | star_number)),
         ("LV.X", yr.between(2006, 2010) & name.str.contains(r"\bLv\.?\s?X\b|\bLV\.X\b", case=False, regex=True)
          & ~name.str.contains(r"Lv\.?\s?X (?:Deck|Collection)", case=False, regex=True)),
         ("Neo Shining", (yr <= 2003) & name.str.contains(r"\bShining\b", regex=True)),

@@ -7,7 +7,8 @@ Reads the index listing's sidecar (alt_scraper.py --list '*') and writes, in the
 list format plus its .json sidecar, every card whose card type is one of CARD_TYPES by the
 feed's own classifier (history/flags.py card_type: the same "Gold Star" the PSA 9 category
 log uses, i.e. a card dated 2008 or earlier named "... Gold Star ..." or "... Star #n" /
-"... Star Holo"; the 2021 Celebrations reprints are not the category). The scraper takes the
+"... Star Holo", or at a Gold Star's own set number, flags.GOLD_STAR_NUMBERS, since 2026-10-22;
+the 2021 Celebrations reprints are not the category). The scraper takes the
 file as --all-grades-for and pulls those cards' sales at PSA 1, 1.5, ... 9, 10 and their pop
 at every grade (cards.csv pops_by_grade); history/ingest.py keeps the pops in
 history/grade_pops.csv and history/all_grades.py builds latest/all_grades/.

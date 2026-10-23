@@ -208,6 +208,14 @@ def clean_sales(sales):
     return kept, dropped, highs, singles
 
 
+def held_low(raw, sale):
+    """Whether clean_sales, over the card's settled sales plus `sale` as if settled, holds `sale` back on the low side."""
+    seq = sorted([t for t in raw if not t[3]] + [(sale[0], sale[1], sale[2], "", sale[4])], key=lambda t: (t[0], t[1], t[2], t[4] or ""))
+    kept, _, highs, _ = clean_sales(seq)
+    key = (sale[0], sale[1])
+    return sum(1 for t in kept + highs if (t[0], t[1]) == key) < sum(1 for t in seq if (t[0], t[1]) == key)
+
+
 def ref_price(clean, at):
     lo = at - timedelta(days=REF_LOOKBACK)
     recent = [p for sd, p, _ in clean if lo < sd <= at]
@@ -241,7 +249,11 @@ def derive(raw, today, windows):
     mine["last_sale_single"] = None if not mine["last_sale_unconfirmed"] else 1 if newest in singles else 0   # None = blank, like the other numeric cells
     # the newest sale alt.xyz lists, flagged ones included but not REMOVED ones (alt.xyz no longer lists
     # those); a not-completed one wins a same-day tie, and is the "newer" sale (dearest on a tie)
-    listed = [t for t in raw if t[3] != "REMOVED"]
+    # (2026-10-22) a not-completed sale on or after the newest settled one that the filter would hold back
+    # LOW had it settled is another item (Base Set Charizard's unpaid $169 against $40,401): not listed here
+    newest_ok_day = newest[0] if newest else None
+    listed = [t for t in raw if t[3] != "REMOVED"
+              and not (t[3] in STATUS and newest_ok_day is not None and t[0] >= newest_ok_day and held_low(raw, t))]
     mine["last_sale_newer_price"], mine["last_sale_newer_date"] = None, ""
     if listed:
         top = max(sd for sd, _, _, _, _ in listed)

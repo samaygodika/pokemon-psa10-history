@@ -299,6 +299,8 @@ Sale completion checks (2026-10-20, Sid's "Samay Work" list), appended after tho
                          unpaid / relisted: its price and date (the highest-priced one when
                          several share the newest day). Blank when the status is completed or
                          blank. So the row carries the pending sale, not only the dropdown.
+                         A not-completed sale the filter would hold back LOW is another item
+                         and is skipped (2026-10-22, newest_listed).
   psa9_last_sale_newer_price, psa9_last_sale_newer_date = the same over the PSA 9 sales.
   last_sale_title_check = what eBay's own record of the sold item says about the sale in
                          last_sale_* (history/sale_title_check.py asks eBay for the title of
@@ -731,8 +733,18 @@ def newest_listed(raw):
     highest-priced one when several share the day and state) when the status is not
     completed, else None (2026-10-18; newer added 2026-10-20 for last_sale_newer_*). Status
     blank when there are no listed sales, or the newest day's statuses are all ones
-    SALE_STATUS does not know."""
+    SALE_STATUS does not know.
+
+    A not-completed sale the outlier filter would hold back on the LOW side, had it completed,
+    is another item, not the card's newest sale (2026-10-22, Sid: Base Set Charizard showed an
+    unpaid $169 newer sale against its $40,401 last sale; two unpaid $169 Buy It Nows of one
+    eBay listing on the PSA 10 record). It is left out here, so the status and newer pair fall
+    back to the sale before it. Only sales dated on or after the newest completed one can be
+    the newest, so only those are judged. The high side stays: an unpaid or relisted ask far
+    above the card is the shill-bid case the status exists to show."""
     listed = [t for t in raw if t[4] not in NOT_LISTED]
+    newest_ok = max((t[0] for t in listed if t[4] == "ok"), default=None)
+    listed = [t for t in listed if not (t[4] in NOT_COMPLETED and newest_ok is not None and t[0] >= newest_ok and low_outlier(raw, t))]
     if not listed:
         return "", None
     newest_day = max(t[0] for t in listed)
@@ -742,6 +754,17 @@ def newest_listed(raw):
         if st in states:
             return SALE_STATUS[st], max((t for t in top if t[4] == st), key=lambda t: t[1])
     return (SALE_STATUS["ok"] if "ok" in states else ""), None
+
+
+def low_outlier(raw, sale):
+    """Whether drop_outliers, run over the card's completed sales with `sale` added as if it
+    had completed, holds `sale` back on the LOW side (newest_listed's wrong-item test,
+    2026-10-22). raw = the card's raw sales (date, price, source, sale_type, status, url)."""
+    seq = sorted([(t[0], t[1], t[2], t[5] or "") for t in raw if t[4] == "ok"] + [(sale[0], sale[1], sale[2], sale[5] or "")])
+    held = []
+    keep, _ = drop_outliers(seq, held_high=held)
+    key = (sale[0], sale[1])
+    return sum(1 for t in keep + held if (t[0], t[1]) == key) < sum(1 for t in seq if (t[0], t[1]) == key)
 
 
 def sale_status(raw):

@@ -29,6 +29,12 @@ def test_card_type_port():
     assert flags.card_type(card(card_name="2007 Pokemon Organized Play Pop Series 5 Umbreon Gold Star #17", year="2007")) == "Gold Star"
     assert flags.card_type(card(card_name="2004 Pokemon Clash of the Blue Sky First Edition Japanese Gold Staryu #21", year="2004")) == "", "a Staryu, not a Gold Star (2026-10-21)"
     assert flags.card_type(card(card_name="2021 Pokemon Celebrations Classic Collection Pop Series 5 Umbreon Gold Star #17", year="2021")) != "Gold Star", "the reprint is not the category"
+    # a Gold Star alt.xyz names without "Star" is one by its set's number (2026-10-22, Sid's Espeon); Asian numbering is not
+    assert flags.card_type(card(card_name="2007 Pokemon Pop Series 5 Espeon #16", set="Pokemon Pop Series 5", card_number="16", year="2007")) == "Gold Star"
+    assert flags.card_type(card(card_name="2005 Pokemon Ex Unseen Forces German Entei #113", set="Pokemon Ex Unseen Forces German", card_number="113", year="2005")) == "Gold Star"
+    assert flags.card_type(card(card_name="2005 Pokemon Ex Unseen Forces Holo Ho Oh Ex #104", set="Pokemon Ex Unseen Forces", card_number="104", subject="Ho Oh Ex", year="2005")) == "EX-era ex"
+    assert flags.card_type(card(card_name="2006 Pokemon Ex Holon Phantoms Holo Gyarados #8", set="Pokemon Ex Holon Phantoms", card_number="8", year="2006")) == ""
+    assert flags.card_type(card(card_name="2005 Pokemon Mirage Forest Unlimited Japanese Regice #33", set="Pokemon Legend Maker Japanese", card_number="90", year="2005")) == ""
     assert flags.card_type(card(card_name="2011 Pokemon Call of Legends Holo Lugia Legend #113", year="2011")) == "HGSS Prime/LEGEND"
     assert flags.card_type(card(card_name="2011 Pokemon HGSS Triumphant Holo Celebi Prime #92", year="2011")) == "HGSS Prime/LEGEND"
     assert flags.card_type(card(card_name="2002 Pokemon Neo Destiny Holo Shining Charizard #107", year="2002")) == "Neo Shining"

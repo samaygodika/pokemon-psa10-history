@@ -124,6 +124,21 @@ def category_assets(assets, card_types=flags.ALL_GRADES_TYPES):
     return {aid for aid, a in assets.items() if flags.card_type(a) in card_types}
 
 
+def unlisted_assets(store, today):
+    """The records cards.csv leaves out as no longer indexed by alt.xyz (metrics.DROPPED_AFTER_DAYS):
+    seen in some daily file, never in the last that many days (2026-10-22: the Gold Star number rule
+    took in the Delta Species Groudon Star's stale "English Holo" twin 6996521d, last seen 09-11,
+    which assets.csv still holds). Reads only the daily files' asset_id column (~2 s)."""
+    last = {}
+    for p in sorted((store / "daily").glob("*.csv")):
+        with open(p, newline="", encoding="utf-8") as f:
+            r = csv.reader(f)
+            i = next(r, ["asset_id"]).index("asset_id")
+            for row in r:
+                last[row[i]] = p.stem
+    return {aid for aid, day in last.items() if (today - metrics.d(day)).days > metrics.DROPPED_AFTER_DAYS}
+
+
 def grade_row(ident, grade, pops, clean, raw, held, singles, outliers, today):
     """One grades.csv row: the card's identity, its pop at the grade, and the feed's sale columns
     over that grade's sales (metrics.psa9_cols's rules, column names without the prefix). pops =
@@ -179,8 +194,9 @@ def build(store=HERE, out=LATEST, today=None):
     if not pops:
         print(f"all_grades: no {GRADE_POPS} in {store} yet (no run has asked a card at every grade), nothing written")
         return None
-    # The category by the scope's own rule over every asset the feed knows, plus whatever has a pops row
-    cards = category_assets(assets) | set(pops)
+    # The category by the scope's own rule over every asset the feed knows, plus whatever has a pops row,
+    # less the records alt.xyz no longer indexes (cards.csv's rule, 2026-10-22)
+    cards = (category_assets(assets) | set(pops)) - unlisted_assets(store, today)
     by_grade = load_sales(store, cards)
     rows, sale_rows = [], []
     n_sales = 0
