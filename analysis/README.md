@@ -885,6 +885,46 @@ within two months.
   60-day level on any day of such a month") next to the spike's give-back
   base rate. Full tables in `out/psa9_spike.md` (and `_age180`).
 
+## Buy list: monthly re-fit, checked first (2026-10-23)
+
+Samay: "with every day we get more data, so we should be able to be smarter". The nightly
+list re-prices cards every night but its rate tables were fitted once (sales through
+2026-10-20); they only learn when an anchor month closes (anchor <= data end - (h + 30) d),
+one a month per horizon, and the hot 180-day cells rested on three. `buy_list_refit.py`:
+build the loose panel (`panel.py` now writes `<panel>.meta.json` with `data_through`), score
+every month that closed since the current tables (`history/buy_list_rates_meta.json`) with
+those tables through the nightly's own `buy_list.score_cell`, log it
+(`history/buy_list_refit_log.csv`), then re-fit (`buy_list_rates.fit`, refactored out of
+`main`: byte-identical tables on the old panel). Views: every trade (the rates' claim) and
+`listed` (no avoid flag the panel can see, p(180) >= 0.15, expected net > 0: the list's claim).
+Monthly on the 2nd (`.github/workflows/buy-list-refit.yml`); first real check 2026-11-02
+(April at 180 d and July at 90 d close 10-28 / 10-29). Tests: `test_buy_list_refit.py`.
+
+**Replay** (`--replay 2025-01` on the 10-23 panel: at each month start the tables are fitted on
+the months closed by then and score the months that close in the next month; 21 re-fits, 51 s;
+`out/buy_list_refit_replay.md`). Mild look-ahead: one panel built on today's store.
+
+| horizon | view | months | mean gap (won - predicted) | mean abs gap | Brier skill vs the regime alone |
+|---|---|---|---|---|---|
+| 180 d | every trade | 20 | +7.2 pts | 9.2 | +6.3% |
+| 180 d | listed | 12 | -0.1 | 10.0 | +13.1% |
+| 90 d | every trade | 20 | +3.1 | 4.5 | +1.5% |
+| 90 d | listed | 11 | +0.9 | 7.5 | -2.8% |
+
+- Trailing tables lag a turning market: the late-2024 "flat" months won 12-19% at 180 d
+  against 3-5% predicted (the 2021-24 flat cells), Dec 2025 (breadth 0.25, a pause) 38.5%
+  against 6.8% (every trade). The regime at the anchor does not see the next six months.
+- The first hot month (2025-08) could not be scored at either horizon: no hot cell existed
+  yet, so the nightly would have listed nothing. Realized: 4.7% at 90 d, 17.3% at 180 d.
+- Inside the list at 180 d the level is right on average (gap -0.1) but a single month is
+  off by about 10 points (2025-05 / 06 / 07: -11, -17, -12), and the cells + cuts beat the
+  market-only forecast (+13% Brier skill). At 90 d they add nothing inside the list.
+- **The order holds, the scale is stretched.** Pooled listed trades at 180 d: predicted
+  0.2-0.3 won 36.8%, 0.4-0.5 40.9%, 0.6-0.7 45.5% (1,596 trades), 0.7-0.8 53.9% (545). The
+  top of today's list (p 0.6-0.8) is about 15-20 points too confident and the bottom too
+  shy: a calibration step (isotonic on these out-of-sample rows, plan §5 step 7) is the
+  next fix, and the replay CSV is its training set.
+
 ## Buy list v0.1: Sid's three critiques tested (2026-10-22)
 
 Sid on the v0 list (PR #1, 10-22): it does not know a card already ran (TRR Mudkip Star #1 at

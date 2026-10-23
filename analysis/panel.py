@@ -114,6 +114,7 @@ daily snapshots will measure that lag going forward; until then assume a
 few days and don't trust anything that only works at a horizon shorter
 than a month.
 """
+import json
 import sys
 from pathlib import Path
 
@@ -417,6 +418,10 @@ def main():
     print(f"{len(dates)} monthly rebalance dates {dates[0].date()} .. {dates[-1].date()}")
     panel = build_panel(sales, assets, dates, pops)
     panel.to_csv(out_path, index=False)
+    # sidecar: what this panel covers (analysis/buy_list_rates.py and buy_list_refit.py read data_through)
+    meta = {"data_through": f"{data_date.date()}", "start": REBALANCE_START, "min_sales_180": MIN_SALES_180, "min_sales_60": MIN_SALES_60,
+            "min_total_sales": MIN_TOTAL_SALES, "rows": int(len(panel)), "built_at": pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%dT%H:%M:%SZ")}
+    Path(str(out_path) + ".meta.json").write_text(json.dumps(meta, indent=1) + "\n")
     liquid = panel.groupby("date").size()
     print(f"panel: {len(panel)} asset-months, {panel.asset_id.nunique()} assets; liquid universe per month min {liquid.min()} median {int(liquid.median())} max {liquid.max()}")
     print(f"rows with fwd60 target: {panel.fwd60.notna().sum()}, fwd90: {panel.fwd90.notna().sum()}")

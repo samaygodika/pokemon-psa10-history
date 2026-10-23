@@ -96,7 +96,10 @@ Outputs
   history/buy_ledger.csv     the top LEDGER_TOP listed cards by $ and by %, plus the top
                              LEDGER_TOP tail_lead cards by $, with the inputs, keyed
                              (data_date, asset_id); a rerun on the same data_date replaces
-                             that date's rows. The outcome reader comes later.
+                             that date's rows; rates_through = the rate tables' data end
+                             (history/buy_list_rates_meta.json). The outcome reader comes later.
+The rate tables are re-fitted monthly by analysis/buy_list_refit.py (2026-10-23), which first
+scores the newly closed months with the current tables through score_cell below.
 """
 import argparse
 import csv
@@ -147,7 +150,9 @@ COLS = ["rank", "rank_pct", "asset_id", "card_name", "ref_price", "ref_basis", "
 LEDGER_COLS = ["data_date", "scored_at", "model", "asset_id", "listed", "rank", "rank_pct", "ref_price", "p_win_180", "exp_net_pct_180", "exp_net_usd_180", "base_rate_180",
                "p_win_90", "exp_net_pct_90", "base_rate_90", "cell", "cell_level", "cell_n", "regime", "breadth", "cuts", "flags",
                "chg30", "chg90", "vol30", "vol90", "vol180", "days_since", "band_z", "set_lead_chg90", "set_price_q", "jp_chg30", "char_chg30",
-               "cell_months", "chg1y", "category", "category_off_peak_pct", "category_breadth_pct"]   # v0.1, appended last
+               "cell_months", "chg1y", "category", "category_off_peak_pct", "category_breadth_pct",   # v0.1, appended last
+               "rates_through"]   # 2026-10-23: the data end of the rate tables that scored the row (monthly re-fit, buy_list_rates_meta.json)
+RATES_META = "buy_list_rates_meta.json"   # next to the rate tables: their data end and months (analysis/buy_list_rates.py writes it)
 
 
 def fnum(s):
@@ -285,6 +290,28 @@ def lookup(rates, h, reg, er, ti, li):
     return None, ""
 
 
+def score_cell(rates, lifts, h, reg, er, ti, li, cuts):
+    """one card's score at horizon h from its cell and cuts: {p, lo, hi, base, n, level, enet, months}, or None
+    when no cell has MIN_CELL_N trades. The nightly's scoring, and analysis/buy_list_refit.py's (its check
+    scores past trades with exactly this)."""
+    row, level = lookup(rates, h, reg, er, ti, li)
+    if row is None:
+        return None
+    orp = 1.0
+    for cut in cuts:
+        if cut not in AFTER_CAP_CUTS:
+            orp *= lifts.get((h, cut, reg), 1.0)
+    orp = min(orp, OR_PRODUCT_CAP)
+    for cut in cuts:
+        if cut in AFTER_CAP_CUTS:
+            orp *= lifts.get((h, cut, reg), 1.0)
+    p = min(odds_apply(row["win_rate"], orp), P_CAP)
+    lo, hi = band(row["win_rate"], row["n"], row.get("n_months"), row.get("month_half"))
+    lo, hi = min(odds_apply(lo, orp), P_CAP), min(odds_apply(hi, orp), P_CAP)
+    enet = p * row["win_net"] + (1 - p) * row["loss_net"]
+    return {"p": p, "lo": lo, "hi": hi, "base": row["win_rate"], "n": row["n"], "level": level, "enet": enet, "months": row.get("n_months")}
+
+
 def band_zs(series_dir, data_date, refs):
     """asset -> z of log(ref) vs the card's log weekly medians over the past 365 days (>= BAND_MIN_WEEKS weeks)."""
     since = (data_date - timedelta(days=365)).isoformat()
@@ -389,9 +416,10 @@ def pct(x, d=0):
     return "" if x is None else f"{x:+.{d}f}%"
 
 
-def compute(cards, zs, rates, lifts, data_date, now_iso, recent=None, prior=None):
+def compute(cards, zs, rates, lifts, data_date, now_iso, recent=None, prior=None, rates_through=""):
     """-> (listed rows sorted by exp_net_usd_180, ledger rows, stats). recent = load_recent (the category
-    phase), prior = prices_before (the thin_history reason); both optional."""
+    phase), prior = prices_before (the thin_history reason); both optional. rates_through = the rate
+    tables' data end, onto every ledger row (blank = unknown)."""
     today = data_date
     recent, prior = recent or {}, prior or {}
     stats = {"english_psa10": 0, "with_price": 0, "scored": 0, "excluded": 0, "listed": 0, "tail_lead": 0,
@@ -504,24 +532,9 @@ def compute(cards, zs, rates, lifts, data_date, now_iso, recent=None, prior=None
             cuts.append("thin_history")
         score = {}
         for h in HORIZONS:
-            row, level = lookup(rates, h, reg, er, ti, li)
-            if row is None:
-                score[h] = None
-                continue
-            orp = 1.0
-            for cut in cuts:
-                if cut not in AFTER_CAP_CUTS:
-                    orp *= lifts.get((h, cut, reg), 1.0)
-            orp = min(orp, OR_PRODUCT_CAP)
-            for cut in cuts:
-                if cut in AFTER_CAP_CUTS:
-                    orp *= lifts.get((h, cut, reg), 1.0)
-            p = min(odds_apply(row["win_rate"], orp), P_CAP)
-            lo, hi = band(row["win_rate"], row["n"], row.get("n_months"), row.get("month_half"))
-            lo, hi = min(odds_apply(lo, orp), P_CAP), min(odds_apply(hi, orp), P_CAP)
-            enet = p * row["win_net"] + (1 - p) * row["loss_net"]
-            score[h] = {"p": p, "lo": lo, "hi": hi, "base": row["win_rate"], "n": row["n"], "level": level, "enet": enet, "eusd": enet * ref,
-                        "months": row.get("n_months")}
+            score[h] = score_cell(rates, lifts, h, reg, er, ti, li, cuts)
+            if score[h] is not None:
+                score[h]["eusd"] = score[h]["enet"] * ref
         if score.get(MAIN_H) is None:
             continue
         stats["scored"] += 1
@@ -587,6 +600,7 @@ def compute(cards, zs, rates, lifts, data_date, now_iso, recent=None, prior=None
                 "band_z": "" if z is None else f"{z:.2f}", "set_lead_chg90": "" if lead is None else f"{lead:.1f}", "set_price_q": "" if q is None else f"{q:.2f}",
                 "jp_chg30": "" if jp_chg is None else f"{jp_chg:.1f}", "char_chg30": "" if char_chg is None else f"{char_chg:.1f}", "_aid": aid,
                 "cell_months": "" if months is None else f"{months:.0f}", "chg1y": "" if c["_chg1y"] is None else f"{c['_chg1y']:.2f}", **cat_cols,
+                "rates_through": rates_through,
             })
     listed.sort(key=lambda r: (-float(r["exp_net_pct_180"]), -r["_eusd"]))
     rank_pct = {r["asset_id"]: str(i) for i, r in enumerate(listed, 1)}
@@ -637,19 +651,22 @@ def main():
     cards = read_csv(latest / "cards.csv")
     rates = load_rates(Path(a.rates) / "buy_list_rates.csv")
     lifts = load_lifts(Path(a.rates) / "buy_list_lifts.csv")
+    meta_path = Path(a.rates) / RATES_META
+    rates_through = json.load(open(meta_path)).get("data_end", "") if meta_path.exists() else ""
     refs = {c["asset_id"]: fnum(c.get("median_last_3")) for c in cards if fnum(c.get("median_last_3")) and language(c) == "english" and fnum(c.get("grade")) == 10.0}
     zs = band_zs(latest / "series", data_date, refs)
     recent = load_recent(latest / "recent_sales", set(refs))
     thin = {c["asset_id"] for c in cards if c["asset_id"] in refs and era(c.get("year")) in THIN_ERAS and fnum(c.get("price_chg_1y_pct")) is None}
     prior = prices_before(latest / "series", data_date - timedelta(days=365), thin)
-    listed, ledger, stats = compute(cards, zs, rates, lifts, data_date, now_iso, recent=recent, prior=prior)
+    listed, ledger, stats = compute(cards, zs, rates, lifts, data_date, now_iso, recent=recent, prior=prior, rates_through=rates_through)
     out_dir = Path(a.out) if a.out else latest
     out_dir.mkdir(parents=True, exist_ok=True)
     write_rows(out_dir / "buy_list.csv", COLS, listed)
     msg = (f"buy list {data_date}: breadth {100 * stats['breadth']:.1f}% ({stats['regime']}); {stats['english_psa10']:,} English PSA 10 cards, "
            f"{stats['with_price']:,} priced within {MAX_AGE_DAYS} d, {stats['scored']:,} scored, {stats['excluded']:,} excluded by the avoid layer, "
            f"{stats['listed']:,} listed ({stats['listed_thin_history']:,} thin_history, {stats['listed_category_falling']:,} in "
-           f"{stats['categories_correcting']} correcting categories), {stats['tail_lead']:,} tail_lead rows -> {out_dir / 'buy_list.csv'}; ledger rows {stats['ledger_rows']}")
+           f"{stats['categories_correcting']} correcting categories), {stats['tail_lead']:,} tail_lead rows -> {out_dir / 'buy_list.csv'}; ledger rows {stats['ledger_rows']}; "
+           f"rates through {rates_through or 'unknown'}")
     if not a.no_ledger:
         n_old, n_new = update_ledger(a.ledger, ledger, data_date.isoformat())
         msg += f"; ledger {a.ledger}: {n_new} rows for {data_date} ({n_old} other rows kept)"

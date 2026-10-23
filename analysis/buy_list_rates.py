@@ -2,6 +2,12 @@
 """Rate tables for the v0 buy list (history/buy_list.py), from the loose panel.
 
     analysis/.venv/bin/python analysis/buy_list_rates.py      # -> history/buy_list_rates.csv, history/buy_list_lifts.csv, out/buy_list_rates.md
+    analysis/.venv/bin/python analysis/buy_list_rates.py --panel panel_loose_2026-11-02.csv   # data end from the panel's .meta.json
+                                                              #   (+ history/buy_list_rates_meta.json: data end, months per horizon/regime)
+
+The monthly re-fit (analysis/buy_list_refit.py, 2026-10-23) calls prepare() / fit() / write_tables()
+directly: fit(prepare(panel), data_end) is a pure function of the panel and the data end.
+DATA_END below is only the first panel's (panel_loose.csv has no .meta.json).
 
 The v0 list (handoff/2026-10-21-buy-model-strategy.md §12) scores a PSA 10 card as the
 base rate of its cell, adjusted by a few cuts the autopsy found to hold inside a month,
@@ -53,6 +59,7 @@ rows beat the month's base.
              the cell base, and thin cards sit in thin cells that already score lower. At 180 d
              it lost to its cells in every regime (flat -2.8, warm -5.5, hot -8.0 points).
 """
+import json
 import sys
 from pathlib import Path
 
@@ -90,10 +97,11 @@ def month_band(w, keys):
     return mm.groupby(keys, observed=True)[["wins", "n"]].apply(one).reset_index()
 
 
-def main():
-    p = pd.read_csv(OUT / "panel_loose.csv", low_memory=False)
+def prepare(p, assets):
+    """the panel's English trades with every tag the cells and cuts need (regime, tier, liq, the cuts),
+    other franchises out. Point-in-time per anchor, so one prepared panel serves any data end (fit)."""
+    p = p.copy()
     p["date"] = pd.to_datetime(p.date)
-    assets = pd.read_csv(ROOT / "history" / "assets.csv", usecols=["asset_id", "card_name"])
     other = set(assets.loc[assets.card_name.str.contains(OTHER, case=False, regex=True, na=False), "asset_id"])
     p = p[~p.asset_id.isin(other)]
     en = p.lang == "english"
@@ -127,16 +135,30 @@ def main():
     u["band_high"] = (u.band_z >= 1) & (u.ref >= 150)
     u["tail_lead"] = (u.set_price_q <= 0.25) & (u.set_lead_mom90 >= 0.3) & (u.ref >= 150)
     u["thin_history"] = u.mom365.isna() & u.era.isin(["wotc", "vintage"])
+    return u
 
-    cells, lifts, md = [], [], ["# v0 buy-list rate tables (from panel_loose.csv, sales through 2026-10-20)\n\n"]
+
+def closed(u, h, data_end):
+    """the trades at horizon h whose exit window had passed by data_end (anchor <= data_end - (h + 30) d), with win and net."""
+    cut = data_end - pd.Timedelta(days=h + 30)
+    w = u[(u.date <= cut) & u[f"mny{h}"].notna()].copy()
+    w["win"] = w[f"mny{h}"] >= 0.30
+    w["net"] = w[f"mny{h}"].clip(-1.0, 3.0)
+    return w
+
+
+def fit(u, data_end):
+    """-> (cell rows, lift rows, the markdown report, meta) from the trades closed by data_end."""
+    cells, lifts, md = [], [], [f"# v0 buy-list rate tables (from the loose panel, sales through {data_end.date()})\n\n"]
+    meta = {"data_end": f"{data_end.date()}", "horizons": {}}
     reg_hist = u.drop_duplicates("date")[["date", "breadth", "regime"]].sort_values("date")
     md.append("Breadth by anchor month (the regime nowcast):\n\n" + ", ".join(f"{d.date():%Y-%m} {b:.2f} {r}" for d, b, r in reg_hist.itertuples(index=False)) + "\n\n")
     for h in (90, 180):
-        cut = DATA_END - pd.Timedelta(days=h + 30)
-        w = u[(u.date <= cut) & u[f"mny{h}"].notna()].copy()
-        net = w[f"mny{h}"].clip(-1.0, 3.0)
-        w["win"] = w[f"mny{h}"] >= 0.30
-        w["net"] = net
+        w = closed(u, h, data_end)
+        months = w.drop_duplicates("date")[["date", "regime"]].sort_values("date")
+        meta["horizons"][str(h)] = {"trades": int(len(w)), "months": int(len(months)),
+                                    "closed_through": f"{months.date.max().date()}" if len(months) else "",
+                                    "months_by_regime": {str(r): int(n) for r, n in months.regime.value_counts().sort_index().items()}}
         md.append(f"## horizon {h} d: {len(w):,} trades, {w.win.mean():.1%} win, median net {w.net.median():+.1%}\n\n")
         for level, keys in (("regime_era_tier_liq", ["regime", "era", "tier", "liq"]), ("regime_era_tier", ["regime", "era", "tier"]), ("regime_tier", ["regime", "tier"]), ("regime", ["regime"])):
             g = w.groupby(keys, observed=True)
@@ -178,12 +200,40 @@ def main():
                               "months": months, "months_ahead": ahead / months if months else np.nan, "vs": "own_cell" if own else "rest"})
         lt = pd.DataFrame([x for x in lifts if x["horizon"] == h])
         md.append("Lifts by cut and regime:\n\n| cut | regime | n on | win on | win off | lift | odds ratio | months | ahead |\n|---|---|---|---|---|---|---|---|---|\n" + "".join(f"| {r.cut} | {r.regime} | {r.n_on:,} | {r.win_on:.1%} | {r.win_off:.1%} | {r.lift:.2f} | {r.odds_ratio:.2f} | {r.months} | {r.months_ahead:.0%} |\n" for r in lt.itertuples()) + "\n")
-    cells = pd.concat(cells, ignore_index=True)
-    cells.to_csv(ROOT / "history" / "buy_list_rates.csv", index=False, float_format="%.4f")
-    pd.DataFrame(lifts).to_csv(ROOT / "history" / "buy_list_lifts.csv", index=False, float_format="%.4f")
-    (OUT / "buy_list_rates.md").write_text("".join(md))
-    print("".join(md))
-    print(f"wrote {len(cells)} cell rows, {len(lifts)} lift rows")
+    return pd.concat(cells, ignore_index=True), pd.DataFrame(lifts), "".join(md), meta
+
+
+def write_tables(cells, lifts, folder):
+    """the two CSVs the nightly reads (history/buy_list.py load_rates / load_lifts)."""
+    folder = Path(folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    cells.to_csv(folder / "buy_list_rates.csv", index=False, float_format="%.4f")
+    lifts.to_csv(folder / "buy_list_lifts.csv", index=False, float_format="%.4f")
+
+
+def panel_data_end(panel_path):
+    """the panel's data end from the sidecar analysis/panel.py writes (<panel>.meta.json); None without one."""
+    meta = Path(str(panel_path) + ".meta.json")
+    return pd.Timestamp(json.load(open(meta))["data_through"]) if meta.exists() else None
+
+
+def main():
+    import argparse
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--panel", default="panel_loose.csv", help="loose panel under analysis/out/")
+    ap.add_argument("--data-end", default=None, help="default: the panel's .meta.json data_through, else 2026-10-20 (the first panel)")
+    a = ap.parse_args()
+    panel_path = OUT / a.panel
+    data_end = pd.Timestamp(a.data_end) if a.data_end else (panel_data_end(panel_path) or DATA_END)
+    p = pd.read_csv(panel_path, low_memory=False)
+    assets = pd.read_csv(ROOT / "history" / "assets.csv", usecols=["asset_id", "card_name"])
+    cells, lifts, md, meta = fit(prepare(p, assets), data_end)
+    write_tables(cells, lifts, ROOT / "history")
+    meta.update(panel=a.panel, fitted_at=pd.Timestamp.now(tz="UTC").strftime("%Y-%m-%dT%H:%M:%SZ"))
+    (ROOT / "history" / "buy_list_rates_meta.json").write_text(json.dumps(meta, indent=1) + "\n")
+    (OUT / "buy_list_rates.md").write_text(md)
+    print(md)
+    print(f"wrote {len(cells)} cell rows, {len(lifts)} lift rows; rates through {data_end.date()}")
 
 
 if __name__ == "__main__":

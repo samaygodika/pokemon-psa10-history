@@ -1,0 +1,61 @@
+# Monthly re-fit of the buy-list rate tables (2026-10-23): nightly/run_buy_list_refit.sh ->
+# analysis/buy_list_refit.py. The nightly's buy list (history/buy_list.py, step 7b) scores with
+# history/buy_list_rates.csv + buy_list_lifts.csv; they only learn when an anchor month closes
+# (its exit window has passed), one a month per horizon. This run checks every newly closed month
+# against the current tables first (out of sample, history/buy_list_refit_log.csv), then re-fits.
+# Once a month, on the 2nd: the 1st's nightly has landed by then with sales through the month's
+# last day, which closes the month-start anchors of 210 / 120 days before. The 3rd is a retry
+# slot (GitHub drops scheduled runs); it stops if this month's re-fit already landed. A run with
+# no newly closed month changes nothing and commits nothing. Own concurrency group: it never talks
+# to alt.xyz and commits only files no other run writes.
+name: buy list refit (monthly rate tables, checked first)
+on:
+  schedule:
+    - cron: "40 15 2,3 * *"
+  workflow_dispatch:
+    inputs:
+      no_commit:
+        description: "1 = check and re-fit on the runner, commit nothing"
+        required: false
+        default: ""
+concurrency:
+  group: buy-list-refit
+  cancel-in-progress: false
+permissions:
+  contents: write
+jobs:
+  refit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - name: stop if this month's re-fit already landed (the 3rd is only a retry)
+        id: guard
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: nightly/already_ran.sh "buy list refit $(date -u +%Y-%m)" && echo "skip=1" >> "$GITHUB_OUTPUT" || true
+      - uses: actions/setup-python@v5
+        if: steps.guard.outputs.skip != '1'
+        with:
+          python-version: "3.14"
+      - name: install the analysis libraries (the versions the tables were first fitted with)
+        if: steps.guard.outputs.skip != '1'
+        run: python -m pip install --quiet pandas==3.0.5 numpy==2.5.3 scipy==1.18.1
+      - name: panel + check + re-fit + commit
+        if: steps.guard.outputs.skip != '1'
+        env:
+          NO_COMMIT: ${{ inputs.no_commit }}
+          STORE_MODE: "release"
+          GH_TOKEN: ${{ github.token }}
+        run: nightly/run_buy_list_refit.sh
+      - name: keep the reports as a downloadable artifact (90 days)
+        if: always() && steps.guard.outputs.skip != '1'
+        uses: actions/upload-artifact@v4
+        with:
+          name: buy-list-refit-${{ github.run_id }}
+          path: |
+            analysis/out/buy_list_refit_*.md
+            analysis/out/buy_list_refit_*.log
+            analysis/out/buy_list_rates.md
+          retention-days: 90

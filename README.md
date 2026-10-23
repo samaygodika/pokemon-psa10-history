@@ -321,7 +321,18 @@ Rates: `history/buy_list_rates.csv` (cells, both horizons, every level) and `his
 (the cuts' lifts and odds ratios by horizon and regime) from `analysis/buy_list_rates.py` over the
 loose panel (every card with a sale in the 180 days before a monthly anchor, sales through
 2026-10-20). The hot-regime cells at 180 days rest on three closed months (Aug and Oct 2025, Mar
-2026); the warm ones on twelve. Each cell row carries `n_months`, `month_se` and `month_half90`
+2026); the warm ones on twelve. **Re-fitted monthly (2026-10-23):** an anchor month closes at
+horizon h once its exit window has passed (anchor ≤ data end − (h + 30) days), one a month per
+horizon; `analysis/buy_list_refit.py` (workflow `buy-list-refit.yml`, the 2nd of each month)
+first scores every month that closed since the current tables WITH those tables (the
+out-of-sample check, by the nightly's own `score_cell`), then re-fits on every closed month.
+`history/buy_list_rates_meta.json` = the tables' data end and closed months per horizon and
+regime; `history/buy_list_refit_log.csv` = the check, one row per checked month, horizon, view
+(`all` trades / `listed`, what the nightly would have listed) and group (`all`, `tier=…`,
+`era=…`): trades, scored, mean predicted p, realized win rate (scored, and `win_rate_all` over
+every trade), gap in points, Brier, the Brier of the regime's rate alone and the skill against
+it, predicted and realized mean net. Every ledger row carries `rates_through` (appended last),
+the data end of the tables that scored it. Each cell row carries `n_months`, `month_se` and `month_half90`
 (v0.1: the band's month-clustered half-width); the lifts file a `vs` column (`own_cell` for
 `thin_history`, measured against its own cells' rate; `rest` for the others, against the rest of
 the regime). `history/buy_ledger.csv` keeps, per data date, the top 200 listed
@@ -355,6 +366,13 @@ schedules, both in `.github/workflows/`:
   matching a hyphen or a space ("Ho-Oh" also finds alt.xyz's "Ho Oh").
 - **weekly full** (Sunday): every graded Pokemon card (~65k), so the vintage species'
   modern printings and every other species stay fresh too.
+- **buy list refit** (monthly, the 2nd at 15:40 UTC, the 3rd as a retry slot that stops once the
+  month's commit is on main): `nightly/run_buy_list_refit.sh` pulls the store, builds the loose
+  panel (~3 min, ~4.6 GB), checks the newly closed months against the current rate tables,
+  re-fits, and commits only `history/buy_list_rates.csv`, `buy_list_lifts.csv`,
+  `buy_list_rates_meta.json` and `buy_list_refit_log.csv` (commit `buy list refit <date>: …`);
+  nothing when no month closed. Reports as a 90-day artifact. The nightly reads the new tables
+  the next night. Needs pandas / numpy / scipy, pinned in the workflow.
 
 Each run ends with `history/manifest.py` (the sha256 of every `latest/` file into
 `summary.json`'s `files`, plus the shard manifests), pushes `history/sales/` + `history/daily/`
