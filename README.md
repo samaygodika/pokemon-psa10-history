@@ -356,9 +356,10 @@ alt.xyz sees the same request rate as before), and `assemble` (merge the slices'
 between jobs as artifacts (`scope`, `shard-<i>`, then the usual `snapshot-<run id>`). Two
 schedules, both in `.github/workflows/`:
 
-- **nightly** (cron slots 01:17, 02:17 and 03:17 UTC; the first that fires runs, the others stop
+- **nightly** (cron slots 03:17, 04:17 and 05:17 UTC; the first that fires runs, the others stop
   when `nightly/already_ran.sh` sees its commit, because GitHub fires a cron up to ~9 h late; the
-  data is on main by ~05:00-07:00 UTC, before PokeSniper's morning sync): the 101 Pokemon in
+  data is on main by ~07:00-09:00 UTC, before PokeSniper's morning sync; not before 03:00 UTC so
+  Alt's Thursday auction block, which closes from 01:00 UTC, 02:00 in winter, is over): the 101 Pokemon in
   `nightly/subjects.txt` at every year (~20k
   cards: PokeSniper's 100 roster candidates plus Bulbasaur) plus the ~400 species in
   `nightly/vintage_species.txt` at 2013 or earlier (~13k cards, PokeSniper's Categories

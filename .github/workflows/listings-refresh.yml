@@ -10,7 +10,7 @@
 name: listings refresh (cards with a running auction)
 on:
   schedule:
-    - cron: "0,40 10,16,22 * * *"   # 10:00, 16:00, 22:00 UTC (3 AM, 9 AM, 3 PM Pacific), :40 = retry; the nightly covers ~01:00-07:00 UTC
+    - cron: "0,40 10,16,22 * * *"   # 10:00, 16:00, 22:00 UTC (3 AM, 9 AM, 3 PM Pacific), :40 = retry; the nightly covers ~03:00-09:00 UTC
   workflow_dispatch:
     inputs:
       limit:

@@ -13,13 +13,16 @@
 name: nightly scrape (roster candidates + vintage checklist)
 on:
   schedule:
-    # Three slots, 01:17 / 02:17 / 03:17 UTC (6-8 PM Pacific): GitHub fires a cron anywhere from on
-    # time to ~9 h late (the old 07:00 UTC slot started 12:00-16:15 UTC in October 2026, so the feed
-    # landed at 8 AM-noon Pacific). The first slot that fires scrapes (~3-3.5 h); the others see its
-    # commit (nightly/already_ran.sh) and stop, so the day's data is on main by ~05:00-07:00 UTC
-    # (10 PM-midnight Pacific) and PokeSniper's 3 AM Pacific sync finds it. Off the hour on purpose
-    # (GitHub says the top of the hour is the busiest).
-    - cron: "17 1,2,3 * * *"
+    # Three slots, 03:17 / 04:17 / 05:17 UTC (8-10 PM Pacific, 7-9 PM in winter): GitHub fires a cron
+    # anywhere from on time to ~9 h late (the old 07:00 UTC slot started 12:00-16:15 UTC in October
+    # 2026, so the feed landed at 8 AM-noon Pacific). The first slot that fires scrapes (~3-3.5 h); the
+    # others see its commit (nightly/already_ran.sh) and stop, so the day's data is on main by
+    # ~07:00-09:00 UTC (midnight-2 AM Pacific) and PokeSniper's hourly check picks it up. Not before
+    # 03:00 UTC (2026-10-23, was 01:17 / 02:17 / 03:17): Alt's weekly auctions end Thursday from 6 PM
+    # Pacific (01:00 UTC, 02:00 in winter) and run on for ~1 h of extended bidding, so an on-time
+    # Friday run would scrape that block mid-close. Off the hour on purpose (GitHub says the top of
+    # the hour is the busiest).
+    - cron: "17 3,4,5 * * *"
   workflow_dispatch:
     inputs:
       limit:
