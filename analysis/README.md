@@ -885,6 +885,82 @@ within two months.
   60-day level on any day of such a month") next to the spike's give-back
   base rate. Full tables in `out/psa9_spike.md` (and `_age180`).
 
+## Buy-model bake-off: 30 candidates, one honest harness (2026-10-23)
+
+Samay: "use your agents, build different things, backtest, select that approach or a souping
+one." `buy_eval.py` = one walk-forward harness for every candidate (583k English card-month
+trades, the panel's point-in-time features only; labels = the money target, win = net >= +30%
+after costs). **The protocol that counts is LIVE** (`live_folds`): for every anchor month A from
+2023-01 the model trains on the trades closed by A (anchor <= A - (h + 30) d) and scores A's
+trades; 36 test months at 180 d, 39 at 90 d. The first protocol (`split`: train on everything
+closed by the next cutoff) scored a 180-day trade of month A with the labels of month A - 1, whose
+exits share five of its six months. Found by the glm and market agents independently. It flattered
+every model, gradient boosting most: gbm_mono looked like +17 points on the top 50 (t 4.6) there
+and is -1.0 (t -0.3) live. The live baseline is weaker than the cutoff one (180 d AUC 0.661 ->
+0.629; 2025+ top-50 net +52.5% -> +35.5%). Candidates: cand_calib.py (Platt / isotonic / shrink),
+cand_glm.py (time decay, logistic with continuous breadth), cand_gbm.py (HistGradientBoosting,
+plain / monotone / calibrated / no-market), cand_market.py (month-level nowcasts, trailing
+correction), cand_pills.py (Sid's Reverse Arb, Sleeper, category phase rebuilt point-in-time on
+PSA 10), cand_blend.py (log-odds averages + walk-forward Platt). Agent notes:
+`out/buy_eval/{calib,glm,gbm,market,pills}_notes.md`; leaderboard `out/buy_eval/report_live_2026-10-23.md`.
+
+Live, 180 d, vs live_baseline (month-paired, t over months; top-k = the k eligible trades with the
+highest p each month, mean net after costs):
+
+| model | Brier skill (t) | AUC | ECE | d top-50 net (t) | d top-100 net (t) | 2025+ d top-100 (t) |
+|---|---|---|---|---|---|---|
+| **blend_logit_revgap** (glm_logit + cells with the PSA 9 cut, Platt) | +3.9% (1.6) | 0.638 | 0.056 | +8.4 (3.7) | +7.3 (3.2) | +19.2 (4.4) |
+| blend_logit_platt (glm_logit alone, Platt) | +3.7% (1.4) | 0.630 | 0.055 | +10.7 (3.0) | +10.7 (3.1) | +25.9 (3.4) |
+| blend_logit_base (glm_logit + cells, Platt) | +3.8% (1.6) | 0.635 | 0.057 | +7.4 (3.7) | +6.0 (2.9) | +16.1 (3.7) |
+| calib_platt (cells, Platt) | +3.0% (2.0) | 0.629 | 0.061 | 0 | 0 | 0 |
+| market_persist (trailing month correction) | +3.4% (2.3) | 0.629 | 0.060 | 0 | 0 | 0 |
+| pills_revgap (cells x PSA 9 cut) | +1.5% (2.8) | 0.633 | 0.076 | +2.4 (2.4) | +2.7 (3.2) | +7.0 (4.2) |
+| glm_logit (raw) | +0.4% (0.2) | 0.630 | 0.082 | +10.7 (3.0) | +10.8 (3.1) | +25.9 (3.4) |
+| gbm_mono | +0.7% (0.3) | 0.623 | 0.077 | -1.0 (-0.3) | +1.9 (0.9) | +7.0 (1.3) |
+| glm_decay / glm_logit_decay | +0.8% / +1.6% | 0.631 / 0.628 | | 0 / +6.5 (1.9) | | |
+| pills sleeper / phase / revarb | ~0 | 0.629 | 0.081 | -0.9 / +2.0 / 0 | | |
+| market nowcasts (ridge on market features) | -5% (cutoff protocol) | | | 0 | 0 | |
+| calib_platt2 (logit p + logit regime) | -65% | | 0.190 | | | |
+
+At 90 d the same order: blend_logit_revgap AUC 0.638, d top-50 +3.4 (t 3.1), Brier +1.2%.
+
+What was learned:
+- **The ranking can be improved, the level hardly.** A logistic regression on the same tags and
+  cuts plus price, days since sale, 30/90-day momentum, band position and breadth as a bent line
+  (glm_logit) ranks better than the cells at both horizons (top-50 ahead in 28 of 36 months at
+  180 d). The blend with the PSA-9-adjusted cells is the steadiest: ahead in 28 of 36 months,
+  positive every year (2023 +1.5, 2024 +4.8, 2025 +17.6, 2026 +18.4 points a month), +5.4 (t 3.4)
+  without its best three months, worst month -21 (2025-07, vs -45 for glm_logit alone). Its top 50
+  tilt to $500-2k cards (29% vs 20%) and share ~60% with the baseline's.
+- **Platt is the calibration step.** Live, it takes the cells' ECE 0.081 -> 0.061, the blends'
+  0.082 -> 0.056; isotonic is worse; shrinking toward the regime rate does nothing; adding the
+  regime as a second input broke on 2025-02 (78% predicted, 22% won: a month-level input
+  extrapolated past every month it had seen).
+- **Every model under-predicts a rising market** (hot months by ~11-14 points): the tables of the
+  anchor date have not seen the months that close later. A trailing month correction helps the
+  level at 180 d (+3.4%) but not at 90 d; market nowcasts from features at the anchor lose (they
+  move with the market, they do not lead it).
+- **Sid's pills as written add nothing to the PSA 10 list.** Reverse Arb fires on almost nothing
+  (51 closed trades; 3 live test trades); Sleeper's raw lift (60% vs 27%) is 1.11x against cards
+  of the same month, era and tier; category Correcting changes sign in 2025 (OR ~1.08 through
+  2024, 0.68-0.88 from 2025-05): `category_falling` stays a warning. The one PSA 9 gain is mostly
+  "the card's PSA 9 trades at all" (has9), a liquidity / interest signal, not cheapness.
+- **Gradient boosting is not worth its weight here**: no live gain at 180 d; at 90 d gbm_mono
+  orders better within a month (AUC +0.020, t 4.0) but its top picks earn no more; it would also
+  need scikit-learn in the stdlib-only nightly.
+- **Absolute level, honestly:** in an average month most top picks still lose (blend 62%,
+  baseline 67%; median net -20% vs -27%). The list earns in warm and hot markets; in 2025+ the
+  blend's top 50 netted +53.3% at 180 d vs +35.5% for the cells and +15.3% for random picks.
+- Multiple testing: 30 variants were scored. The pick's top-50 t of 3.7 and top-100 t of 3.2 are
+  above a rough Bonferroni bar for 30 tries (~3.1 at 5%); its Brier gain (t 1.6) is not on its own.
+
+**Selection: blend_logit_revgap as v0.2** (not built into the nightly yet). It needs, in the
+nightly: the panel's own feature definitions at today's date (the nightly's band_z is from weekly
+medians and its momentum from cards.csv's change columns, the panel's from the sales: build them
+from history/sales with panel.py's code paths in the standard library, checked equal on a past
+anchor), the logistic coefficients and the revgap odds ratio fitted by the monthly re-fit, and the
+Platt pair fitted there on the blend's live out-of-sample predictions.
+
 ## Buy list: monthly re-fit, checked first (2026-10-23)
 
 Samay: "with every day we get more data, so we should be able to be smarter". The nightly
@@ -903,6 +979,13 @@ Monthly on the 2nd (`.github/workflows/buy-list-refit.yml`); first real check 20
 **Replay** (`--replay 2025-01` on the 10-23 panel: at each month start the tables are fitted on
 the months closed by then and score the months that close in the next month; 21 re-fits, 51 s;
 `out/buy_list_refit_replay.md`). Mild look-ahead: one panel built on today's store.
+**CORRECTION (same day, after the bake-off below): the table and bullets that follow are the
+"current tables" view, which flatters the tables** (they were fitted on months whose exits overlap
+the checked month's). The re-fit's check now also scores each month with the tables of its own
+anchor date (`tables` = at_anchor, the honest view of the list as shown). Replay, at_anchor: 180 d
+every trade won 12.7 points more than predicted on average (19 months), the list could be scored in
+only 5 of the 2025-26 months (before 2025-09 the anchor-date tables had no warm / hot cell); 90 d
+every trade +5.5 points. The "level right inside the list" bullet below does not hold live.
 
 | horizon | view | months | mean gap (won - predicted) | mean abs gap | Brier skill vs the regime alone |
 |---|---|---|---|---|---|
