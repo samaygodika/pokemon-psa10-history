@@ -53,7 +53,7 @@ def test_check_scores_the_unseen_month():
     with tempfile.TemporaryDirectory() as tmp:
         rates, lifts = fitted(u, old_end, tmp)
         rows, scored = rf.check(u, rates, lifts, old_end, new_end, "2025-09-27T00:00:00+00:00")
-    tops = [r for r in rows if r["group"] == "all"]
+    tops = [r for r in rows if r["group"] == "all" and r["tables"] == "current"]
     assert {(r["horizon"], r["anchor_month"], r["view"]) for r in tops} == {(180, "2025-03", "all"), (180, "2025-03", "listed")}, tops
     r = next(x for x in tops if x["view"] == "all")
     assert r["n"] == 300 and r["n_scored"] == 300
@@ -61,7 +61,10 @@ def test_check_scores_the_unseen_month():
     assert abs(r["win_rate"] - 0.8) < 1e-9 and abs(r["gap_pts"] - 30) < 0.1
     assert abs(r["brier"] - 0.25) < 1e-3 and abs(r["skill"]) < 1e-3   # the regime alone says the same 50%
     assert abs(r["net_pred"] - 0.25) < 1e-3 and abs(r["net_real"] - 0.7) < 1e-9   # 0.5 x 100% + 0.5 x -50%; 0.8 x 100% + 0.2 x -50%
-    assert scored.listed.all()
+    assert scored[scored.tables == "current"].listed.all()
+    # the tables a buyer had on 2025-03-01 itself saw no closed 180-day month (anchor <= 2024-08-03): nothing to score with
+    a = next(x for x in rows if x["group"] == "all" and x["tables"] == "at_anchor" and x["view"] == "all")
+    assert a["n"] == 300 and a["n_scored"] == 0, a
     print("ok test_check_scores_the_unseen_month")
 
 
@@ -74,8 +77,8 @@ def test_listed_view_drops_avoid_flags():
     with tempfile.TemporaryDirectory() as tmp:
         rates, lifts = fitted(u, old_end, tmp)
         rows, _ = rf.check(u, rates, lifts, old_end, new_end, "x")
-    listed = next(x for x in rows if x["view"] == "listed" and x["group"] == "all")
-    allv = next(x for x in rows if x["view"] == "all" and x["group"] == "all")
+    listed = next(x for x in rows if x["view"] == "listed" and x["group"] == "all" and x["tables"] == "current")
+    allv = next(x for x in rows if x["view"] == "all" and x["group"] == "all" and x["tables"] == "current")
     assert allv["n"] == 300 and listed["n"] == 100, (allv["n"], listed["n"])
     print("ok test_listed_view_drops_avoid_flags")
 
@@ -87,7 +90,7 @@ def test_no_cell_leaves_trades_unscored():
     with tempfile.TemporaryDirectory() as tmp:
         rates, lifts = fitted(u, old_end, tmp)
         rows, _ = rf.check(u, rates, lifts, old_end, new_end, "x")
-    r = next(x for x in rows if x["view"] == "all" and x["group"] == "all")
+    r = next(x for x in rows if x["view"] == "all" and x["group"] == "all" and x["tables"] == "current")
     assert r["n"] == 300 and r["n_scored"] == 0 and "p_mean" not in r and abs(r["win_rate_all"] - 0.8) < 1e-9, r
     print("ok test_no_cell_leaves_trades_unscored")
 

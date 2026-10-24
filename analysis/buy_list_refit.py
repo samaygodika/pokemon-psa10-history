@@ -24,7 +24,11 @@ Order, every run:
  2. Check, BEFORE anything is re-fitted. Every anchor month that closed since the current
     tables' data end (history/buy_list_rates_meta.json; 2026-10-20 for the first tables, which
     predate the meta file) is scored with the CURRENT rates and lifts by the nightly's own
-    function (buy_list.score_cell: same cell lookup, shrinkage, cuts, caps). Two views:
+    function (buy_list.score_cell: same cell lookup, shrinkage, cuts, caps), and again with the tables
+    a buyer had ON THAT MONTH'S ANCHOR DATE (fitted on what was closed by it: `tables` = at_anchor, the
+    honest check of the list as shown; the current tables were fitted on months whose exits overlap the
+    checked month's, 5 of 6 at 180 d, so `tables` = current flatters them and only shows the re-fit's
+    direction; found 2026-10-23, analysis/buy_eval.py live_folds). Two views:
       all     every English trade of the month the tables could score (what the rates claim)
       listed  the trades the nightly would have listed: no avoid flag the panel can see
               (release_year, busy_spike, vol_surge, below_band, dip, chase_flat; pending_sale
@@ -79,7 +83,7 @@ FIRST_DATA_END = rates_mod.DATA_END          # the tables before the meta file e
 PANEL_ARGS = ["--min-sales-180", "1", "--min-sales-60", "0", "--min-total-sales", "4", "--start", "2021-01-01"]
 HORIZONS = (90, 180)
 P_BUCKETS = [0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 1.0001]
-LOG_COLS = ["checked_at", "rates_through", "data_through", "horizon", "anchor_month", "regime", "view", "group", "n", "n_scored",
+LOG_COLS = ["checked_at", "rates_through", "data_through", "horizon", "anchor_month", "regime", "tables", "view", "group", "n", "n_scored",
             "p_mean", "win_rate", "gap_pts", "brier", "brier_ref", "skill", "net_pred", "net_real", "win_rate_all"]
 MIN_GROUP = 30                               # a tier / era group is reported from this many scored trades
 
@@ -147,32 +151,51 @@ def summarize(g):
     return row
 
 
-def check(u, rates, lifts, old_end, new_end, checked_at):
-    """-> (log rows, scored trades) for every anchor month that closed in (old_end, new_end]."""
-    rows, scored = [], []
-    for h in HORIZONS:
-        w = rates_mod.closed(u, h, new_end)
-        w = w[newly_closed(w.date, h, old_end, new_end)]
-        if w.empty:
-            continue
-        w = score_trades(w, rates, lifts, h)
-        w["horizon"] = h
-        scored.append(w)
-        for month, gm in w.groupby("date"):
-            base = {"checked_at": checked_at, "rates_through": f"{old_end.date()}", "data_through": f"{new_end.date()}", "horizon": h,
-                    "anchor_month": f"{month:%Y-%m}", "regime": str(gm.regime.iloc[0])}
-            for view, gv in (("all", gm), ("listed", gm[gm.listed])):
-                rows.append({**base, "view": view, "group": "all", **summarize(gv)})
-                for key in ("tier", "era"):
-                    for val, gg in gv.groupby(key, observed=True):
-                        if gg.p.notna().sum() >= MIN_GROUP:
-                            rows.append({**base, "view": view, "group": f"{key}={val}", **summarize(gg)})
+def tables_at(u, a, cache, tmp):
+    """the tables a buyer on anchor date a had: fitted on the trades closed by a (cached per date)."""
+    if a not in cache:
+        cells, lifts, _, _ = rates_mod.fit(u, a)
+        folder = Path(tmp) / f"{a:%Y-%m-%d}"
+        rates_mod.write_tables(cells, lifts, folder)
+        cache[a] = load_tables(folder)
+    return cache[a]
+
+
+def check(u, rates, lifts, old_end, new_end, checked_at, at_anchor=True):
+    """-> (log rows, scored trades) for every anchor month that closed in (old_end, new_end], scored twice:
+    tables = "at_anchor": with the tables fitted on what was closed BY THAT MONTH'S ANCHOR DATE, what the list
+               showed then (the honest forecast check: the current tables were fitted on months whose exits
+               overlap this month's, 5 of 6 at 180 d, so they flatter it; buy_eval.live_folds, 2026-10-23)
+    tables = "current": with the tables in use now (rates, lifts): whether the re-fit's direction is right."""
+    rows, scored, cache = [], [], {}
+    with tempfile.TemporaryDirectory() as tmp:
+        for h in HORIZONS:
+            w = rates_mod.closed(u, h, new_end)
+            w = w[newly_closed(w.date, h, old_end, new_end)]
+            if w.empty:
+                continue
+            for month, gm0 in w.groupby("date"):
+                runs = [("current", rates, lifts)] + ([("at_anchor", *tables_at(u, pd.Timestamp(month), cache, tmp))] if at_anchor else [])
+                for tables, r_, l_ in runs:
+                    gm = score_trades(gm0, r_, l_, h)
+                    gm["horizon"], gm["tables"] = h, tables
+                    scored.append(gm)
+                    base = {"checked_at": checked_at, "rates_through": f"{old_end.date()}", "data_through": f"{new_end.date()}", "horizon": h,
+                            "anchor_month": f"{month:%Y-%m}", "regime": str(gm.regime.iloc[0]), "tables": tables}
+                    for view, gv in (("all", gm), ("listed", gm[gm.listed])):
+                        rows.append({**base, "view": view, "group": "all", **summarize(gv)})
+                        for key in ("tier", "era"):
+                            for val, gg in gv.groupby(key, observed=True):
+                                if gg.p.notna().sum() >= MIN_GROUP:
+                                    rows.append({**base, "view": view, "group": f"{key}={val}", **summarize(gg)})
     return rows, (pd.concat(scored, ignore_index=True) if scored else pd.DataFrame())
 
 
-def calibration(scored):
+def calibration(scored, tables="at_anchor"):
     """pooled reliability table: predicted p bucket -> trades, mean p, realized, per horizon and view."""
     out = []
+    if "tables" in scored.columns:
+        scored = scored[scored.tables == tables]
     for h, gh in scored.groupby("horizon"):
         for view, gv in (("all", gh), ("listed", gh[gh.listed])):
             s = gv[gv.p.notna()].copy()
@@ -186,8 +209,8 @@ def fmt_pct(x, d=1):
     return "" if pd.isna(x) else f"{100 * x:.{d}f}%"
 
 
-def month_table(rows, view):
-    t = [r for r in rows if r["view"] == view and r["group"] == "all"]
+def month_table(rows, view, tables="at_anchor"):
+    t = [r for r in rows if r["view"] == view and r["group"] == "all" and r.get("tables", tables) == tables]
     lines = ["| horizon | anchor month | regime | trades | scored | predicted | won (scored) | gap | Brier skill vs regime | net predicted | net realized | won (every trade) |",
              "|---|---|---|---|---|---|---|---|---|---|---|---|"]
     for r in sorted(t, key=lambda r: (r["horizon"], r["anchor_month"])):
@@ -278,8 +301,11 @@ def run_monthly(a):
     if not months:
         md.append("No anchor month closed since the current tables (a month closes at horizon h once anchor <= data end - (h + 30) days).\n\n")
     else:
-        md.append("Every trade:\n\n" + month_table(rows, "all") + "\nWhat the nightly would have listed (no visible avoid flag, p(180) >= 0.15, expected net > 0):\n\n"
-                  + month_table(rows, "listed") + "\nCalibration, pooled over the checked months:\n\n" + calib_table(calibration(scored)) + "\n")
+        md.append("Scored with the tables of each month's own anchor date (what the list showed then; the honest check):\n\n"
+                  + "Every trade:\n\n" + month_table(rows, "all") + "\nWhat the nightly would have listed (no visible avoid flag, p(180) >= 0.15, expected net > 0):\n\n"
+                  + month_table(rows, "listed") + "\nCalibration, pooled over the checked months:\n\n" + calib_table(calibration(scored)) + "\n"
+                  + "Scored with the current tables (fitted on months whose exits overlap these months': flattering; shows the re-fit's direction):\n\n"
+                  + month_table(rows, "all", "current") + "\n" + month_table(rows, "listed", "current") + "\n")
         print("".join(md[-1:]))
     refit = not a.check_only and (months or a.force)
     if refit:
@@ -301,7 +327,7 @@ def run_monthly(a):
     print(f"checked {len(months)} closed month(s) at {len(rows)} log row(s); re-fit {'done' if refit else 'not run'}; report {report}")
     # one line for the commit message (nightly/run_buy_list_refit.sh)
     checked = "; ".join(f"{r['horizon']} d {r['anchor_month']} {r['regime']} predicted {fmt_pct(r.get('p_mean'))} won {fmt_pct(r.get('win_rate_all'))}"
-                        for r in sorted(rows, key=lambda r: (r["horizon"], r["anchor_month"])) if r["view"] == "all" and r["group"] == "all")
+                        for r in sorted(rows, key=lambda r: (r["horizon"], r["anchor_month"])) if r["view"] == "all" and r["group"] == "all" and r["tables"] == "at_anchor")
     if refit:
         hz = meta["horizons"]
         print(f"refit summary: tables through {new_end.date()} (hot months 90 d {hz['90']['months_by_regime'].get('hot', 0)}, "
@@ -330,7 +356,7 @@ def run_replay(a):
             rows += r
             if not s.empty:
                 scored.append(s)
-            done = [x for x in r if x["view"] == "all" and x["group"] == "all"]
+            done = [x for x in r if x["view"] == "all" and x["group"] == "all" and x["tables"] == "at_anchor"]
             print(f"tables through {d.date()} -> months closing by {nxt.date()}: " + "; ".join(
                 f"{x['horizon']} d {x['anchor_month']} {x['regime']} predicted {fmt_pct(x.get('p_mean'))} won {fmt_pct(x.get('win_rate'))}" for x in done), flush=True)
     pd.DataFrame(rows, columns=LOG_COLS).to_csv(OUT / "buy_list_refit_replay.csv", index=False, float_format="%.4f")
@@ -339,17 +365,20 @@ def run_replay(a):
           f"One panel (`{a.panel}`, sales through {end.date()}); at each month start D the tables are fitted on the months closed by D and "
           "score the months that close by the next month start. Look-ahead, mild: the panel uses today's store (outlier re-admissions, late-reported "
           "sales, REMOVED marks, the newest months' extended exit windows).\n\n",
-          "## Every trade\n\n", month_table(rows, "all"), "\n## What the nightly would have listed\n\n", month_table(rows, "listed"),
+          "## Every trade (tables of each month's own anchor date)\n\n", month_table(rows, "all"), "\n## What the nightly would have listed (same)\n\n", month_table(rows, "listed"),
+          "\n## Every trade, tables of the re-fit before the month closed (flattering: overlapping exits)\n\n", month_table(rows, "all", "current"),
           "\n## Calibration, pooled\n\n", calib_table(calibration(scored)) if not scored.empty else "(nothing scored)\n"]
     summ = []
     for h in HORIZONS:
         for view in ("all", "listed"):
-            t = pd.DataFrame([x for x in rows if x["horizon"] == h and x["view"] == view and x["group"] == "all" and x.get("n_scored", 0) >= MIN_GROUP])
-            if t.empty:
-                continue
-            summ.append(f"- {h} d, {view}: {len(t)} months checked; mean |gap| {t.gap_pts.abs().mean():.1f} pts, mean gap {t.gap_pts.mean():+.1f} "
-                        f"(won minus predicted), {int((t.gap_pts < -10).sum())} months more than 10 pts below; mean Brier skill vs the regime alone "
-                        f"{100 * t.skill.mean():+.1f}%\n")
+            for tables in ("at_anchor", "current"):
+                t = pd.DataFrame([x for x in rows if x["horizon"] == h and x["view"] == view and x["group"] == "all" and x["tables"] == tables
+                                  and x.get("n_scored", 0) >= MIN_GROUP])
+                if t.empty:
+                    continue
+                summ.append(f"- {h} d, {view}, {tables} tables: {len(t)} months checked; mean |gap| {t.gap_pts.abs().mean():.1f} pts, mean gap "
+                            f"{t.gap_pts.mean():+.1f} (won minus predicted), {int((t.gap_pts < -10).sum())} months more than 10 pts below; "
+                            f"mean Brier skill vs the regime alone {100 * t.skill.mean():+.1f}%\n")
     md.insert(2, "## Summary\n\n" + "".join(summ) + "\n")
     (OUT / "buy_list_refit_replay.md").write_text("".join(md))
     print("".join(summ))

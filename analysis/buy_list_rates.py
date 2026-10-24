@@ -155,6 +155,9 @@ def fit(u, data_end):
     md.append("Breadth by anchor month (the regime nowcast):\n\n" + ", ".join(f"{d.date():%Y-%m} {b:.2f} {r}" for d, b, r in reg_hist.itertuples(index=False)) + "\n\n")
     for h in (90, 180):
         w = closed(u, h, data_end)
+        if w.empty:                       # nothing closed yet at this horizon (an early anchor date): no cells, no lifts
+            meta["horizons"][str(h)] = {"trades": 0, "months": 0, "closed_through": "", "months_by_regime": {}}
+            continue
         months = w.drop_duplicates("date")[["date", "regime"]].sort_values("date")
         meta["horizons"][str(h)] = {"trades": int(len(w)), "months": int(len(months)),
                                     "closed_through": f"{months.date.max().date()}" if len(months) else "",
@@ -200,7 +203,10 @@ def fit(u, data_end):
                               "months": months, "months_ahead": ahead / months if months else np.nan, "vs": "own_cell" if own else "rest"})
         lt = pd.DataFrame([x for x in lifts if x["horizon"] == h])
         md.append("Lifts by cut and regime:\n\n| cut | regime | n on | win on | win off | lift | odds ratio | months | ahead |\n|---|---|---|---|---|---|---|---|---|\n" + "".join(f"| {r.cut} | {r.regime} | {r.n_on:,} | {r.win_on:.1%} | {r.win_off:.1%} | {r.lift:.2f} | {r.odds_ratio:.2f} | {r.months} | {r.months_ahead:.0%} |\n" for r in lt.itertuples()) + "\n")
-    return pd.concat(cells, ignore_index=True), pd.DataFrame(lifts), "".join(md), meta
+    cell_cols = ["horizon", "level", "regime", "era", "tier", "liq", "n", "win_rate", "win_net_mean", "win_net_median", "loss_net_mean",
+                 "loss_net_median", "net_median", "n_months", "month_se", "month_half90"]
+    lift_cols = ["horizon", "cut", "regime", "n_on", "win_on", "win_off", "lift", "lift_capped", "odds_ratio", "odds_ratio_capped", "months", "months_ahead", "vs"]
+    return (pd.concat(cells, ignore_index=True) if cells else pd.DataFrame(columns=cell_cols)), pd.DataFrame(lifts, columns=lift_cols), "".join(md), meta
 
 
 def write_tables(cells, lifts, folder):

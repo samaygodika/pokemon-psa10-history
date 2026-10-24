@@ -327,7 +327,10 @@ horizon; `analysis/buy_list_refit.py` (workflow `buy-list-refit.yml`, the 2nd of
 first scores every month that closed since the current tables WITH those tables (the
 out-of-sample check, by the nightly's own `score_cell`), then re-fits on every closed month.
 `history/buy_list_rates_meta.json` = the tables' data end and closed months per horizon and
-regime; `history/buy_list_refit_log.csv` = the check, one row per checked month, horizon, view
+regime; `history/buy_list_refit_log.csv` = the check, one row per checked month, horizon, `tables`
+(`at_anchor`: the tables of the month's own anchor date, what the list showed then, the honest
+check; `current`: the tables in use, fitted on months whose exits overlap the checked month's, so
+flattering), view
 (`all` trades / `listed`, what the nightly would have listed) and group (`all`, `tier=…`,
 `era=…`): trades, scored, mean predicted p, realized win rate (scored, and `win_rate_all` over
 every trade), gap in points, Brier, the Brier of the regime's rate alone and the skill against
