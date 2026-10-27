@@ -961,6 +961,35 @@ from history/sales with panel.py's code paths in the standard library, checked e
 anchor), the logistic coefficients and the revgap odds ratio fitted by the monthly re-fit, and the
 Platt pair fitted there on the blend's live out-of-sample predictions.
 
+**Built 2026-10-26 (draft, not pushed)** as `analysis/buy_list_v02.py` (fit / check / parity /
+score-parity) + `history/buy_features.py` (the panel's features in the standard library) + a v0.2
+path in `history/buy_list.py`, re-fitted by `buy_list_refit.py` with the tables. On the way:
+- **Float fix.** pandas' default CSV parser reads some of the panel's floats an ulp off
+  (`0.050000000000000044` -> `0.05`), and a median-based price that is exactly +5% sits on breadth's
+  `mom30 > +5%` line: breadth was understated in 43 of 66 months (by 0.06-0.25 points; no month
+  changed regime), plus `jp_heat` on 5 trades and the set quartile / lead on ~200. Every fit now
+  reads the panel through `buy_list_rates.read_panel` (`float_precision="round_trip"`). Re-running
+  the bake-off's pick on the fixed cache: 180 d Brier skill +3.9%, AUC 0.638, ECE 0.056, top-50
+  +8.3 (t 3.7) vs +8.4 (t 3.7) before; no label (win) changed; the largest single p moved 0.008.
+  Old outputs kept in `out/buy_eval_pre_roundtrip_2026-10-26/`.
+- **Feature parity** (`parity`, stdlib vs panel.py / the cache / cand_pills): PASS at 2026-07-01,
+  2026-04-01 and 2024-10-01: same universe (12,656 / 12,151 / 10,148 cards), every feature, tag, cut,
+  avoid flag and PSA 9 term equal (most bit for bit, band_z within 3e-11). Needs the store and
+  `assets.csv` the panel was built with (`--store`, `--assets`: alt.xyz renamed 353 records
+  between 10-23 and 10-26).
+- **Model check** (`check`): `fit`'s walk-forward, replaying the bake-off files' 5-decimal rounding,
+  equals the regenerated `live_baseline`, `live_pills_revgap`, `live_glm_logit` and
+  `live_blend_logit_revgap` to the files' rounding (max 5e-6), and its PSA 9 terms equal
+  cand_pills' bit for bit.
+- **Score parity** (`score-parity`): the nightly's stdlib scorer on `buy_features` vs the fitted
+  sklearn models on the panel's rows, 12,656 cards at 2026-07-01: p_cells exact, p_logit within
+  3e-7, p within 1e-7 (the bake-off's design matrix is float32).
+- Fitted on the 10-23 panel (data end 10-22): Platt a 0.70 at both horizons (the blend is
+  over-dispersed), c +0.25 at 180 d / -0.18 at 90 d; PSA 9 has9 odds x1.36 at 180 d (x1.16 at
+  90 d), the ratio term small (+0.06 per unit at 180 d); logistic on 210k / 229k closed trades,
+  breadth clipped to 0.07-0.45 (180 d) / 0.07-0.53 (90 d): every hot month above the newest closed
+  one's breadth is scored like it.
+
 ## Buy list: monthly re-fit, checked first (2026-10-23)
 
 Samay: "with every day we get more data, so we should be able to be smarter". The nightly

@@ -43,6 +43,10 @@ Order, every run:
     buy_list_lifts.csv, buy_list_rates_meta.json (data end, months per horizon and regime),
     analysis/out/buy_list_rates.md. Not run when no month closed (the tables would only move
     on late sales and label updates; --force does it anyway) or with --check-only.
+ 3b. v0.2 (2026-10-26, analysis/buy_list_v02.py fit), whenever the tables are re-fitted: on the same panel and data
+    end -> history/buy_list_v02.json, and the report shows the newly closed months as v0.2's own walk-forward
+    scored them (out of sample, the anchor-date models). The nightly scores v0.2 only while the json's data end
+    equals the tables'; a failed v0.2 fit fails the run, so the two never drift apart.
  4. Log. history/buy_list_refit_log.csv gets the check's rows (keyed by checked_at, horizon,
     anchor month, view, group; a rerun the same day replaces that day's rows);
     analysis/out/buy_list_refit_<date>.md is the readable report, with the old -> new rates of
@@ -292,7 +296,7 @@ def run_monthly(a):
     tables = Path(a.tables)
     old_end = current_data_end(tables)
     print(f"current tables: sales through {old_end.date()}; panel {panel_name}: sales through {new_end.date()}", flush=True)
-    u = rates_mod.prepare(pd.read_csv(panel_path, low_memory=False), pd.read_csv(HISTORY / "assets.csv", usecols=["asset_id", "card_name"]))
+    u = rates_mod.prepare(rates_mod.read_panel(panel_path), pd.read_csv(HISTORY / "assets.csv", usecols=["asset_id", "card_name"]))
     old_rates, old_lifts = load_tables(tables)
     rows, scored = check(u, old_rates, old_lifts, old_end, new_end, checked_at)
     months = sorted({(r["horizon"], r["anchor_month"]) for r in rows})
@@ -318,6 +322,16 @@ def run_monthly(a):
         md.append(f"## 2. Re-fit: tables now through {new_end.date()}\n\n"
                   + "".join(f"- {h} d: {v['trades']:,} trades over {v['months']} months (closed through {v['closed_through']}); months by regime {v['months_by_regime']}\n" for h, v in meta["horizons"].items())
                   + "\nThe 180-day cells behind today's list (latest/buy_list.csv), old -> new:\n\n" + cell_moves(old_rates, new_rates, ROOT / "latest" / "buy_list.csv") + "\n")
+        # v0.2 (2026-10-26) on the same panel and data end: buy_list_v02.json next to the tables (the nightly scores v0.2 only
+        # while the two match). A failure stops the run before anything is committed: tables and model move together.
+        import buy_list_v02   # noqa: E402  (scikit-learn; only the re-fit needs it)
+        v02, wf = buy_list_v02.fit(panel_name, out_dir=tables, data_end=new_end, preds_path=OUT / f"buy_list_v02_walkforward_{today}.csv.gz")
+        md.append(f"## 3. v0.2 re-fitted through {new_end.date()} ({tables / buy_list.V02_JSON})\n\n"
+                  "The newly closed months as v0.2's walk-forward scored them (each by the models fitted on what was closed by its anchor):\n\n"
+                  + buy_list_v02.closed_months_md(wf, months) + "\n"
+                  + "".join(f"- {h} d: Platt {v['platt'] and (round(v['platt']['a'], 3), round(v['platt']['c'], 3))}, PSA 9 b_has9 {v['psa9']['b_has9']:+.3f} / "
+                            f"b_gap {v['psa9']['b_gap']:+.3f}, logistic on {v['logit']['n_train']:,} trades (breadth {v['logit']['breadth_lo']:.2f}-"
+                            f"{v['logit']['breadth_hi']:.2f}); walk-forward {v['walk_forward']}\n" for h, v in v02["horizons"].items()) + "\n")
     else:
         md.append("## 2. Re-fit: not run (" + ("--check-only" if a.check_only else "no month closed; --force re-fits anyway") + ")\n\n")
     if rows:
@@ -330,7 +344,7 @@ def run_monthly(a):
                         for r in sorted(rows, key=lambda r: (r["horizon"], r["anchor_month"])) if r["view"] == "all" and r["group"] == "all" and r["tables"] == "at_anchor")
     if refit:
         hz = meta["horizons"]
-        print(f"refit summary: tables through {new_end.date()} (hot months 90 d {hz['90']['months_by_regime'].get('hot', 0)}, "
+        print(f"refit summary: tables + v0.2 through {new_end.date()} (hot months 90 d {hz['90']['months_by_regime'].get('hot', 0)}, "
               f"180 d {hz['180']['months_by_regime'].get('hot', 0)}); checked {checked or 'nothing'}")
     else:
         print(f"refit summary: tables stay through {old_end.date()}; " + (f"checked {checked}" if checked else "no month closed"))
@@ -341,7 +355,7 @@ def run_replay(a):
     end = pd.Timestamp(a.data_end) if a.data_end else rates_mod.panel_data_end(panel_path)
     if end is None:
         sys.exit(f"{panel_path}: no .meta.json next to it; pass --data-end")
-    u = rates_mod.prepare(pd.read_csv(panel_path, low_memory=False), pd.read_csv(HISTORY / "assets.csv", usecols=["asset_id", "card_name"]))
+    u = rates_mod.prepare(rates_mod.read_panel(panel_path), pd.read_csv(HISTORY / "assets.csv", usecols=["asset_id", "card_name"]))
     cutoffs = list(pd.date_range(pd.Timestamp(a.replay + "-01"), end, freq="MS"))
     rows, scored = [], []
     with tempfile.TemporaryDirectory() as tmp:

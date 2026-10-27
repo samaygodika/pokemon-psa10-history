@@ -223,6 +223,13 @@ def panel_data_end(panel_path):
     return pd.Timestamp(json.load(open(meta))["data_through"]) if meta.exists() else None
 
 
+def read_panel(panel_path, **kw):
+    """the panel CSV with every float exactly as panel.py wrote it (2026-10-26). pandas' default parser can land an
+    ulp off (0.050000000000000044 -> 0.05): at 2026-07-01 that moved 4 cards across breadth's mom30 > +5% line, so
+    the trained-on breadth (0.40602) differed from history/buy_features.py's (0.40668). Every fit reads through here."""
+    return pd.read_csv(panel_path, low_memory=False, float_precision="round_trip", **kw)
+
+
 def main():
     import argparse
     ap = argparse.ArgumentParser()
@@ -231,7 +238,7 @@ def main():
     a = ap.parse_args()
     panel_path = OUT / a.panel
     data_end = pd.Timestamp(a.data_end) if a.data_end else (panel_data_end(panel_path) or DATA_END)
-    p = pd.read_csv(panel_path, low_memory=False)
+    p = read_panel(panel_path)
     assets = pd.read_csv(ROOT / "history" / "assets.csv", usecols=["asset_id", "card_name"])
     cells, lifts, md, meta = fit(prepare(p, assets), data_end)
     write_tables(cells, lifts, ROOT / "history")

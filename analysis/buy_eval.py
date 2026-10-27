@@ -77,16 +77,24 @@ def avoid_columns(u):
     return u
 
 
-def build_cache(panel_name):
-    panel = rates_mod.OUT / panel_name
-    data_end = rates_mod.panel_data_end(panel)
-    if data_end is None:
-        sys.exit(f"{panel}: no .meta.json")
-    u = rates_mod.prepare(pd.read_csv(panel, low_memory=False), pd.read_csv(ROOT / "history" / "assets.csv", usecols=["asset_id", "card_name"]))
+def trades(panel_path, assets_path=None):
+    """the panel's English trades as the cache holds them (prepare + trade_id + avoid columns)."""
+    assets = pd.read_csv(assets_path or ROOT / "history" / "assets.csv", usecols=["asset_id", "card_name"])
+    u = rates_mod.prepare(rates_mod.read_panel(panel_path), assets)
     u["trade_id"] = u.asset_id + "|" + u.date.dt.strftime("%Y-%m-%d")
     u = avoid_columns(u)
     for c in ("regime", "tier", "liq"):       # plain strings; a missing tag stays NaN so the cell fit drops it as before
         u[c] = u[c].astype(object).where(u[c].notna(), np.nan)
+    return u
+
+
+def build_cache(panel_name, assets_path=None):
+    """assets_path: the history/assets.csv the panel was built with, when the checkout's has moved on since (alt.xyz renames)."""
+    panel = rates_mod.OUT / panel_name
+    data_end = rates_mod.panel_data_end(panel)
+    if data_end is None:
+        sys.exit(f"{panel}: no .meta.json")
+    u = trades(panel, assets_path)
     keep = TAGS + FEATURES + LABELS + list(AVOID) + ["eligible"]
     u = u[keep].reset_index(drop=True)
     DIR.mkdir(parents=True, exist_ok=True)
@@ -292,9 +300,10 @@ def main():
     ap.add_argument("models", nargs="*")
     ap.add_argument("--panel", default="panel_loose_2026-10-23.csv")
     ap.add_argument("--live", action="store_true", help="baseline: the live protocol (live_folds) -> preds_live_*")
+    ap.add_argument("--assets", default=None, help="cache: the assets.csv the panel was built with (default history/assets.csv)")
     a = ap.parse_args()
     if a.cmd == "cache":
-        build_cache(a.panel)
+        build_cache(a.panel, a.assets)
     elif a.cmd == "baseline":
         run_baseline(live=a.live)
     else:

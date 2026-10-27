@@ -41,7 +41,7 @@ jobs:
           python-version: "3.14"
       - name: install the analysis libraries (the versions the tables were first fitted with)
         if: steps.guard.outputs.skip != '1'
-        run: python -m pip install --quiet pandas==3.0.5 numpy==2.5.3 scipy==1.18.1
+        run: python -m pip install --quiet pandas==3.0.5 numpy==2.5.3 scipy==1.18.1 scikit-learn==1.9.1   # scikit-learn: v0.2's fit (2026-10-26)
       - name: panel + check + re-fit + commit
         if: steps.guard.outputs.skip != '1'
         env:
@@ -58,4 +58,5 @@ jobs:
             analysis/out/buy_list_refit_*.md
             analysis/out/buy_list_refit_*.log
             analysis/out/buy_list_rates.md
+            analysis/out/buy_list_v02_walkforward_*.csv.gz
           retention-days: 90

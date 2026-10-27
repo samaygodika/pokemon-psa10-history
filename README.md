@@ -316,6 +316,22 @@ thumb: half the backtest).
 | `model`, `data_date`, `scored_at` | `v0.1` (from 2026-10-22; `v0` before); the data date; the UTC time the row was scored (the same row is in the ledger) |
 | `cell_months` | (v0.1, appended) the anchor months behind the 180-day cell: its real sample size. 3 on every hot-market row today |
 | `category`, `category_off_peak_pct`, `category_breadth_pct` | (v0.1, appended) the category `category_falling` reads (the card type for Gold Star / LV.X / Neo Shining / e-card Crystal / HGSS Prime/LEGEND / EX-era ex, else the set), how far its cards sit below their own 75-day highs together (%) and the share of them 15%+ below; blank when fewer than 10 of its cards have a reading |
+| `p_cells_180`, `p_logit_180`, `p_cells_90`, `p_logit_90` | (v0.2, appended; blank under v0.1) the two parts behind `p_win`: the cell score moved by the card's PSA 9 terms, and the logistic regression |
+
+**v0.2** (2026-10-26; `model` = `v0.2` when `history/buy_list_v02.json` matches the rate tables,
+else v0.1 as above). The bake-off's pick (`analysis/README.md`, "Buy-model bake-off"): `p_win` is a
+calibrated blend of (a) the v0.1 cell score moved by two PSA 9 terms (does the card's PSA 9 trade at
+all; where its PSA 9 / PSA 10 ratio sits against like cards) and (b) a logistic regression on the
+same tags plus price, days since sale, 30 / 90-day momentum, band position and breadth; Platt-scaled
+on the blend's own out-of-sample predictions of every closed month (pooled calibration error 0.056
+vs v0.1's 0.081; like every model here it under-predicts a rising market: walk-forward mean p 10.5%
+vs 14.7% won at 180 d). Live walk-forward 2023-26 vs v0.1 (180 d): Brier +3.9%, AUC 0.638 vs 0.629,
+the top 50 a month +8.3 points of net after costs (t 3.7). Its inputs are the loose panel's own features at the data date
+(`history/buy_features.py` from `history/sales`: ≥ 4 clean PSA 10 sales, one within 180 days), so
+regime, tier, liquidity, cuts and the six price/volume avoid flags come from there and the list
+covers that universe; `pending_sale`, `title_mismatch`, `unconfirmed` and `category_falling` still
+come from `cards.csv` and `recent_sales/`. `p_low_180` / `p_high_180` are v0.1's band moved by the
+same logit change. The ledger gains the same four columns plus `has9` and `rev_zc`.
 
 Rates: `history/buy_list_rates.csv` (cells, both horizons, every level) and `history/buy_list_lifts.csv`
 (the cuts' lifts and odds ratios by horizon and regime) from `analysis/buy_list_rates.py` over the
@@ -327,7 +343,9 @@ horizon; `analysis/buy_list_refit.py` (workflow `buy-list-refit.yml`, the 2nd of
 first scores every month that closed since the current tables WITH those tables (the
 out-of-sample check, by the nightly's own `score_cell`), then re-fits on every closed month.
 `history/buy_list_rates_meta.json` = the tables' data end and closed months per horizon and
-regime; `history/buy_list_refit_log.csv` = the check, one row per checked month, horizon, `tables`
+regime; `history/buy_list_v02.json` (2026-10-26) = v0.2, re-fitted in the same run on the same panel
+(the logistic's inputs, means, scales and coefficients; the PSA 9 terms; the Platt pair and the
+walk-forward it rests on); the nightly scores v0.2 only while its data end equals the tables'; `history/buy_list_refit_log.csv` = the check, one row per checked month, horizon, `tables`
 (`at_anchor`: the tables of the month's own anchor date, what the list showed then, the honest
 check; `current`: the tables in use, fitted on months whose exits overlap the checked month's, so
 flattering), view
@@ -373,10 +391,11 @@ schedules, both in `.github/workflows/`:
 - **buy list refit** (monthly, the 2nd at 15:40 UTC, the 3rd as a retry slot that stops once the
   month's commit is on main): `nightly/run_buy_list_refit.sh` pulls the store, builds the loose
   panel (~3 min, ~4.6 GB), checks the newly closed months against the current rate tables,
-  re-fits, and commits only `history/buy_list_rates.csv`, `buy_list_lifts.csv`,
-  `buy_list_rates_meta.json` and `buy_list_refit_log.csv` (commit `buy list refit <date>: …`);
-  nothing when no month closed. Reports as a 90-day artifact. The nightly reads the new tables
-  the next night. Needs pandas / numpy / scipy, pinned in the workflow.
+  re-fits, fits v0.2 on the same panel (~2 min), and commits only `history/buy_list_rates.csv`,
+  `buy_list_lifts.csv`, `buy_list_rates_meta.json`, `buy_list_refit_log.csv` and
+  `buy_list_v02.json` (commit `buy list refit <date>: …`); nothing when no month closed. Reports
+  and the v0.2 walk-forward as a 90-day artifact. The nightly reads the new tables the next night.
+  Needs pandas / numpy / scipy / scikit-learn, pinned in the workflow.
 
 Each run ends with `history/manifest.py` (the sha256 of every `latest/` file into
 `summary.json`'s `files`, plus the shard manifests), pushes `history/sales/` + `history/daily/`

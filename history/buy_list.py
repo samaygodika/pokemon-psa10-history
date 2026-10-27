@@ -100,6 +100,29 @@ Outputs
                              (history/buy_list_rates_meta.json). The outcome reader comes later.
 The rate tables are re-fitted monthly by analysis/buy_list_refit.py (2026-10-23), which first
 scores the newly closed months with the current tables through score_cell below.
+
+v0.2 (2026-10-26, the bake-off's pick blend_logit_revgap: analysis/README.md "Buy-model bake-off").
+Scored instead of v0.1 when history/buy_list_v02.json sits next to the rate tables and was fitted
+through the same data end (the monthly re-fit writes both; --model v0.1 forces v0.1). Its inputs are
+the loose panel's own features at the data date, recomputed from history/sales by
+history/buy_features.py (cards with >= 4 clean PSA 10 sales and one in 180 days; analysis/
+buy_list_v02.py `parity` checks them equal to panel.py's): breadth, regime, tier, liquidity, the
+cuts and the six panel avoid flags come from there, not from cards.csv, so the universe is the
+model's (priced cards outside it are counted, not scored); pending_sale, title_mismatch,
+unconfirmed and category_falling still come from cards.csv / recent_sales. Per horizon:
+  p_cells   the v0.1 cell score (score_cell, same tables) moved by the PSA 9 terms on the odds scale:
+            exp(b_has9) when the card's PSA 9 trades (a reference in 180 days), exp(b_gap x rev_zc) for
+            where its PSA 9 / PSA 10 ratio sits against like cards; each clipped to [0.5, 2], the
+            product to [1/3, 3], p capped at 0.9
+  p_logit   an L2 logistic on era / tier / liquidity, the cuts, log price, days since sale, 30 / 90-day
+            momentum, band position and breadth (a bent line, clipped to the months it was fitted on)
+  p_win     Platt: sigmoid(a z + c), z = the mean of the two logits; a and c fitted on the blend's own
+            out-of-sample predictions of every closed month (each month scored by the models fitted
+            on what was closed by its anchor). Pooled calibration error 0.056 vs v0.1's 0.081 in that
+            walk-forward; it still under-predicts a rising market (mean p 10.5% vs 14.7% won at 180 d)
+The band is v0.1's moved by the same logit change (the cell's month-clustered uncertainty, not the
+blend's own); expected net = p_win x the cell winners' median net + (1 - p_win) x its losers' mean.
+p_cells_* / p_logit_* are appended to the list and the ledger (+ has9, rev_zc to the ledger).
 """
 import argparse
 import csv
@@ -146,13 +169,18 @@ PHASE_CORRECT_DROP_PCT, PHASE_BREADTH_MIN_PCT = 15, 35
 COLS = ["rank", "rank_pct", "asset_id", "card_name", "ref_price", "ref_basis", "p_win_180", "p_low_180", "p_high_180", "exp_net_pct_180", "exp_net_usd_180",
         "base_rate_180", "p_win_90", "exp_net_pct_90", "exp_net_usd_90", "base_rate_90", "cell", "cell_level", "cell_n", "regime", "breadth",
         "cuts", "avoid_flags", "live_bin_price", "live_bin_url", "reason", "model", "data_date", "scored_at",
-        "cell_months", "category", "category_off_peak_pct", "category_breadth_pct"]   # v0.1, appended last
+        "cell_months", "category", "category_off_peak_pct", "category_breadth_pct",   # v0.1, appended last
+        "p_cells_180", "p_logit_180", "p_cells_90", "p_logit_90"]   # v0.2 (2026-10-26): the two parts behind p_win; blank under v0.1
 LEDGER_COLS = ["data_date", "scored_at", "model", "asset_id", "listed", "rank", "rank_pct", "ref_price", "p_win_180", "exp_net_pct_180", "exp_net_usd_180", "base_rate_180",
                "p_win_90", "exp_net_pct_90", "base_rate_90", "cell", "cell_level", "cell_n", "regime", "breadth", "cuts", "flags",
                "chg30", "chg90", "vol30", "vol90", "vol180", "days_since", "band_z", "set_lead_chg90", "set_price_q", "jp_chg30", "char_chg30",
                "cell_months", "chg1y", "category", "category_off_peak_pct", "category_breadth_pct",   # v0.1, appended last
-               "rates_through"]   # 2026-10-23: the data end of the rate tables that scored the row (monthly re-fit, buy_list_rates_meta.json)
+               "rates_through",   # 2026-10-23: the data end of the rate tables that scored the row (monthly re-fit, buy_list_rates_meta.json)
+               "p_cells_180", "p_logit_180", "p_cells_90", "p_logit_90", "has9", "rev_zc"]   # v0.2 (2026-10-26); blank under v0.1
 RATES_META = "buy_list_rates_meta.json"   # next to the rate tables: their data end and months (analysis/buy_list_rates.py writes it)
+V02_JSON = "buy_list_v02.json"            # next to the rate tables: the v0.2 model (analysis/buy_list_v02.py fit); v0.1 without it
+V02_CUTS = ("stale30", "jp_heat", "band_high", "thin_history")   # the panel's cuts, in the order v0.1 names them
+V02_ERAS = ("wotc", "vintage", "modern", "current")
 
 
 def fnum(s):
@@ -291,7 +319,7 @@ def lookup(rates, h, reg, er, ti, li):
 
 
 def score_cell(rates, lifts, h, reg, er, ti, li, cuts):
-    """one card's score at horizon h from its cell and cuts: {p, lo, hi, base, n, level, enet, months}, or None
+    """one card's score at horizon h from its cell and cuts: {p, lo, hi, base, n, level, enet, months, win_net, loss_net}, or None
     when no cell has MIN_CELL_N trades. The nightly's scoring, and analysis/buy_list_refit.py's (its check
     scores past trades with exactly this)."""
     row, level = lookup(rates, h, reg, er, ti, li)
@@ -309,7 +337,8 @@ def score_cell(rates, lifts, h, reg, er, ti, li, cuts):
     lo, hi = band(row["win_rate"], row["n"], row.get("n_months"), row.get("month_half"))
     lo, hi = min(odds_apply(lo, orp), P_CAP), min(odds_apply(hi, orp), P_CAP)
     enet = p * row["win_net"] + (1 - p) * row["loss_net"]
-    return {"p": p, "lo": lo, "hi": hi, "base": row["win_rate"], "n": row["n"], "level": level, "enet": enet, "months": row.get("n_months")}
+    return {"p": p, "lo": lo, "hi": hi, "base": row["win_rate"], "n": row["n"], "level": level, "enet": enet, "months": row.get("n_months"),
+            "win_net": row["win_net"], "loss_net": row["loss_net"]}
 
 
 def band_zs(series_dir, data_date, refs):
@@ -416,38 +445,105 @@ def pct(x, d=0):
     return "" if x is None else f"{x:+.{d}f}%"
 
 
-def compute(cards, zs, rates, lifts, data_date, now_iso, recent=None, prior=None, rates_through=""):
-    """-> (listed rows sorted by exp_net_usd_180, ledger rows, stats). recent = load_recent (the category
-    phase), prior = prices_before (the thin_history reason); both optional. rates_through = the rate
-    tables' data end, onto every ledger row (blank = unknown)."""
-    today = data_date
-    recent, prior = recent or {}, prior or {}
-    stats = {"english_psa10": 0, "with_price": 0, "scored": 0, "excluded": 0, "listed": 0, "tail_lead": 0,
-             "listed_thin_history": 0, "listed_category_falling": 0, "categories_correcting": 0}
-    # pass 1: the universe and the group statistics
-    univ = []
-    for c in cards:
-        if fnum(c.get("grade")) != 10.0 or OTHER_RX.search(c.get("card_name") or ""):
-            continue
-        lang = language(c)
-        ref = fnum(c.get("median_last_3"))
-        last = c.get("clean_last_sale_date") or ""
-        c["_lang"], c["_ref"] = lang, ref
-        if lang == "english":
-            stats["english_psa10"] += 1
-        if ref is None or ref <= 0 or not last:
-            continue
-        try:
-            c["_days"] = (today - datetime.strptime(last[:10], "%Y-%m-%d").date()).days
-        except ValueError:
-            continue
-        if c["_days"] > MAX_AGE_DAYS or c["_days"] < 0:
-            continue
-        c["_chg30"], c["_chg90"], c["_chg1y"] = fnum(c.get("price_chg_30d_pct")), fnum(c.get("price_chg_90d_pct")), fnum(c.get("price_chg_1y_pct"))
-        c["_vol30"], c["_vol90"], c["_vol180"], c["_vol1y"] = fint(c.get("volume_30d")), fint(c.get("volume_90d")), fint(c.get("volume_180d")), fint(c.get("volume_1y"))
-        univ.append(c)
-    en = [c for c in univ if c["_lang"] == "english"]
-    stats["with_price"] = len(en)
+# ---------------------------------------------------------------- v0.2 (2026-10-26)
+
+def load_v02(folder, rates_through):
+    """(the v0.2 model next to the rate tables, '') or (None, why v0.1 scores instead): no json, or one fitted on
+    other tables than these (the monthly re-fit writes both together)."""
+    path = Path(folder) / V02_JSON
+    if not path.exists():
+        return None, f"no {V02_JSON}"
+    m = json.load(open(path))
+    if m.get("data_end") != rates_through:
+        return None, f"{V02_JSON} fitted through {m.get('data_end')}, the rate tables through {rates_through or 'unknown'}"
+    return m, ""
+
+
+def isnan(x):
+    return x is None or (isinstance(x, float) and math.isnan(x))
+
+
+def logit_eps(p, eps):
+    p = min(max(p, eps), 1 - eps)
+    return math.log(p / (1 - p))
+
+
+def sigmoid(x):
+    if x >= 0:
+        return 1 / (1 + math.exp(-x))
+    e = math.exp(x)
+    return e / (1 + e)
+
+
+def logit_inputs(names, f, lo, hi, center):
+    """the logistic's design row, in the fitted order (analysis/cand_glm.py static_design + breadth_design), from
+    one card's history/buy_features.py features: breadth clipped to the training months' range, a spline at the
+    knots in the names, x tier / x era centred; mom30 / mom90 clipped to [-0.5, 1], band_z to [-3, 3], blank -> 0
+    plus a blank flag; log1p(days since sale, cap 180)."""
+    b = min(max(f["breadth"], lo), hi)
+    out = []
+    for name in names:
+        if name.startswith("breadth_x_tier_"):
+            v = (b - center) * (f["tier"] == name[len("breadth_x_tier_"):])
+        elif name.startswith("breadth_x_era_"):
+            v = (b - center) * (f["era"] == name[len("breadth_x_era_"):])
+        elif name.startswith("breadth_gt"):
+            v = max(b - float(name[len("breadth_gt"):]), 0.0)
+        elif name == "breadth":
+            v = b
+        elif name.startswith("era_"):
+            v = f["era"] == name[len("era_"):]
+        elif name.startswith("tier_"):
+            v = f["tier"] == name[len("tier_"):]
+        elif name.startswith("liq_"):
+            v = f["liq"] == name[len("liq_"):]
+        elif name in V02_CUTS:
+            v = bool(f[name])
+        elif name == "log_price":
+            v = f["log_price"]
+        elif name == "log_days_since_sale":
+            d = f["days_since_sale"]
+            v = math.log1p(180.0 if isnan(d) else min(max(d, 0.0), 180.0))
+        elif name in ("mom30", "mom90", "band_z"):
+            lo_c, hi_c = (-3.0, 3.0) if name == "band_z" else (-0.5, 1.0)
+            v = 0.0 if isnan(f[name]) else min(max(f[name], lo_c), hi_c)
+        elif name.endswith("_blank"):
+            v = isnan(f[name[:-len("_blank")]])
+        else:
+            raise KeyError(f"{V02_JSON}: unknown logistic input {name}")
+        out.append(float(v))
+    return out
+
+
+def score_v02(model, h, f, s):
+    """v0.2 at horizon h from the card's v0.1 cell score s (score_cell) and its features f (analysis/buy_list_v02.py):
+    p_cells = s's p moved by the PSA 9 odds ratios; p_logit = the logistic; p = Platt on the mean of their logits.
+    The band is v0.1's moved by the same logit change; the expected net uses the cell's winners' and losers' net."""
+    mh = model["horizons"][str(h)]
+    lo_c, hi_c = model["term_or_clip"]
+    plo, phi = model["term_product_clip"]
+    orp = 1.0
+    for b, x in ((mh["psa9"]["b_has9"], f["has9"]), (mh["psa9"]["b_gap"], f["rev_zc"])):
+        orp *= min(max(math.exp(b * x), lo_c), hi_c)
+    orp = min(max(orp, plo), phi)
+    p_cells = min(odds_apply(s["p"], orp), P_CAP)
+    lg = mh["logit"]
+    x = logit_inputs(lg["names"], f, lg["breadth_lo"], lg["breadth_hi"], model["breadth_center"])
+    p_logit = sigmoid(lg["intercept"] + sum(c * (v - m) / sd for c, v, m, sd in zip(lg["coef"], x, lg["mean"], lg["scale"])))
+    eps = model["blend_logit_eps"]
+    z = 0.5 * logit_eps(p_logit, eps) + 0.5 * logit_eps(p_cells, eps)
+    pl = mh.get("platt")
+    p = sigmoid(pl["a"] * z + pl["c"]) if pl else sigmoid(z)
+    shift = logit_eps(p, eps) - logit_eps(s["p"], eps)
+    lo = 0.0 if s["lo"] <= 0 else min(p, sigmoid(logit_eps(s["lo"], eps) + shift))
+    hi = 1.0 if s["hi"] >= 1 else max(p, sigmoid(logit_eps(s["hi"], eps) + shift))
+    return {**s, "p": p, "lo": lo, "hi": hi, "enet": p * s["win_net"] + (1 - p) * s["loss_net"], "p_cells": p_cells, "p_logit": p_logit, "psa9_or": orp}
+
+
+# ---------------------------------------------------------------- inputs: v0.1 from cards.csv, v0.2 from the panel's features
+
+def inputs_v01(univ, en, zs):
+    """v0.1's per-card inputs from cards.csv and latest/series (changes in percent): (rows, breadth)."""
     # breadth: English, ref >= 150, >= 3 sales in the past year
     liquid = [c for c in en if c["_ref"] >= 150 and c["_vol1y"] >= 3]
     breadth = (sum(1 for c in liquid if c["_chg30"] is not None and c["_chg30"] > 5) / len(liquid)) if liquid else 0.0
@@ -475,14 +571,10 @@ def compute(cards, zs, rates, lifts, data_date, now_iso, recent=None, prior=None
         if c["_lang"] == "japanese":
             jp[c.get("subject") or ""].append(c["_chg30"])
         allc[c.get("subject") or ""].append((c["asset_id"], c["_chg30"]))
-    # category phase by Sid's rule (category_falling)
-    phases = category_phases(en, recent, today)
-    stats["categories_correcting"] = sum(1 for v in phases.values() if v["correcting"])
-    # pass 2: score
-    listed, ledger = [], []
+    out = []
     for c in en:
         aid, ref = c["asset_id"], c["_ref"]
-        er, ti, li = era(c.get("year")), tier(ref), liq(c["_vol90"])
+        er = era(c.get("year"))
         if not er:
             continue
         z = zs.get(aid)
@@ -490,37 +582,21 @@ def compute(cards, zs, rates, lifts, data_date, now_iso, recent=None, prior=None
         jp_vals = jp.get(subj, [])
         jp_chg = sum(jp_vals) / len(jp_vals) if len(jp_vals) >= 2 else None
         others = [v for a, v in allc.get(subj, []) if a != aid]
-        char_chg = sum(others) / len(others) if len(others) >= 2 else None
-        lead = set_lead.get(c.get("set") or "")
-        q = set_q.get(aid)
-        flags = []
+        lead, q = set_lead.get(c.get("set") or ""), set_q.get(aid)
+        avoid = []
         y = fnum(c.get("year"))
-        if y is not None and y >= today.year - 1:
-            flags.append("release_year")
+        if y is not None and y >= c["_today"].year - 1:
+            avoid.append("release_year")
         if c["_chg30"] is not None and c["_chg30"] >= 50 and c["_vol30"] >= 3:
-            flags.append("busy_spike")
+            avoid.append("busy_spike")
         if c["_vol30"] >= 2 * max(c["_vol1y"] / 12.0, 0.25) and c["_vol30"] >= 2:
-            flags.append("vol_surge")
+            avoid.append("vol_surge")
         if z is not None and z <= -1:
-            flags.append("below_band")
+            avoid.append("below_band")
         if c["_chg30"] is not None and c["_chg30"] <= -20:
-            flags.append("dip")
+            avoid.append("dip")
         if lead is not None and lead < 10:
-            flags.append("chase_flat")
-        if (c.get("last_sale_status") or "") in ("pending", "unpaid", "relisted"):
-            flags.append("pending_sale")
-        if (c.get("last_sale_title_check") or "") == "mismatch":
-            flags.append("title_mismatch")
-        if c["_vol180"] <= 2:
-            flags.append("illiquid_exit")
-        if (c.get("last_sale_unconfirmed") or "") == "1":
-            flags.append("unconfirmed")
-        if q is not None and q <= 0.25 and lead is not None and lead >= 30 and ref >= 150:
-            flags.append("tail_lead")
-        cat = category_of(c)
-        ph = phases.get(cat)
-        if ph and ph["correcting"]:
-            flags.append("category_falling")
+            avoid.append("chase_flat")
         cuts = []
         if c["_days"] >= STALE_DAYS:
             cuts.append("stale30")
@@ -530,9 +606,105 @@ def compute(cards, zs, rates, lifts, data_date, now_iso, recent=None, prior=None
             cuts.append("band_high")
         if er in THIN_ERAS and c["_chg1y"] is None:
             cuts.append("thin_history")
+        out.append({"card": c, "aid": aid, "ref": ref, "days": c["_days"], "chg30": c["_chg30"], "chg90": c["_chg90"], "chg1y": c["_chg1y"],
+                    "vol30": c["_vol30"], "vol90": c["_vol90"], "vol180": c["_vol180"], "z": z, "lead": lead, "q": q, "jp_chg": jp_chg,
+                    "char_chg": sum(others) / len(others) if len(others) >= 2 else None, "subj": subj, "er": er, "ti": tier(ref), "li": liq(c["_vol90"]),
+                    "reg": reg, "avoid": avoid, "cuts": cuts, "tail": q is not None and q <= 0.25 and lead is not None and lead >= 30 and ref >= 150, "f": None})
+    return out, breadth
+
+
+def inputs_v02(cards_by_id, feats):
+    """v0.2's per-card inputs: the panel's own features at the data date (history/buy_features.py, what the model was
+    fitted on; fractions shown in percent in the reason and the ledger), for the cards with a cards.csv row."""
+    pc = lambda x: None if isnan(x) else 100 * x        # noqa: E731
+    breadth = next(iter(feats.values()))["breadth"] if feats else 0.0
+    out = []
+    for aid, f in feats.items():
+        c = cards_by_id.get(aid)
+        if c is None or f["era"] not in V02_ERAS:
+            continue
+        out.append({"card": c, "aid": aid, "ref": f["ref"], "days": int(f["days_since_sale"]), "chg30": pc(f["mom30"]), "chg90": pc(f["mom90"]),
+                    "chg1y": pc(f["mom365"]), "vol30": f["vol30"], "vol90": f["vol90"], "vol180": f["vol180"], "z": None if isnan(f["band_z"]) else f["band_z"],
+                    "lead": pc(f["set_lead_mom90"]), "q": None if isnan(f["set_price_q"]) else f["set_price_q"], "jp_chg": pc(f["char_jp_mom30"]),
+                    "char_chg": pc(f["char_mom30"]) if not isnan(f["char_n"]) and f["char_n"] >= 2 else None, "subj": f["subject"],
+                    "er": f["era"], "ti": f["tier"], "li": f["liq"], "reg": f["regime"], "avoid": list(f["avoid"]),
+                    "cuts": [k for k in V02_CUTS if f[k]], "tail": bool(f["tail_lead"]), "f": f})
+    return out, breadth
+
+
+def compute(cards, zs, rates, lifts, data_date, now_iso, recent=None, prior=None, rates_through="", model=None, feats=None):
+    """-> (listed rows sorted by exp_net_usd_180, ledger rows, stats). recent = load_recent (the category
+    phase), prior = prices_before (the thin_history reason); both optional. rates_through = the rate
+    tables' data end, onto every ledger row (blank = unknown). model + feats (v0.2, 2026-10-26): the
+    load_v02 model and history/buy_features.py features_at(data_date) by asset_id; v0.1 without them."""
+    today = data_date
+    recent, prior = recent or {}, prior or {}
+    stats = {"english_psa10": 0, "with_price": 0, "scored": 0, "excluded": 0, "listed": 0, "tail_lead": 0,
+             "listed_thin_history": 0, "listed_category_falling": 0, "categories_correcting": 0}
+    # pass 1: the universe (v0.1's, also what the category phase reads)
+    univ, by_id = [], {}
+    for c in cards:
+        if fnum(c.get("grade")) != 10.0 or OTHER_RX.search(c.get("card_name") or ""):
+            continue
+        by_id[c["asset_id"]] = c
+        lang = language(c)
+        ref = fnum(c.get("median_last_3"))
+        last = c.get("clean_last_sale_date") or ""
+        c["_lang"], c["_ref"], c["_today"] = lang, ref, today
+        if lang == "english":
+            stats["english_psa10"] += 1
+        if ref is None or ref <= 0 or not last:
+            continue
+        try:
+            c["_days"] = (today - datetime.strptime(last[:10], "%Y-%m-%d").date()).days
+        except ValueError:
+            continue
+        if c["_days"] > MAX_AGE_DAYS or c["_days"] < 0:
+            continue
+        c["_chg30"], c["_chg90"], c["_chg1y"] = fnum(c.get("price_chg_30d_pct")), fnum(c.get("price_chg_90d_pct")), fnum(c.get("price_chg_1y_pct"))
+        c["_vol30"], c["_vol90"], c["_vol180"], c["_vol1y"] = fint(c.get("volume_30d")), fint(c.get("volume_90d")), fint(c.get("volume_180d")), fint(c.get("volume_1y"))
+        univ.append(c)
+    en = [c for c in univ if c["_lang"] == "english"]
+    stats["with_price"] = len(en)
+    if model is None:
+        rows, breadth = inputs_v01(univ, en, zs)
+        model_name = MODEL
+    else:
+        rows, breadth = inputs_v02(by_id, feats or {})
+        model_name = model["model"]
+        stats["model_universe"] = len(rows)
+        stats["outside_universe"] = sum(1 for c in en if c["asset_id"] not in (feats or {}))
+    reg = regime(breadth) if model is None else (rows[0]["reg"] if rows else regime(breadth))
+    # category phase by Sid's rule (category_falling)
+    phases = category_phases(en, recent, today)
+    stats["categories_correcting"] = sum(1 for v in phases.values() if v["correcting"])
+    # pass 2: score
+    listed, ledger = [], []
+    for x in rows:
+        c, aid, ref = x["card"], x["aid"], x["ref"]
+        er, ti, li, reg = x["er"], x["ti"], x["li"], x["reg"]
+        z, lead, q, jp_chg, char_chg, subj = x["z"], x["lead"], x["q"], x["jp_chg"], x["char_chg"], x["subj"]
+        flags = list(x["avoid"])
+        if (c.get("last_sale_status") or "") in ("pending", "unpaid", "relisted"):
+            flags.append("pending_sale")
+        if (c.get("last_sale_title_check") or "") == "mismatch":
+            flags.append("title_mismatch")
+        if x["vol180"] <= 2:
+            flags.append("illiquid_exit")
+        if (c.get("last_sale_unconfirmed") or "") == "1":
+            flags.append("unconfirmed")
+        if x["tail"]:
+            flags.append("tail_lead")
+        cat = category_of(c)
+        ph = phases.get(cat)
+        if ph and ph["correcting"]:
+            flags.append("category_falling")
+        cuts = x["cuts"]
         score = {}
         for h in HORIZONS:
             score[h] = score_cell(rates, lifts, h, reg, er, ti, li, cuts)
+            if score[h] is not None and model is not None:
+                score[h] = score_v02(model, h, x["f"], score[h])
             if score[h] is not None:
                 score[h]["eusd"] = score[h]["enet"] * ref
         if score.get(MAIN_H) is None:
@@ -549,6 +721,9 @@ def compute(cards, zs, rates, lifts, data_date, now_iso, recent=None, prior=None
         bin_price = fnum(c.get("lowest_bin_price"))
         bin_ok = bin_price is not None and (c.get("lowest_bin_verified_at") or "") != "" and (c.get("lowest_bin_suspect") or "") != "1"
         cat_cols = {"category": cat, "category_off_peak_pct": f"{ph['off']:.1f}" if ph else "", "category_breadth_pct": f"{ph['breadth']:.1f}" if ph else ""}
+        v02_cols = {}
+        if model is not None:
+            v02_cols = {f"{k}_{h}": f"{score[h][k]:.3f}" if score.get(h) else "" for h in (180, 90) for k in ("p_cells", "p_logit")}
         months = s180["months"]
         if is_listed:
             stats["listed"] += 1
@@ -565,7 +740,7 @@ def compute(cards, zs, rates, lifts, data_date, now_iso, recent=None, prior=None
             if "jp_heat" in cuts:
                 parts.append(f"Japanese copies {pct(jp_chg)} / 30 d")
             if "stale30" in cuts:
-                parts.append(f"no sale in {c['_days']} d")
+                parts.append(f"no sale in {x['days']} d")
             if z is not None and abs(z) >= 1:
                 parts.append(f"{z:+.1f} sd vs own 1-y band")
             if "thin_history" in cuts:
@@ -573,8 +748,14 @@ def compute(cards, zs, rates, lifts, data_date, now_iso, recent=None, prior=None
                 parts.append("no price a year back to measure its run" + (f" (last priced ${pb[1]:,.0f} the week of {pb[0]}, {ref / pb[1]:,.0f}x since)" if pb else ""))
             if bin_ok:
                 parts.append(f"live eBay Buy It Now ${bin_price:,.0f} ({pct(100 * (bin_price / ref - 1))} vs level)")
-            parts.append(f"base {100 * s180['base']:.0f}% for {er} ${ti} with {li} sales/90 d in a {reg} market (breadth {100 * breadth:.0f}%, n {s180['n']:,}"
-                         + (f" over {months:.0f} months" if months is not None else "") + ")")
+            cell = (f"base {100 * s180['base']:.0f}% for {er} ${ti} with {li} sales/90 d in a {reg} market", f"breadth {100 * breadth:.0f}%, n {s180['n']:,}"
+                    + (f" over {months:.0f} months" if months is not None else ""))
+            if model is None:
+                parts.append(f"{cell[0]} ({cell[1]})")
+            else:
+                psa9 = f"; its PSA 9 trades: odds x{s180['psa9_or']:.2f}" if x["f"]["has9"] else ""
+                parts.append(f"cells {100 * s180['p_cells']:.0f}% ({cell[0]}, {cell[1]}{psa9}), logistic {100 * s180['p_logit']:.0f}%, "
+                             f"blended and calibrated to {100 * s180['p']:.0f}%")
             parts.extend(w.replace("_", " ") for w in warn if w != "category_falling")
             listed.append({
                 "asset_id": aid, "card_name": c.get("card_name") or "", "ref_price": f"{ref:.2f}", "ref_basis": "med3",
@@ -584,23 +765,24 @@ def compute(cards, zs, rates, lifts, data_date, now_iso, recent=None, prior=None
                 "exp_net_usd_90": f"{s90['eusd']:.0f}" if s90 else "", "base_rate_90": f"{s90['base']:.3f}" if s90 else "",
                 "cell": f"{reg}|{er}|{ti}|{li}", "cell_level": s180["level"], "cell_n": str(s180["n"]), "regime": reg, "breadth": f"{breadth:.3f}",
                 "cuts": " ".join(cuts), "avoid_flags": " ".join(warn), "live_bin_price": f"{bin_price:.2f}" if bin_ok else "",
-                "live_bin_url": (c.get("lowest_bin_url") or "") if bin_ok else "", "reason": "; ".join(parts), "model": MODEL,
+                "live_bin_url": (c.get("lowest_bin_url") or "") if bin_ok else "", "reason": "; ".join(parts), "model": model_name,
                 "data_date": today.isoformat(), "scored_at": now_iso, "_eusd": s180["eusd"],
-                "cell_months": "" if months is None else f"{months:.0f}", **cat_cols,
+                "cell_months": "" if months is None else f"{months:.0f}", **cat_cols, **v02_cols,
             })
         if is_listed or "tail_lead" in flags:
             ledger.append({
-                "data_date": today.isoformat(), "scored_at": now_iso, "model": MODEL, "asset_id": aid, "listed": "1" if is_listed else "0", "rank": "",
+                "data_date": today.isoformat(), "scored_at": now_iso, "model": model_name, "asset_id": aid, "listed": "1" if is_listed else "0", "rank": "",
                 "ref_price": f"{ref:.2f}", "p_win_180": f"{s180['p']:.3f}", "exp_net_pct_180": f"{100 * s180['enet']:.1f}", "exp_net_usd_180": f"{s180['eusd']:.0f}",
                 "base_rate_180": f"{s180['base']:.3f}", "p_win_90": f"{s90['p']:.3f}" if s90 else "", "exp_net_pct_90": f"{100 * s90['enet']:.1f}" if s90 else "",
                 "base_rate_90": f"{s90['base']:.3f}" if s90 else "", "cell": f"{reg}|{er}|{ti}|{li}", "cell_level": s180["level"], "cell_n": str(s180["n"]),
                 "regime": reg, "breadth": f"{breadth:.3f}", "cuts": " ".join(cuts), "flags": " ".join(flags),
-                "chg30": "" if c["_chg30"] is None else f"{c['_chg30']:.2f}", "chg90": "" if c["_chg90"] is None else f"{c['_chg90']:.2f}",
-                "vol30": str(c["_vol30"]), "vol90": str(c["_vol90"]), "vol180": str(c["_vol180"]), "days_since": str(c["_days"]),
+                "chg30": "" if x["chg30"] is None else f"{x['chg30']:.2f}", "chg90": "" if x["chg90"] is None else f"{x['chg90']:.2f}",
+                "vol30": str(x["vol30"]), "vol90": str(x["vol90"]), "vol180": str(x["vol180"]), "days_since": str(x["days"]),
                 "band_z": "" if z is None else f"{z:.2f}", "set_lead_chg90": "" if lead is None else f"{lead:.1f}", "set_price_q": "" if q is None else f"{q:.2f}",
                 "jp_chg30": "" if jp_chg is None else f"{jp_chg:.1f}", "char_chg30": "" if char_chg is None else f"{char_chg:.1f}", "_aid": aid,
-                "cell_months": "" if months is None else f"{months:.0f}", "chg1y": "" if c["_chg1y"] is None else f"{c['_chg1y']:.2f}", **cat_cols,
-                "rates_through": rates_through,
+                "cell_months": "" if months is None else f"{months:.0f}", "chg1y": "" if x["chg1y"] is None else f"{x['chg1y']:.2f}", **cat_cols,
+                "rates_through": rates_through, **v02_cols,
+                **({"has9": f"{x['f']['has9']:.0f}", "rev_zc": f"{x['f']['rev_zc']:.3f}"} if model is not None else {}),
             })
     listed.sort(key=lambda r: (-float(r["exp_net_pct_180"]), -r["_eusd"]))
     rank_pct = {r["asset_id"]: str(i) for i, r in enumerate(listed, 1)}
@@ -617,7 +799,7 @@ def compute(cards, zs, rates, lifts, data_date, now_iso, recent=None, prior=None
     tails = sorted((r for r in ledger if "tail_lead" in r["flags"].split()), key=lambda r: -float(r["exp_net_usd_180"]))
     keep.update(r["_aid"] for r in tails[:LEDGER_TOP])
     ledger = [r for r in ledger if r["_aid"] in keep]
-    stats["breadth"], stats["regime"], stats["ledger_rows"] = breadth, reg, len(ledger)
+    stats["breadth"], stats["regime"], stats["ledger_rows"], stats["model"] = breadth, reg, len(ledger), model_name
     return listed, ledger, stats
 
 
@@ -643,6 +825,9 @@ def main():
     ap.add_argument("--ledger", default=str(HISTORY / "buy_ledger.csv"))
     ap.add_argument("--no-ledger", action="store_true")
     ap.add_argument("--data-date", default=None, help="override latest/summary.json data_date")
+    ap.add_argument("--model", choices=["auto", "v0.1"], default="auto",
+                    help="auto (default): v0.2 when buy_list_v02.json sits next to the rate tables and matches them, else v0.1")
+    ap.add_argument("--store", default=str(HISTORY), help="v0.2: the folder holding sales/ and assets.csv (history/buy_features.py)")
     a = ap.parse_args()
     latest = Path(a.latest)
     data_date = a.data_date or json.load(open(latest / "summary.json"))["data_date"]
@@ -653,17 +838,29 @@ def main():
     lifts = load_lifts(Path(a.rates) / "buy_list_lifts.csv")
     meta_path = Path(a.rates) / RATES_META
     rates_through = json.load(open(meta_path)).get("data_end", "") if meta_path.exists() else ""
+    model, why = (None, "--model v0.1") if a.model == "v0.1" else load_v02(a.rates, rates_through)
+    if model is not None and not any((Path(a.store) / "sales").glob("*.csv")):
+        model, why = None, f"no sales under {Path(a.store) / 'sales'} (store not pulled)"
     refs = {c["asset_id"]: fnum(c.get("median_last_3")) for c in cards if fnum(c.get("median_last_3")) and language(c) == "english" and fnum(c.get("grade")) == 10.0}
-    zs = band_zs(latest / "series", data_date, refs)
     recent = load_recent(latest / "recent_sales", set(refs))
-    thin = {c["asset_id"] for c in cards if c["asset_id"] in refs and era(c.get("year")) in THIN_ERAS and fnum(c.get("price_chg_1y_pct")) is None}
+    feats, zs = None, {}
+    if model is None:
+        zs = band_zs(latest / "series", data_date, refs)
+        thin = {c["asset_id"] for c in cards if c["asset_id"] in refs and era(c.get("year")) in THIN_ERAS and fnum(c.get("price_chg_1y_pct")) is None}
+    else:
+        import buy_features   # the panel's features at the data date, from history/sales (stdlib; v0.2 was fitted on them)
+        feats = {f["asset_id"]: f for f in buy_features.features_at(data_date, store=a.store)}
+        thin = {aid for aid, f in feats.items() if f["thin_history"]}
     prior = prices_before(latest / "series", data_date - timedelta(days=365), thin)
-    listed, ledger, stats = compute(cards, zs, rates, lifts, data_date, now_iso, recent=recent, prior=prior, rates_through=rates_through)
+    listed, ledger, stats = compute(cards, zs, rates, lifts, data_date, now_iso, recent=recent, prior=prior, rates_through=rates_through,
+                                    model=model, feats=feats)
     out_dir = Path(a.out) if a.out else latest
     out_dir.mkdir(parents=True, exist_ok=True)
     write_rows(out_dir / "buy_list.csv", COLS, listed)
-    msg = (f"buy list {data_date}: breadth {100 * stats['breadth']:.1f}% ({stats['regime']}); {stats['english_psa10']:,} English PSA 10 cards, "
-           f"{stats['with_price']:,} priced within {MAX_AGE_DAYS} d, {stats['scored']:,} scored, {stats['excluded']:,} excluded by the avoid layer, "
+    msg = (f"buy list {data_date} ({stats['model']}" + (f"; {why}" if why and a.model == "auto" else "") + f"): breadth {100 * stats['breadth']:.1f}% "
+           f"({stats['regime']}); {stats['english_psa10']:,} English PSA 10 cards, {stats['with_price']:,} priced within {MAX_AGE_DAYS} d, "
+           + (f"{stats['model_universe']:,} in the model's universe ({stats['outside_universe']:,} priced cards outside it), " if model is not None else "") +
+           f"{stats['scored']:,} scored, {stats['excluded']:,} excluded by the avoid layer, "
            f"{stats['listed']:,} listed ({stats['listed_thin_history']:,} thin_history, {stats['listed_category_falling']:,} in "
            f"{stats['categories_correcting']} correcting categories), {stats['tail_lead']:,} tail_lead rows -> {out_dir / 'buy_list.csv'}; ledger rows {stats['ledger_rows']}; "
            f"rates through {rates_through or 'unknown'}")

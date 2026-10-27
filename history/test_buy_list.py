@@ -6,6 +6,8 @@ the cell fallback, the score arithmetic, the reason order, and the ledger's repl
 
 Plain asserts, no pytest."""
 import csv
+import json
+import math
 import sys
 import tempfile
 from datetime import date
@@ -229,6 +231,90 @@ def test_ledger_replaces_the_same_date_only():
         assert (n_old, n_new) == (1, 2)
         got = list(csv.DictReader(open(p)))
         assert [(r["data_date"], r["asset_id"]) for r in got] == [("2026-10-20", "A"), ("2026-10-21", "B"), ("2026-10-21", "C")]
+
+
+def v02_model(platt=True, data_end="2026-10-20"):
+    """a hand-sized v0.2 json: the logistic on breadth + log_price + one cut + one era, PSA 9 odds x1.5 when has9."""
+    lg = {"names": ["breadth", "breadth_gt0.40", "log_price", "stale30", "era_vintage", "breadth_x_tier_500-2k"],
+          "mean": [0.3, 0.05, 2.5, 0.4, 0.2, 0.01], "scale": [0.1, 0.05, 0.5, 0.5, 0.4, 0.05], "coef": [0.8, -0.3, -0.2, 0.1, 0.05, 0.2],
+          "intercept": -1.2, "breadth_lo": 0.10, "breadth_hi": 0.45, "n_train": 1000}
+    h = {"logit": lg, "psa9": {"b_has9": math.log(1.5), "b_gap": 0.0, "n_train": 1000},
+         "platt": {"a": 0.7, "c": 0.2, "n": 5000, "months": 30} if platt else None}
+    return {"model": "v0.2", "data_end": data_end, "blend_logit_eps": 1e-4, "offset_logit_eps": 1e-3, "term_or_clip": [0.5, 2.0],
+            "term_product_clip": [1 / 3, 3.0], "breadth_center": 0.25, "horizons": {"90": h, "180": h}}
+
+
+def feat(**kw):
+    """one card's history/buy_features.py row (fractions; blank = None)."""
+    f = {"asset_id": "A", "ref": 600.0, "log_price": math.log10(600.0), "mom30": 0.02, "mom90": 0.1, "mom365": 0.5, "vol30": 1, "vol90": 3, "vol180": 5,
+         "vol365": 8, "days_since_sale": 25.0, "band_z": 0.3, "breadth": 0.38, "char_jp_mom30": None, "set_price_q": 0.6, "set_lead_mom90": 0.2,
+         "char_mom30": 0.05, "char_n": 4, "subject": "Mewtwo", "era": "vintage", "tier": "500-2k", "liq": "2-3", "regime": "warm",
+         "stale30": False, "jp_heat": False, "band_high": False, "tail_lead": False, "thin_history": False, "avoid": [], "has9": 0.0, "rev_zc": 0.0}
+    f.update(kw)
+    return f
+
+
+def test_v02_loads_only_with_matching_tables():
+    with tempfile.TemporaryDirectory() as d:
+        m, why = bl.load_v02(d, "2026-10-20")
+        assert m is None and why == f"no {bl.V02_JSON}"
+        (Path(d) / bl.V02_JSON).write_text(json.dumps(v02_model(data_end="2026-10-22")))
+        m, why = bl.load_v02(d, "2026-10-20")
+        assert m is None and "2026-10-22" in why, "fitted on other tables: v0.1 scores"
+        m, why = bl.load_v02(d, "2026-10-22")
+        assert m is not None and why == ""
+
+
+def test_v02_logit_inputs_follow_the_names():
+    names = ["era_vintage", "era_wotc", "tier_500-2k", "liq_2-3", "stale30", "log_price", "log_days_since_sale", "mom30", "mom30_blank",
+             "mom90", "band_z", "band_z_blank", "breadth", "breadth_gt0.25", "breadth_gt0.40", "breadth_x_tier_500-2k", "breadth_x_era_wotc"]
+    x = dict(zip(names, bl.logit_inputs(names, feat(mom30=None, mom90=2.5, band_z=-4.0, days_since_sale=400.0, breadth=0.60), 0.10, 0.45, 0.25)))
+    assert x["era_vintage"] == 1 and x["era_wotc"] == 0 and x["tier_500-2k"] == 1 and x["liq_2-3"] == 1 and x["stale30"] == 0
+    assert x["mom30"] == 0 and x["mom30_blank"] == 1 and x["mom90"] == 1.0, "blank -> 0 + flag; clipped at +1"
+    assert x["band_z"] == -3.0 and x["band_z_blank"] == 0
+    assert abs(x["log_days_since_sale"] - math.log1p(180)) < 1e-12, "days capped at 180"
+    assert x["breadth"] == 0.45 and abs(x["breadth_gt0.25"] - 0.20) < 1e-12 and abs(x["breadth_gt0.40"] - 0.05) < 1e-12, "breadth clipped to the training range"
+    assert abs(x["breadth_x_tier_500-2k"] - 0.20) < 1e-12 and x["breadth_x_era_wotc"] == 0
+    try:
+        bl.logit_inputs(["no_such_input"], feat(), 0.1, 0.45, 0.25)
+        assert False, "an unknown input must fail loudly"
+    except KeyError:
+        pass
+
+
+def test_v02_score_arithmetic():
+    m = v02_model()
+    s = bl.score_cell(rates(), {}, 180, "warm", "vintage", "500-2k", "2-3", [])
+    f = feat(has9=1.0)
+    v = bl.score_v02(m, 180, f, s)
+    assert abs(v["p_cells"] - bl.odds_apply(s["p"], 1.5)) < 1e-12, "has9: the cells' odds x exp(b_has9)"
+    lg = m["horizons"]["180"]["logit"]
+    xs = bl.logit_inputs(lg["names"], f, lg["breadth_lo"], lg["breadth_hi"], 0.25)
+    eta = lg["intercept"] + sum(c * (x - mu) / sd for c, x, mu, sd in zip(lg["coef"], xs, lg["mean"], lg["scale"]))
+    assert abs(v["p_logit"] - 1 / (1 + math.exp(-eta))) < 1e-12
+    z = 0.5 * math.log(v["p_logit"] / (1 - v["p_logit"])) + 0.5 * math.log(v["p_cells"] / (1 - v["p_cells"]))
+    assert abs(v["p"] - 1 / (1 + math.exp(-(0.7 * z + 0.2)))) < 1e-12, "Platt on the mean of the two logits"
+    assert v["lo"] <= v["p"] <= v["hi"] and (v["lo"] - s["lo"]) * (v["p"] - s["p"]) > 0, "the band moves with p"
+    assert abs(v["enet"] - (v["p"] * s["win_net"] + (1 - v["p"]) * s["loss_net"])) < 1e-12
+    raw = bl.score_v02(v02_model(platt=False), 180, f, s)
+    assert abs(raw["p"] - 1 / (1 + math.exp(-z))) < 1e-12, "no Platt pair (thin history): the raw blend"
+    assert bl.score_v02(m, 180, feat(has9=0.0), s)["p_cells"] == s["p"], "no PSA 9 reference: the cells as they are"
+
+
+def test_v02_compute_scores_the_panel_universe():
+    m = v02_model()
+    cards = [card(asset_id="A"), card(asset_id="B"), card(asset_id="C"), card(asset_id="D", median_last_3="700")]
+    feats = {"A": feat(asset_id="A"), "B": feat(asset_id="B", avoid=["dip"]), "C": feat(asset_id="C", era="nan")}
+    listed, ledger, stats = bl.compute(cards, {}, rates(), {}, date(2026, 10, 26), "now", model=m, feats=feats)
+    assert [r["asset_id"] for r in listed] == ["A"], "B avoided by the panel's dip flag, C no era, D outside the panel's universe"
+    r = listed[0]
+    assert r["model"] == "v0.2" and r["p_cells_180"] and r["p_logit_180"] and r["p_cells_90"] and r["regime"] == "warm" and r["breadth"] == "0.380"
+    assert "blended and calibrated to" in r["reason"] and "logistic" in r["reason"] and "((" not in r["reason"]
+    assert stats["model"] == "v0.2" and stats["model_universe"] == 2 and stats["outside_universe"] == 1
+    assert {x["asset_id"] for x in ledger} == {"A"} and ledger[0]["has9"] == "0" and ledger[0]["chg90"] == "10.00", "the panel's changes, in percent"
+    warm = [card(asset_id=f"W{i}", price_chg_30d_pct="10" if i < 3 else "0") for i in range(10)]    # cards.csv breadth 30%: warm
+    l1, _, s1 = bl.compute(warm, {}, rates(), {}, date(2026, 10, 26), "now")
+    assert s1["model"] == bl.MODEL and l1 and all(r["model"] == bl.MODEL and "p_cells_180" not in r for r in l1), "no model: v0.1 as before"
 
 
 if __name__ == "__main__":
