@@ -81,13 +81,21 @@ rolling median of 3 from 8 sales; Correcting = the category's cards together >= 
 their own highs, value-weighted, and >= 35% of them 15%+ below, over >= 10 such cards. The
 category is the card type for Gold Star / LV.X / Neo Shining / e-card Crystal / HGSS
 Prime/LEGEND / EX-era ex, else the set. A warning, not a cut: the rates' months hold almost
-no correcting categories, so nothing measures what one does to p_win). One more flag goes to
+no correcting categories, so nothing measures what one does to p_win), market_cooling (2026-10-28,
+market-wide, on every row: more of breadth's cards -- English, ref >= $150, >= 3 sales in a year --
+are down more than 5% than up more than 5%, over 30 days or over 90; from the same source as breadth,
+cards.csv under v0.1, history/buy_features.py market_moves under v0.2; the four shares are the
+market_*_pct columns. The rates hold a single run, 2024-26, and no end to one: every warm and hot
+month in them was on the way up, so a warm market on the way down is scored with odds learned on the
+way up. Checked every 2nd day from 2024-06-01 to 2026-10-26, it never fired (closest: 2025-12-07,
+30 d up 24.5% vs down 21.4%); at the 2021 top it fired from 2021-04-02, on 7 days while breadth read
+warm). One more flag goes to
 the ledger only, never to the list: tail_lead (bottom price quartile of its set while the
 set's top quartile ran >= 30% in 90 days, reference >= $150: the autopsy's one promising
 cell, logged for the forward test, not scored).
 
-Reason: category leg (set's chase cards' 90-day run; the character's other cards' 30-day
-change; Japanese copies), then the card leg (days without a sale, position vs own band, a
+Reason: market_cooling first when on, a correcting category next, then the category leg (set's
+chase cards' 90-day run; the character's other cards' 30-day change; Japanese copies), then the card leg (days without a sale, position vs own band, a
 live eBay Buy It Now vs the level when one is verified), then the base rate of the cell in
 tonight's regime, then warnings. Standard library only. Blank = unknown, never 0.
 
@@ -157,7 +165,7 @@ LEVELS = ["regime_era_tier_liq", "regime_era_tier", "regime_tier", "regime"]
 LANGS = ("japanese", "german", "italian", "french", "spanish", "portuguese", "korean", "chinese", "dutch")
 OTHER_RX = re.compile(r"lorcana|one piece|weiss schwarz|magic the gathering|yu-gi-oh|dragon ball|digimon|disney", re.I)
 EXCLUDE = ("release_year", "busy_spike", "vol_surge", "below_band", "dip", "chase_flat", "pending_sale", "title_mismatch")
-WARN = ("illiquid_exit", "unconfirmed", "category_falling")      # shown on the row; tail_lead goes to the ledger only
+WARN = ("illiquid_exit", "unconfirmed", "category_falling", "market_cooling")   # shown on the row; tail_lead goes to the ledger only
 THIN_ERAS = ("wotc", "vintage")     # thin_history: a card this old with no price a year back is thin, not new
 # Applied after OR_PRODUCT_CAP: the cap stops stacked boosts, and must not swallow a penalty (on 2026-10-22 data,
 # 16 thin_history rows with stale30 x jp_heat x band_high over the cap kept their v0 score)
@@ -166,17 +174,20 @@ AFTER_CAP_CUTS = ("thin_history",)
 CATEGORY_TYPES = ("Gold Star", "LV.X", "Neo Shining", "e-card Crystal", "HGSS Prime/LEGEND", "EX-era ex")   # else the set
 PHASE_LOOKBACK_DAYS, PHASE_FRESH_DAYS, PHASE_MIN_SALES, PHASE_MIN_CARDS, PHASE_SMOOTH_MIN_SALES = 75, 30, 3, 10, 8
 PHASE_CORRECT_DROP_PCT, PHASE_BREADTH_MIN_PCT = 15, 35
+MARKET_MOVE = 0.05          # market_cooling (2026-10-28): a card is up / down when its change is beyond +-5% (breadth's line)
 COLS = ["rank", "rank_pct", "asset_id", "card_name", "ref_price", "ref_basis", "p_win_180", "p_low_180", "p_high_180", "exp_net_pct_180", "exp_net_usd_180",
         "base_rate_180", "p_win_90", "exp_net_pct_90", "exp_net_usd_90", "base_rate_90", "cell", "cell_level", "cell_n", "regime", "breadth",
         "cuts", "avoid_flags", "live_bin_price", "live_bin_url", "reason", "model", "data_date", "scored_at",
         "cell_months", "category", "category_off_peak_pct", "category_breadth_pct",   # v0.1, appended last
-        "p_cells_180", "p_logit_180", "p_cells_90", "p_logit_90"]   # v0.2 (2026-10-26): the two parts behind p_win; blank under v0.1
+        "p_cells_180", "p_logit_180", "p_cells_90", "p_logit_90",   # v0.2 (2026-10-26): the two parts behind p_win; blank under v0.1
+        "market_up30_pct", "market_down30_pct", "market_up90_pct", "market_down90_pct"]   # 2026-10-28: the market_cooling inputs, same on every row
 LEDGER_COLS = ["data_date", "scored_at", "model", "asset_id", "listed", "rank", "rank_pct", "ref_price", "p_win_180", "exp_net_pct_180", "exp_net_usd_180", "base_rate_180",
                "p_win_90", "exp_net_pct_90", "base_rate_90", "cell", "cell_level", "cell_n", "regime", "breadth", "cuts", "flags",
                "chg30", "chg90", "vol30", "vol90", "vol180", "days_since", "band_z", "set_lead_chg90", "set_price_q", "jp_chg30", "char_chg30",
                "cell_months", "chg1y", "category", "category_off_peak_pct", "category_breadth_pct",   # v0.1, appended last
                "rates_through",   # 2026-10-23: the data end of the rate tables that scored the row (monthly re-fit, buy_list_rates_meta.json)
-               "p_cells_180", "p_logit_180", "p_cells_90", "p_logit_90", "has9", "rev_zc"]   # v0.2 (2026-10-26); blank under v0.1
+               "p_cells_180", "p_logit_180", "p_cells_90", "p_logit_90", "has9", "rev_zc",   # v0.2 (2026-10-26); blank under v0.1
+               "market_up30_pct", "market_down30_pct", "market_up90_pct", "market_down90_pct"]   # 2026-10-28
 RATES_META = "buy_list_rates_meta.json"   # next to the rate tables: their data end and months (analysis/buy_list_rates.py writes it)
 V02_JSON = "buy_list_v02.json"            # next to the rate tables: the v0.2 model (analysis/buy_list_v02.py fit); v0.1 without it
 V02_CUTS = ("stale30", "jp_heat", "band_high", "thin_history")   # the panel's cuts, in the order v0.1 names them
@@ -415,6 +426,25 @@ def card_phase_reading(sales, today):
         roll = [median([xs[i - 2][1], xs[i - 1][1], xs[i][1]]) for i in range(2, len(xs))]
         now, peak = roll[-1], max(roll)
     return now, peak
+
+
+def market_moves_v01(en):
+    """v0.1's market moves from cards.csv, over breadth's cards (English, ref >= $150, >= 3 sales in a year; changes in
+    percent): the shares up more than 5% and down more than 5% over 30 and 90 days, as fractions; {} without such a
+    card. v0.2 reads the same from its own features (history/buy_features.py market_moves)."""
+    liquid = [c for c in en if c["_ref"] >= 150 and c["_vol1y"] >= 3]
+    if not liquid:
+        return {}
+    out = {"n": len(liquid)}
+    for w, k in ((30, "_chg30"), (90, "_chg90")):
+        out[f"up{w}"] = sum(1 for c in liquid if c[k] is not None and c[k] > 100 * MARKET_MOVE) / len(liquid)
+        out[f"down{w}"] = sum(1 for c in liquid if c[k] is not None and c[k] < -100 * MARKET_MOVE) / len(liquid)
+    return out
+
+
+def market_cooling(moves):
+    """True when more of breadth's cards are down than up, over 30 days or over 90."""
+    return bool(moves) and (moves["down30"] > moves["up30"] or moves["down90"] > moves["up90"])
 
 
 def category_of(card):
@@ -675,6 +705,15 @@ def compute(cards, zs, rates, lifts, data_date, now_iso, recent=None, prior=None
         stats["model_universe"] = len(rows)
         stats["outside_universe"] = sum(1 for c in en if c["asset_id"] not in (feats or {}))
     reg = regime(breadth) if model is None else (rows[0]["reg"] if rows else regime(breadth))
+    # the market's direction (market_cooling): from the same source as breadth
+    if model is None:
+        moves = market_moves_v01(en)
+    else:
+        import buy_features
+        moves = buy_features.market_moves(list((feats or {}).values()))
+    cooling = market_cooling(moves)
+    mk_cols = {f"market_{k}_pct": f"{100 * moves[k]:.1f}" if moves else "" for k in ("up30", "down30", "up90", "down90")}
+    stats["market"], stats["market_cooling"] = moves, cooling
     # category phase by Sid's rule (category_falling)
     phases = category_phases(en, recent, today)
     stats["categories_correcting"] = sum(1 for v in phases.values() if v["correcting"])
@@ -699,6 +738,8 @@ def compute(cards, zs, rates, lifts, data_date, now_iso, recent=None, prior=None
         ph = phases.get(cat)
         if ph and ph["correcting"]:
             flags.append("category_falling")
+        if cooling:
+            flags.append("market_cooling")
         cuts = x["cuts"]
         score = {}
         for h in HORIZONS:
@@ -730,6 +771,9 @@ def compute(cards, zs, rates, lifts, data_date, now_iso, recent=None, prior=None
             stats["listed_thin_history"] += "thin_history" in cuts
             stats["listed_category_falling"] += "category_falling" in flags
             parts = []
+            if "market_cooling" in flags:
+                parts.append(f"market cooling: {100 * moves['down30']:.0f}% of liquid cards down 5%+ over 30 d vs {100 * moves['up30']:.0f}% up, "
+                             f"{100 * moves['down90']:.0f}% vs {100 * moves['up90']:.0f}% over 90 d (the rates never saw a run end)")
             if "category_falling" in flags:
                 parts.append(f"{cat} is correcting: {ph['off']:+.0f}% off its 75-day highs, {ph['breadth']:.0f}% of {ph['n']} cards 15%+ below "
                              f"their own peak (the rates never saw a correcting category)")
@@ -756,7 +800,7 @@ def compute(cards, zs, rates, lifts, data_date, now_iso, recent=None, prior=None
                 psa9 = f"; its PSA 9 trades: odds x{s180['psa9_or']:.2f}" if x["f"]["has9"] else ""
                 parts.append(f"cells {100 * s180['p_cells']:.0f}% ({cell[0]}, {cell[1]}{psa9}), logistic {100 * s180['p_logit']:.0f}%, "
                              f"blended and calibrated to {100 * s180['p']:.0f}%")
-            parts.extend(w.replace("_", " ") for w in warn if w != "category_falling")
+            parts.extend(w.replace("_", " ") for w in warn if w not in ("category_falling", "market_cooling"))
             listed.append({
                 "asset_id": aid, "card_name": c.get("card_name") or "", "ref_price": f"{ref:.2f}", "ref_basis": "med3",
                 "p_win_180": f"{s180['p']:.3f}", "p_low_180": f"{s180['lo']:.3f}", "p_high_180": f"{s180['hi']:.3f}",
@@ -767,7 +811,7 @@ def compute(cards, zs, rates, lifts, data_date, now_iso, recent=None, prior=None
                 "cuts": " ".join(cuts), "avoid_flags": " ".join(warn), "live_bin_price": f"{bin_price:.2f}" if bin_ok else "",
                 "live_bin_url": (c.get("lowest_bin_url") or "") if bin_ok else "", "reason": "; ".join(parts), "model": model_name,
                 "data_date": today.isoformat(), "scored_at": now_iso, "_eusd": s180["eusd"],
-                "cell_months": "" if months is None else f"{months:.0f}", **cat_cols, **v02_cols,
+                "cell_months": "" if months is None else f"{months:.0f}", **cat_cols, **v02_cols, **mk_cols,
             })
         if is_listed or "tail_lead" in flags:
             ledger.append({
@@ -782,7 +826,7 @@ def compute(cards, zs, rates, lifts, data_date, now_iso, recent=None, prior=None
                 "jp_chg30": "" if jp_chg is None else f"{jp_chg:.1f}", "char_chg30": "" if char_chg is None else f"{char_chg:.1f}", "_aid": aid,
                 "cell_months": "" if months is None else f"{months:.0f}", "chg1y": "" if x["chg1y"] is None else f"{x['chg1y']:.2f}", **cat_cols,
                 "rates_through": rates_through, **v02_cols,
-                **({"has9": f"{x['f']['has9']:.0f}", "rev_zc": f"{x['f']['rev_zc']:.3f}"} if model is not None else {}),
+                **({"has9": f"{x['f']['has9']:.0f}", "rev_zc": f"{x['f']['rev_zc']:.3f}"} if model is not None else {}), **mk_cols,
             })
     listed.sort(key=lambda r: (-float(r["exp_net_pct_180"]), -r["_eusd"]))
     rank_pct = {r["asset_id"]: str(i) for i, r in enumerate(listed, 1)}
@@ -857,13 +901,16 @@ def main():
     out_dir = Path(a.out) if a.out else latest
     out_dir.mkdir(parents=True, exist_ok=True)
     write_rows(out_dir / "buy_list.csv", COLS, listed)
+    mk = stats["market"]
+    mk_msg = (f"market up / down 5%+: {100 * mk['up30']:.0f}% / {100 * mk['down30']:.0f}% over 30 d, {100 * mk['up90']:.0f}% / {100 * mk['down90']:.0f}% over 90 d"
+              + (" (market_cooling)" if stats["market_cooling"] else "")) if mk else "market moves unknown"
     msg = (f"buy list {data_date} ({stats['model']}" + (f"; {why}" if why and a.model == "auto" else "") + f"): breadth {100 * stats['breadth']:.1f}% "
            f"({stats['regime']}); {stats['english_psa10']:,} English PSA 10 cards, {stats['with_price']:,} priced within {MAX_AGE_DAYS} d, "
            + (f"{stats['model_universe']:,} in the model's universe ({stats['outside_universe']:,} priced cards outside it), " if model is not None else "") +
            f"{stats['scored']:,} scored, {stats['excluded']:,} excluded by the avoid layer, "
            f"{stats['listed']:,} listed ({stats['listed_thin_history']:,} thin_history, {stats['listed_category_falling']:,} in "
            f"{stats['categories_correcting']} correcting categories), {stats['tail_lead']:,} tail_lead rows -> {out_dir / 'buy_list.csv'}; ledger rows {stats['ledger_rows']}; "
-           f"rates through {rates_through or 'unknown'}")
+           f"{mk_msg}; rates through {rates_through or 'unknown'}")
     if not a.no_ledger:
         n_old, n_new = update_ledger(a.ledger, ledger, data_date.isoformat())
         msg += f"; ledger {a.ledger}: {n_new} rows for {data_date} ({n_old} other rows kept)"

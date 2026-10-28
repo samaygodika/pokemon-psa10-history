@@ -219,6 +219,43 @@ def test_category_falling_warning():
     assert bl.category_of(card(card_name="2005 Pokemon Ex Delta Species Holo Mewtwo #12")) == "Pokemon Ex Delta Species", "no special type: the set"
 
 
+def test_market_cooling_warning():
+    listed, ledger, stats = run([card()])
+    r = [x for x in listed if x["asset_id"] == "A"][0]
+    assert not stats["market_cooling"] and r["avoid_flags"] == "", "10 of 31 up, none down: no warning"
+    assert (r["market_up30_pct"], r["market_down30_pct"], r["market_up90_pct"], r["market_down90_pct"]) == ("32.3", "0.0", "0.0", "0.0"), r
+    # more of breadth's cards down 5%+ over 30 days than up, in a market still warm (15 of 52 up)
+    down = [card(asset_id=f"D{i}", set=f"Down {i}", subject=f"T{i}", price_chg_30d_pct="-8", volume_1y="6") for i in range(16)]
+    up = [card(asset_id=f"U{i}", set=f"Up {i}", subject=f"W{i}", price_chg_30d_pct="12", volume_1y="6") for i in range(5)]
+    listed, ledger, stats = run([card()] + down + up)
+    r = [x for x in listed if x["asset_id"] == "A"][0]
+    assert stats["market_cooling"] and stats["regime"] == "warm", stats
+    assert r["avoid_flags"] == "market_cooling" and r["market_down30_pct"] == f"{100 * 16 / 52:.1f}" and r["market_up30_pct"] == f"{100 * 15 / 52:.1f}"
+    assert r["reason"].startswith("market cooling: 31% of liquid cards down 5%+ over 30 d vs 29% up, 0% vs 0% over 90 d"), r["reason"]
+    assert r["p_win_180"] == f"{bl.shrunk_rate(500, 0.40, 0.42):.3f}", "a warning, not a cut: p_win unchanged"
+    assert all("market_cooling" in x["avoid_flags"].split() for x in listed), "market-wide: on every listed row"
+    led = [x for x in ledger if x["asset_id"] == "A"][0]
+    assert "market_cooling" in led["flags"].split() and led["market_down30_pct"] == r["market_down30_pct"]
+    # over 90 days only, with breadth's filter: a cheap or thin card's fall does not count
+    down90 = [card(asset_id=f"N{i}", set=f"N {i}", subject=f"U{i}", price_chg_90d_pct="-30", volume_1y="6") for i in range(3)]
+    cheap = [card(asset_id=f"C{i}", set=f"C {i}", subject=f"V{i}", price_chg_90d_pct="-30", median_last_3="100", volume_1y="6") for i in range(5)]
+    listed, _, stats = run([card(price_chg_90d_pct="20")] + down90 + cheap)
+    assert stats["market_cooling"] and stats["market"]["down90"] == 3 / 34 and stats["market"]["up90"] == 1 / 34, stats["market"]
+
+
+def test_market_moves_v02():
+    import buy_features as bf
+    en = [feat(asset_id="A", mom30=0.10, mom90=-0.20), feat(asset_id="B", mom30=-0.06, mom90=float("nan")), feat(asset_id="C", mom30=None, mom90=0.30),
+          feat(asset_id="D", mom30=-0.5, mom90=-0.5, ref=100.0), feat(asset_id="E", mom30=-0.5, mom90=-0.5, vol365=2)]
+    m = bf.market_moves(en)
+    assert m == {"n": 3, "up30": 1 / 3, "down30": 1 / 3, "up90": 1 / 3, "down90": 1 / 3}, "D under $150 and E under 3 sales a year are not breadth's cards"
+    assert bf.market_moves([feat(ref=100.0)]) == {}
+    cards = [card(asset_id=a) for a in "ABC"]
+    feats = {"A": feat(asset_id="A", mom30=-0.1), "B": feat(asset_id="B", mom30=-0.1), "C": feat(asset_id="C", mom30=0.1, mom90=-0.1)}
+    listed, _, stats = bl.compute(cards, {}, rates(), {}, date(2026, 10, 26), "now", model=v02_model(), feats=feats)
+    assert stats["market_cooling"] and listed and all(r["avoid_flags"] == "market_cooling" and r["market_down30_pct"] == "66.7" for r in listed), listed
+
+
 def test_ledger_replaces_the_same_date_only():
     with tempfile.TemporaryDirectory() as d:
         p = Path(d) / "ledger.csv"

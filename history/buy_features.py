@@ -307,6 +307,21 @@ def features_at(t, sales=None, assets=None, store=HERE):
     return en
 
 
+def market_moves(en):
+    """the market's direction at the date (2026-10-28, the buy list's market_cooling warning): over the cards
+    breadth counts (English, ref >= $150, >= 3 sales in a year; features_at's rows), the shares up more than
+    +5% and down more than 5% over 30 and 90 days; a card without a price w days back counts in neither
+    share but in n. {up30, down30, up90, down90, n}, or {} when no card qualifies."""
+    liquid = [r for r in en if r["ref"] >= 150 and r["vol365"] >= 3]
+    if not liquid:
+        return {}
+    out = {"n": len(liquid)}
+    for w in (30, 90):
+        out[f"up{w}"] = mean([1.0 if (not isnan(r[f"mom{w}"]) and r[f"mom{w}"] > 0.05) else 0.0 for r in liquid])
+        out[f"down{w}"] = mean([1.0 if (not isnan(r[f"mom{w}"]) and r[f"mom{w}"] < -0.05) else 0.0 for r in liquid])
+    return out
+
+
 OUT_COLS = ["asset_id", "ref", "log_price", "mom30", "mom90", "mom180", "mom365", "vol30", "vol90", "vol180", "vol365", "vol_surge",
             "days_since_sale", "n_sales_to_date", "dispersion", "bin_share90", "ebay_share90", "accel", "band_z", "age_years", "era",
             "breadth", "char_jp_mom30", "set_price_q", "set_lead_mom90", "char_mom30", "char_n", "tier", "liq", "regime", "stale30",
