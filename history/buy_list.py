@@ -89,12 +89,19 @@ market_*_pct columns. The rates hold a single run, 2024-26, and no end to one: e
 month in them was on the way up, so a warm market on the way down is scored with odds learned on the
 way up. Checked every 2nd day from 2024-06-01 to 2026-10-26, it never fired (closest: 2025-12-07,
 30 d up 24.5% vs down 21.4%); at the 2021 top it fired from 2021-04-02, on 7 days while breadth read
-warm). One more flag goes to
-the ledger only, never to the list: tail_lead (bottom price quartile of its set while the
+warm), outside_model (v0.2 only, 2026-10-28, Sid: a priced card outside the model's universe -- 1,098 of
+the 1,105 listed on 10-26 data have 1-3 clean PSA 10 sales -- scored by v0.1 instead; see v0.2 below).
+One more flag goes to the ledger only, never to the list: tail_lead (bottom price quartile of its set while the
 set's top quartile ran >= 30% in 90 days, reference >= $150: the autopsy's one promising
 cell, logged for the forward test, not scored).
 
-Reason: market_cooling first when on, a correcting category next, then the category leg (set's
+Entry and target (2026-10-28, Sid): entry_price = the newest clean sale (cards.csv
+clean_last_sale_price), or the live eBay-verified, not-suspect Buy It Now when cheaper (entry_basis
+last_sale / live_bin); target_price_<h> = entry_price x (1 + exp_net_pct_<h>), the app's own target
+formula on a price someone paid or can pay instead of the median-of-3 the row is scored at. A target
+is an expected value after costs, not a sell order. The ledger keeps entry_price and entry_basis.
+
+Reason: market_cooling first when on, an outside_model row's note next, a correcting category next, then the category leg (set's
 chase cards' 90-day run; the character's other cards' 30-day change; Japanese copies), then the card leg (days without a sale, position vs own band, a
 live eBay Buy It Now vs the level when one is verified), then the base rate of the cell in
 tonight's regime, then warnings. Standard library only. Blank = unknown, never 0.
@@ -131,6 +138,12 @@ unconfirmed and category_falling still come from cards.csv / recent_sales. Per h
 The band is v0.1's moved by the same logit change (the cell's month-clustered uncertainty, not the
 blend's own); expected net = p_win x the cell winners' median net + (1 - p_win) x its losers' mean.
 p_cells_* / p_logit_* are appended to the list and the ledger (+ has9, rev_zc to the ledger).
+Outside the universe (2026-10-28, Sid: "bring the 1 to 3 sale cards back as v0.1-scored rows with an
+outside_model flag"): every priced English card the features do not cover is scored as v0.1 scores it
+(cards.csv and latest/series inputs, the cells and cuts, the avoid layer, band_zs) in tonight's v0.2
+regime and breadth, flagged outside_model, with p_cells_* / p_logit_* / has9 / rev_zc blank and the
+v0.1 calibration (too low below 0.45, too high above it). They rank among the model's rows; the
+`model` column stays the list's.
 """
 import argparse
 import csv
@@ -165,7 +178,7 @@ LEVELS = ["regime_era_tier_liq", "regime_era_tier", "regime_tier", "regime"]
 LANGS = ("japanese", "german", "italian", "french", "spanish", "portuguese", "korean", "chinese", "dutch")
 OTHER_RX = re.compile(r"lorcana|one piece|weiss schwarz|magic the gathering|yu-gi-oh|dragon ball|digimon|disney", re.I)
 EXCLUDE = ("release_year", "busy_spike", "vol_surge", "below_band", "dip", "chase_flat", "pending_sale", "title_mismatch")
-WARN = ("illiquid_exit", "unconfirmed", "category_falling", "market_cooling")   # shown on the row; tail_lead goes to the ledger only
+WARN = ("illiquid_exit", "unconfirmed", "category_falling", "market_cooling", "outside_model")   # shown on the row; tail_lead goes to the ledger only
 THIN_ERAS = ("wotc", "vintage")     # thin_history: a card this old with no price a year back is thin, not new
 # Applied after OR_PRODUCT_CAP: the cap stops stacked boosts, and must not swallow a penalty (on 2026-10-22 data,
 # 16 thin_history rows with stale30 x jp_heat x band_high over the cap kept their v0 score)
@@ -180,14 +193,15 @@ COLS = ["rank", "rank_pct", "asset_id", "card_name", "ref_price", "ref_basis", "
         "cuts", "avoid_flags", "live_bin_price", "live_bin_url", "reason", "model", "data_date", "scored_at",
         "cell_months", "category", "category_off_peak_pct", "category_breadth_pct",   # v0.1, appended last
         "p_cells_180", "p_logit_180", "p_cells_90", "p_logit_90",   # v0.2 (2026-10-26): the two parts behind p_win; blank under v0.1
-        "market_up30_pct", "market_down30_pct", "market_up90_pct", "market_down90_pct"]   # 2026-10-28: the market_cooling inputs, same on every row
+        "market_up30_pct", "market_down30_pct", "market_up90_pct", "market_down90_pct",   # 2026-10-28: the market_cooling inputs, same on every row
+        "entry_price", "entry_basis", "target_price_180", "target_price_90"]   # 2026-10-28 (Sid): newest clean sale or cheaper live BIN, x (1 + exp net)
 LEDGER_COLS = ["data_date", "scored_at", "model", "asset_id", "listed", "rank", "rank_pct", "ref_price", "p_win_180", "exp_net_pct_180", "exp_net_usd_180", "base_rate_180",
                "p_win_90", "exp_net_pct_90", "base_rate_90", "cell", "cell_level", "cell_n", "regime", "breadth", "cuts", "flags",
                "chg30", "chg90", "vol30", "vol90", "vol180", "days_since", "band_z", "set_lead_chg90", "set_price_q", "jp_chg30", "char_chg30",
                "cell_months", "chg1y", "category", "category_off_peak_pct", "category_breadth_pct",   # v0.1, appended last
                "rates_through",   # 2026-10-23: the data end of the rate tables that scored the row (monthly re-fit, buy_list_rates_meta.json)
                "p_cells_180", "p_logit_180", "p_cells_90", "p_logit_90", "has9", "rev_zc",   # v0.2 (2026-10-26); blank under v0.1
-               "market_up30_pct", "market_down30_pct", "market_up90_pct", "market_down90_pct"]   # 2026-10-28
+               "market_up30_pct", "market_down30_pct", "market_up90_pct", "market_down90_pct", "entry_price", "entry_basis"]   # 2026-10-28
 RATES_META = "buy_list_rates_meta.json"   # next to the rate tables: their data end and months (analysis/buy_list_rates.py writes it)
 V02_JSON = "buy_list_v02.json"            # next to the rate tables: the v0.2 model (analysis/buy_list_v02.py fit); v0.1 without it
 V02_CUTS = ("stale30", "jp_heat", "band_high", "thin_history")   # the panel's cuts, in the order v0.1 names them
@@ -670,7 +684,7 @@ def compute(cards, zs, rates, lifts, data_date, now_iso, recent=None, prior=None
     today = data_date
     recent, prior = recent or {}, prior or {}
     stats = {"english_psa10": 0, "with_price": 0, "scored": 0, "excluded": 0, "listed": 0, "tail_lead": 0,
-             "listed_thin_history": 0, "listed_category_falling": 0, "categories_correcting": 0}
+             "listed_thin_history": 0, "listed_category_falling": 0, "categories_correcting": 0, "listed_outside": 0}
     # pass 1: the universe (v0.1's, also what the category phase reads)
     univ, by_id = [], {}
     for c in cards:
@@ -703,7 +717,15 @@ def compute(cards, zs, rates, lifts, data_date, now_iso, recent=None, prior=None
         rows, breadth = inputs_v02(by_id, feats or {})
         model_name = model["model"]
         stats["model_universe"] = len(rows)
-        stats["outside_universe"] = sum(1 for c in en if c["asset_id"] not in (feats or {}))
+        outside = {c["asset_id"] for c in en if c["asset_id"] not in (feats or {})}
+        stats["outside_universe"] = len(outside)
+        # Sid 2026-10-28: the priced cards outside the model's universe (mostly 1-3 clean sales) come back scored by
+        # v0.1 (cards.csv inputs, the cells and cuts) in tonight's regime, flagged outside_model
+        reg_v02 = rows[0]["reg"] if rows else regime(breadth)
+        for x in inputs_v01(univ, en, zs)[0]:
+            if x["aid"] in outside:
+                x["reg"], x["outside"] = reg_v02, True
+                rows.append(x)
     reg = regime(breadth) if model is None else (rows[0]["reg"] if rows else regime(breadth))
     # the market's direction (market_cooling): from the same source as breadth
     if model is None:
@@ -740,11 +762,14 @@ def compute(cards, zs, rates, lifts, data_date, now_iso, recent=None, prior=None
             flags.append("category_falling")
         if cooling:
             flags.append("market_cooling")
+        out_row = x.get("outside", False)
+        if out_row:
+            flags.append("outside_model")
         cuts = x["cuts"]
         score = {}
         for h in HORIZONS:
             score[h] = score_cell(rates, lifts, h, reg, er, ti, li, cuts)
-            if score[h] is not None and model is not None:
+            if score[h] is not None and model is not None and not out_row:
                 score[h] = score_v02(model, h, x["f"], score[h])
             if score[h] is not None:
                 score[h]["eusd"] = score[h]["enet"] * ref
@@ -764,16 +789,29 @@ def compute(cards, zs, rates, lifts, data_date, now_iso, recent=None, prior=None
         cat_cols = {"category": cat, "category_off_peak_pct": f"{ph['off']:.1f}" if ph else "", "category_breadth_pct": f"{ph['breadth']:.1f}" if ph else ""}
         v02_cols = {}
         if model is not None:
-            v02_cols = {f"{k}_{h}": f"{score[h][k]:.3f}" if score.get(h) else "" for h in (180, 90) for k in ("p_cells", "p_logit")}
+            v02_cols = {f"{k}_{h}": f"{score[h][k]:.3f}" if score.get(h) and not out_row else "" for h in (180, 90) for k in ("p_cells", "p_logit")}
+        # entry (Sid 2026-10-28): the newest clean sale, or the live eBay-verified Buy It Now when cheaper; target = entry x (1 + exp net)
+        entry, entry_basis = fnum(c.get("clean_last_sale_price")), "last_sale"
+        if bin_ok and (entry is None or bin_price < entry):
+            entry, entry_basis = bin_price, "live_bin"
+        entry_cols = {"entry_price": f"{entry:.2f}" if entry else "", "entry_basis": entry_basis if entry else "",
+                      "target_price_180": f"{entry * (1 + s180['enet']):.2f}" if entry else "",
+                      "target_price_90": f"{entry * (1 + s90['enet']):.2f}" if entry and s90 else ""}
         months = s180["months"]
         if is_listed:
             stats["listed"] += 1
             stats["listed_thin_history"] += "thin_history" in cuts
             stats["listed_category_falling"] += "category_falling" in flags
+            stats["listed_outside"] += out_row
             parts = []
             if "market_cooling" in flags:
                 parts.append(f"market cooling: {100 * moves['down30']:.0f}% of liquid cards down 5%+ over 30 d vs {100 * moves['up30']:.0f}% up, "
                              f"{100 * moves['down90']:.0f}% vs {100 * moves['up90']:.0f}% over 90 d (the rates never saw a run end)")
+            if out_row:
+                n_sales = fint(c.get("sales_total"))
+                parts.append((f"outside the {model_name} model: {n_sales} clean PSA 10 sale{'s' if n_sales != 1 else ''} on record (it is fitted on cards with 4+)"
+                              if n_sales < 4 else f"outside the {model_name} model's universe (4+ clean PSA 10 sales in the sales store, one within 180 d)")
+                             + ", so scored by v0.1's cells and cuts, not calibrated")
             if "category_falling" in flags:
                 parts.append(f"{cat} is correcting: {ph['off']:+.0f}% off its 75-day highs, {ph['breadth']:.0f}% of {ph['n']} cards 15%+ below "
                              f"their own peak (the rates never saw a correcting category)")
@@ -794,13 +832,13 @@ def compute(cards, zs, rates, lifts, data_date, now_iso, recent=None, prior=None
                 parts.append(f"live eBay Buy It Now ${bin_price:,.0f} ({pct(100 * (bin_price / ref - 1))} vs level)")
             cell = (f"base {100 * s180['base']:.0f}% for {er} ${ti} with {li} sales/90 d in a {reg} market", f"breadth {100 * breadth:.0f}%, n {s180['n']:,}"
                     + (f" over {months:.0f} months" if months is not None else ""))
-            if model is None:
+            if model is None or out_row:
                 parts.append(f"{cell[0]} ({cell[1]})")
             else:
                 psa9 = f"; its PSA 9 trades: odds x{s180['psa9_or']:.2f}" if x["f"]["has9"] else ""
                 parts.append(f"cells {100 * s180['p_cells']:.0f}% ({cell[0]}, {cell[1]}{psa9}), logistic {100 * s180['p_logit']:.0f}%, "
                              f"blended and calibrated to {100 * s180['p']:.0f}%")
-            parts.extend(w.replace("_", " ") for w in warn if w not in ("category_falling", "market_cooling"))
+            parts.extend(w.replace("_", " ") for w in warn if w not in ("category_falling", "market_cooling", "outside_model"))
             listed.append({
                 "asset_id": aid, "card_name": c.get("card_name") or "", "ref_price": f"{ref:.2f}", "ref_basis": "med3",
                 "p_win_180": f"{s180['p']:.3f}", "p_low_180": f"{s180['lo']:.3f}", "p_high_180": f"{s180['hi']:.3f}",
@@ -811,7 +849,7 @@ def compute(cards, zs, rates, lifts, data_date, now_iso, recent=None, prior=None
                 "cuts": " ".join(cuts), "avoid_flags": " ".join(warn), "live_bin_price": f"{bin_price:.2f}" if bin_ok else "",
                 "live_bin_url": (c.get("lowest_bin_url") or "") if bin_ok else "", "reason": "; ".join(parts), "model": model_name,
                 "data_date": today.isoformat(), "scored_at": now_iso, "_eusd": s180["eusd"],
-                "cell_months": "" if months is None else f"{months:.0f}", **cat_cols, **v02_cols, **mk_cols,
+                "cell_months": "" if months is None else f"{months:.0f}", **cat_cols, **v02_cols, **mk_cols, **entry_cols,
             })
         if is_listed or "tail_lead" in flags:
             ledger.append({
@@ -826,7 +864,7 @@ def compute(cards, zs, rates, lifts, data_date, now_iso, recent=None, prior=None
                 "jp_chg30": "" if jp_chg is None else f"{jp_chg:.1f}", "char_chg30": "" if char_chg is None else f"{char_chg:.1f}", "_aid": aid,
                 "cell_months": "" if months is None else f"{months:.0f}", "chg1y": "" if x["chg1y"] is None else f"{x['chg1y']:.2f}", **cat_cols,
                 "rates_through": rates_through, **v02_cols,
-                **({"has9": f"{x['f']['has9']:.0f}", "rev_zc": f"{x['f']['rev_zc']:.3f}"} if model is not None else {}), **mk_cols,
+                **({"has9": f"{x['f']['has9']:.0f}", "rev_zc": f"{x['f']['rev_zc']:.3f}"} if x["f"] is not None else {}), **mk_cols, **entry_cols,
             })
     listed.sort(key=lambda r: (-float(r["exp_net_pct_180"]), -r["_eusd"]))
     rank_pct = {r["asset_id"]: str(i) for i, r in enumerate(listed, 1)}
@@ -894,7 +932,10 @@ def main():
     else:
         import buy_features   # the panel's features at the data date, from history/sales (stdlib; v0.2 was fitted on them)
         feats = {f["asset_id"]: f for f in buy_features.features_at(data_date, store=a.store)}
+        outside = {aid: r for aid, r in refs.items() if aid not in feats}     # scored by v0.1, flagged outside_model
+        zs = band_zs(latest / "series", data_date, outside)
         thin = {aid for aid, f in feats.items() if f["thin_history"]}
+        thin |= {c["asset_id"] for c in cards if c["asset_id"] in outside and era(c.get("year")) in THIN_ERAS and fnum(c.get("price_chg_1y_pct")) is None}
     prior = prices_before(latest / "series", data_date - timedelta(days=365), thin)
     listed, ledger, stats = compute(cards, zs, rates, lifts, data_date, now_iso, recent=recent, prior=prior, rates_through=rates_through,
                                     model=model, feats=feats)
@@ -906,7 +947,8 @@ def main():
               + (" (market_cooling)" if stats["market_cooling"] else "")) if mk else "market moves unknown"
     msg = (f"buy list {data_date} ({stats['model']}" + (f"; {why}" if why and a.model == "auto" else "") + f"): breadth {100 * stats['breadth']:.1f}% "
            f"({stats['regime']}); {stats['english_psa10']:,} English PSA 10 cards, {stats['with_price']:,} priced within {MAX_AGE_DAYS} d, "
-           + (f"{stats['model_universe']:,} in the model's universe ({stats['outside_universe']:,} priced cards outside it), " if model is not None else "") +
+           + (f"{stats['model_universe']:,} in the model's universe ({stats['outside_universe']:,} priced cards outside it, scored by v0.1: "
+              f"{stats['listed_outside']:,} listed as outside_model), " if model is not None else "") +
            f"{stats['scored']:,} scored, {stats['excluded']:,} excluded by the avoid layer, "
            f"{stats['listed']:,} listed ({stats['listed_thin_history']:,} thin_history, {stats['listed_category_falling']:,} in "
            f"{stats['categories_correcting']} correcting categories), {stats['tail_lead']:,} tail_lead rows -> {out_dir / 'buy_list.csv'}; ledger rows {stats['ledger_rows']}; "

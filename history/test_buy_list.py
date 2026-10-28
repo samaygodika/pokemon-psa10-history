@@ -256,6 +256,26 @@ def test_market_moves_v02():
     assert stats["market_cooling"] and listed and all(r["avoid_flags"] == "market_cooling" and r["market_down30_pct"] == "66.7" for r in listed), listed
 
 
+def test_entry_price_and_target():
+    listed, ledger, _ = run([card(clean_last_sale_price="550")])
+    r = [x for x in listed if x["asset_id"] == "A"][0]
+    b = bl.shrunk_rate(500, 0.40, 0.42)
+    enet = b * 0.9 - (1 - b) * 0.3            # both horizons share the test cell
+    assert r["entry_price"] == "550.00" and r["entry_basis"] == "last_sale"
+    assert r["target_price_180"] == f"{550 * (1 + enet):.2f}" == r["target_price_90"], r
+    bin_kw = {"lowest_bin_price": "500", "lowest_bin_verified_at": "2026-10-20T07:00:00Z", "lowest_bin_url": "https://www.ebay.com/itm/1"}
+    r = [x for x in run([card(clean_last_sale_price="550", **bin_kw)])[0] if x["asset_id"] == "A"][0]
+    assert r["entry_price"] == "500.00" and r["entry_basis"] == "live_bin", "a cheaper verified Buy It Now is the entry"
+    r = [x for x in run([card(clean_last_sale_price="450", **bin_kw)])[0] if x["asset_id"] == "A"][0]
+    assert r["entry_price"] == "450.00" and r["entry_basis"] == "last_sale", "a dearer Buy It Now is not"
+    r = [x for x in run([card(clean_last_sale_price="550", lowest_bin_suspect="1", **bin_kw)])[0] if x["asset_id"] == "A"][0]
+    assert r["entry_basis"] == "last_sale", "a suspect or unverified Buy It Now never sets the entry"
+    r = [x for x in run([card()])[0] if x["asset_id"] == "A"][0]
+    assert r["entry_price"] == r["entry_basis"] == r["target_price_180"] == "", "blank = unknown"
+    led = [x for x in run([card(clean_last_sale_price="550")])[1] if x["asset_id"] == "A"][0]
+    assert led["entry_price"] == "550.00" and led["entry_basis"] == "last_sale"
+
+
 def test_ledger_replaces_the_same_date_only():
     with tempfile.TemporaryDirectory() as d:
         p = Path(d) / "ledger.csv"
@@ -340,15 +360,22 @@ def test_v02_score_arithmetic():
 
 def test_v02_compute_scores_the_panel_universe():
     m = v02_model()
-    cards = [card(asset_id="A"), card(asset_id="B"), card(asset_id="C"), card(asset_id="D", median_last_3="700")]
+    cards = [card(asset_id="A"), card(asset_id="B"), card(asset_id="C"), card(asset_id="D", median_last_3="700", sales_total="2")]
     feats = {"A": feat(asset_id="A"), "B": feat(asset_id="B", avoid=["dip"]), "C": feat(asset_id="C", era="nan")}
     listed, ledger, stats = bl.compute(cards, {}, rates(), {}, date(2026, 10, 26), "now", model=m, feats=feats)
-    assert [r["asset_id"] for r in listed] == ["A"], "B avoided by the panel's dip flag, C no era, D outside the panel's universe"
-    r = listed[0]
+    assert sorted(r["asset_id"] for r in listed) == ["A", "D"], "B avoided by the panel's dip flag, C no era, D back as an outside_model row"
+    r = [x for x in listed if x["asset_id"] == "A"][0]
     assert r["model"] == "v0.2" and r["p_cells_180"] and r["p_logit_180"] and r["p_cells_90"] and r["regime"] == "warm" and r["breadth"] == "0.380"
-    assert "blended and calibrated to" in r["reason"] and "logistic" in r["reason"] and "((" not in r["reason"]
-    assert stats["model"] == "v0.2" and stats["model_universe"] == 2 and stats["outside_universe"] == 1
-    assert {x["asset_id"] for x in ledger} == {"A"} and ledger[0]["has9"] == "0" and ledger[0]["chg90"] == "10.00", "the panel's changes, in percent"
+    assert "blended and calibrated to" in r["reason"] and "logistic" in r["reason"] and "((" not in r["reason"] and "outside_model" not in r["avoid_flags"]
+    assert stats["model"] == "v0.2" and stats["model_universe"] == 2 and stats["outside_universe"] == 1 and stats["listed_outside"] == 1
+    led = {x["asset_id"]: x for x in ledger}
+    assert set(led) == {"A", "D"} and led["A"]["has9"] == "0" and led["A"]["chg90"] == "10.00", "the panel's changes, in percent"
+    # D (Sid 2026-10-28): outside the model's universe, scored by v0.1's cells in tonight's (v0.2) regime -- cards.csv's breadth here is 0, flat
+    d = [x for x in listed if x["asset_id"] == "D"][0]
+    assert d["avoid_flags"] == "outside_model" and d["model"] == "v0.2" and d["regime"] == "warm" and d["breadth"] == "0.380" and d["cell"] == "warm|vintage|500-2k|2-3"
+    assert d["p_win_180"] == f"{bl.shrunk_rate(500, 0.40, 0.42):.3f}" and d["p_cells_180"] == "" and d["p_logit_180"] == "", "the v0.1 score, no v0.2 parts"
+    assert d["reason"].startswith("outside the v0.2 model: 2 clean PSA 10 sales on record (it is fitted on cards with 4+), so scored by v0.1's cells and cuts, not calibrated; base 41%"), d["reason"]
+    assert "outside_model" in led["D"]["flags"].split() and led["D"].get("has9", "") == "" and led["D"]["chg90"] == "", "no PSA 9 terms; cards.csv has no 90 d change here"
     warm = [card(asset_id=f"W{i}", price_chg_30d_pct="10" if i < 3 else "0") for i in range(10)]    # cards.csv breadth 30%: warm
     l1, _, s1 = bl.compute(warm, {}, rates(), {}, date(2026, 10, 26), "now")
     assert s1["model"] == bl.MODEL and l1 and all(r["model"] == bl.MODEL and "p_cells_180" not in r for r in l1), "no model: v0.1 as before"
