@@ -100,7 +100,13 @@ every TCGplayer English single no row is matched to.
                     status is ok), so `printings` is as full as it gets; 0 when the product has only
                     TCGCSV's priced printings so far (the SKU list not fetched yet, or TCGplayer answered
                     404), so the list can still grow and an id PokeSniper keys on it can still split;
-                    blank for a row with no TCGplayer product. The last column (2026-10-17)
+                    blank for a row with no TCGplayer product (2026-10-17)
+  use_asset_id      on a linked row: the ONE alt.xyz row to use for its tcgplayer_id + print_run, which
+                    several rows share when alt.xyz keeps the card as duplicate records (Sid, 2026-10-28:
+                    most PSA 10 pop, then most sales). Its own asset_id when it is the only row or the
+                    winner, the winner's on the rows that lose. Blank on a tie, and on every row that
+                    isn't linked. See use_rows().
+                    The last column (2026-10-28)
   The image is IMAGE_URL with the tcgplayer_id (no column: it is the same pattern on every row,
   and leaving it out keeps the file ~2.5 MB smaller); no tcgplayer_id, no image.
 
@@ -177,7 +183,8 @@ PROMO_PREFIX = re.compile(r"^(SWSH|SM|XY|BW|DP|HGSS|SVP|SV|MEP|ME)0*(\d+)$")
 CATALOG = HERE / "latest" / "card_catalog.csv"
 SETS = HERE / "latest" / "tcgplayer_sets.csv"
 CATALOG_COLS = ["asset_id", "tcgplayer_id", "status", "how", "name", "set", "set_source", "number", "rarity",
-                "year", "print_run", "printings", "card_type", "printings_complete"]   # printings_complete last (2026-10-17)
+                "year", "print_run", "printings", "card_type", "printings_complete",   # printings_complete 2026-10-17
+                "use_asset_id"]   # use_asset_id last (2026-10-28): new columns go at the end, PokeSniper reads by header
 SETS_COLS = ["group_id", "name", "published", "year", "year_source", "span_from", "span_to", "linked_cards", "note"]
 # Rows alt.xyz files as English that aren't English TCG cards, read off the unmatched rows of the
 # 2026-10-01 feed (checked only on rows that matched nothing): Japanese sets alt.xyz doesn't label
@@ -722,9 +729,13 @@ def build(feed=FEED, src=TCGCSV_DIR, out=OUT, report=None, characters=CHARACTERS
                 return groups[best[1]]["name"] if best[0] >= MIN_SHARE else ""
             year_of = {s["group_id"]: s["year"] for s in set_rows}
             cat_rows = catalog_rows(rows, decided, cands, by_number, unnumbered, skip, voted_set, year_of)
+            picks = use_rows(cat_rows, rows)
             write_csv(catalog, CATALOG_COLS, cat_rows)
             print(f"card_catalog: {len(cat_rows)} cards -> {catalog}  "
                   f"({dict(Counter(c['status'] for c in cat_rows))})")
+            print(f"  use_asset_id: {sum(picks.values())} product + print run pairs link 2+ alt.xyz rows, "
+                  f"{sum(picks.values()) - picks['tie']} named ({picks['pop']} by pop, {picks['sales']} by sales, "
+                  f"{picks['psa_rows']} by PSA rows), {picks['tie']} ties left blank")
     return out_rows
 
 
@@ -811,6 +822,60 @@ def catalog_rows(rows, decided, cands, by_number, unnumbered, skip, voted_set, y
                     "printings_complete": p["printings_complete"]})
     out.sort(key=lambda c: (c["asset_id"] == "", c["asset_id"], int(c["tcgplayer_id"] or 0)))
     return out
+
+
+def beats(a, b):
+    """The step by which alt.xyz row a wins over row b for one product + print run, or None.
+    a, b: (pop, sales), pop None when cards.csv's pop_at_grade is blank. Sid's rule (2026-10-28):
+      pop       more PSA 10 pop, only when both are known: blank is unknown, never 0
+      sales     else more clean PSA 10 sales (sales_total)
+      psa_rows  else, sales tied too, the row whose pop is known (0 included): alt.xyz has a PSA
+                population for that record, while a blank one has no PSA rows there at all"""
+    (pa, sa), (pb, sb) = a, b
+    if pa is not None and pb is not None and pa != pb:
+        return "pop" if pa > pb else None
+    if sa != sb:
+        return "sales" if sa > sb else None
+    return "psa_rows" if pa is not None and pb is None else None
+
+
+def use_rows(cat_rows, feed_rows):
+    """Fills use_asset_id on catalog rows (2026-10-28, PokeSniper PR #1: its resolver takes a product's
+    alt.xyz row only when exactly one is linked, so a card alt.xyz keeps as two records, e.g. Plasma
+    Freeze Glaceon #23 as 4cd26d54 pop 1 and 7ac250fb pop 5, went unpriced).
+    Keyed by tcgplayer_id + print_run, alt.xyz's own word for the printing (1st Edition, Shadowless,
+    Reverse Holo, blank): the same field PokeSniper narrows a product's links by for each printing it
+    splits a card into. Not by the printings column: that lists what TCGplayer sells, not which
+    printing each alt.xyz row is, and grows while printings_complete is 0. So a pick never crosses
+    print runs: a 1st Edition row and an Unlimited one are two cards, each with its own row.
+    The row that beats() every other row of the pair wins; none does (a tie, or a cycle: a beats b on
+    sales, b's pop is blank and it beats c on sales, c beats a on pop) = blank on every row of the
+    pair: never guess.
+    -> Counter of how each pair of 2+ rows was decided (pop | sales | psa_rows: the last step its
+    winner needed against any loser; tie)."""
+    def to_int(v):
+        return int(float(v)) if str(v or "").strip() else None
+    stats = {r["asset_id"]: (to_int(r.get("pop_at_grade")), to_int(r.get("sales_total")) or 0) for r in feed_rows}
+    pairs = defaultdict(list)
+    for c in cat_rows:
+        c["use_asset_id"] = ""
+        if c["status"] == "linked":
+            pairs[(c["tcgplayer_id"], c["print_run"])].append(c)
+    steps, counts = ("pop", "sales", "psa_rows"), Counter()
+    for rows in pairs.values():
+        if len(rows) == 1:
+            rows[0]["use_asset_id"] = rows[0]["asset_id"]
+            continue
+        for c in rows:
+            wins = [beats(stats[c["asset_id"]], stats[o["asset_id"]]) for o in rows if o is not c]
+            if all(wins):
+                counts[max(wins, key=steps.index)] += 1
+                for o in rows:
+                    o["use_asset_id"] = c["asset_id"]
+                break
+        else:
+            counts["tie"] += 1
+    return counts
 
 
 if __name__ == "__main__":

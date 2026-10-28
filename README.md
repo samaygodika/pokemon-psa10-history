@@ -224,8 +224,8 @@ from instead of PokemonPriceTracker: one row per card, every English TCG row of 
 plus every TCGplayer English single no row is matched to (so a TCGplayer product can appear on
 several `linked` rows: 6,724 are the Normal and Reverse Holo rows of one product, told apart by
 `print_run`, and 1,276 are alt.xyz duplicate records with the same `print_run`, e.g. Expedition
-Bulbasaur #94 as `0cd601e4` pop 206 and `edd1e397` pop 8, both Reverse Holo; counted 2026-10-20,
-a `duplicate_of` marker is on the list), each with a `status` that says what
+Bulbasaur #94 as `0cd601e4` pop 206 and `edd1e397` pop 8, both Reverse Holo; counted 2026-10-20;
+`use_asset_id` names the one to use, see below), each with a `status` that says what
 it is. The image of a row with a `tcgplayer_id` is
 `https://tcgplayer-cdn.tcgplayer.com/product/<tcgplayer_id>_in_800x800.jpg`; no id, no image.
 
@@ -242,7 +242,37 @@ it is. The image of a row with a `tcgplayer_id` is
 | `print_run` | `1st Edition`, `Shadowless`, `Reverse Holo` or blank, from alt.xyz's name |
 | `printings` | every printing TCGplayer sells the product in, `\|`-separated, as TCGCSV's prices name them (`1st Edition Holofoil\|Unlimited Holofoil`, `Holofoil\|Reverse Holofoil`, `Normal`): the same list as PPT's `printingsAvailable`. Blank: no TCGplayer product, or TCGplayer lists no printing for it. Two sources, unioned: TCGCSV's prices (a printing only while it has price data) and, since 2026-10-08, TCGplayer's own SKU list per product (`history/tcgplayer_sku_printings.csv`, `history/tcgplayer_skus.py`), which also has print runs nobody sells raw (Neo Destiny 1st Edition Shining Mewtwo) and keeps a printing whose price data comes and goes. A product the SKU list hasn't reached yet (the newest sets, filled in over the next nights) has the TCGCSV list only (from 2026-10-05) |
 | `card_type` | `Pokemon`, `Trainer` or `Energy`, from TCGplayer's "Card Type" (a Pokémon's energy type, or Supporter / Item / Stadium / Tool / Basic Energy...). Blank: no TCGplayer product, or TCGplayer gives no type that places it (from 2026-10-05) |
-| `printings_complete` | `1` when TCGplayer's own SKU list for the product has been read (`history/tcgplayer_sku_printings.csv`, status ok), so `printings` is as full as it gets; `0` when the product has only TCGCSV's priced printings so far (the SKU list not fetched yet, or TCGplayer answered 404 for it), so the list can still grow and a card id keyed on it can still split or un-split; blank for a row with no TCGplayer product. On 2026-10-17 every row with a `tcgplayer_id` was `1` (the cache covers all 37,077); new products start at `0` and turn `1` within a few nights. The last column (2026-10-17) |
+| `printings_complete` | `1` when TCGplayer's own SKU list for the product has been read (`history/tcgplayer_sku_printings.csv`, status ok), so `printings` is as full as it gets; `0` when the product has only TCGCSV's priced printings so far (the SKU list not fetched yet, or TCGplayer answered 404 for it), so the list can still grow and a card id keyed on it can still split or un-split; blank for a row with no TCGplayer product. On 2026-10-17 every row with a `tcgplayer_id` was `1` (the cache covers all 37,077); new products start at `0` and turn `1` within a few nights (2026-10-17) |
+| `use_asset_id` | on a `linked` row: the asset id of the ONE alt.xyz row to use for this row's `tcgplayer_id` + `print_run`. Its own `asset_id` when it is the only row linked there (24,431 of the 25,737 pairs on 2026-10-28) or the winner; the winner's id on the rows that lose (a duplicate record or a variant print alt.xyz names no differently); blank on a tie, and on every row that isn't `linked`. Rule and counts below. The last column (2026-10-28) |
+
+**`use_asset_id`: one alt.xyz row per product + print run (2026-10-28, Sid's rule on PokeSniper PR
+#1).** alt.xyz sometimes keeps one card as two or more records, and the matcher links each of them to
+the same TCGplayer product, so a resolver that takes a product's row only when exactly one is linked
+leaves the card unpriced (regular Plasma Freeze Glaceon #23 is `4cd26d54` pop 1 and `7ac250fb`
+pop 5). The pair is `tcgplayer_id` + `print_run`, alt.xyz's own word for the printing, the field
+PokeSniper already narrows a product's links by for each printing it splits a card into (1st Edition
+→ `1st Edition`, Unlimited → blank or `Shadowless`, Holo → blank, Reverse Holo → `Reverse Holo`);
+not `printings`, which lists what TCGplayer sells, not which printing each alt.xyz row is, and can
+still grow while `printings_complete` is `0`. So a pick never crosses print runs. Within a pair the
+row that beats every other row head to head wins:
+
+1. more PSA 10 pop (`pop_at_grade`), only when both pops are known: blank is unknown, never 0;
+2. else more clean PSA 10 sales (`sales_total`);
+3. else, sales tied too, the row with a known pop (`0` included) over a blank one: alt.xyz has PSA
+   rows for that record and none for the other.
+
+No row beats every other (a full tie, or a cycle that a blank pop can create) → blank on every row
+of the pair. On the 2026-10-28 feed: 1,306 pairs link 2+ rows (2,738 rows); 1,250 get a row (302 on
+pop; 787 on sales: 783 against a record whose pop is blank, 4 pop ties; 161 on step 3), 56 are ties,
+and every tie has 0 sales on all its rows. All 1,071 pairs with a clean sale on any row get a row
+(245 have clean sales on 2+ rows); in 4 the winner is an unpriced row with more pop than the priced
+one (EX Emerald Seviper #20 Reverse Holo: pop 3 / 0 sales over pop 2 / 1 sale). Many 2+-priced
+pairs are a card plus a variant print linked to the same product (Staff prerelease, theme deck,
+error, Ultra Premium Collection metal), where most pop picks the regular print: Celebrations
+Classic Collection Charizard takes `1e1e283f` (pop 36,672) over the UPC metal card `e82c66cb` (pop
+663, $15k). The pick is only as good as the link, so a wrong link can win: the Shadowless Yellow
+Cheeks Pikachu `361fb685` (pop 1,125) is linked to TCGplayer's "Pikachu (Red Cheeks)" (147229) and
+outpops the Red Cheeks Shadowless row `d6ffb0a5` (843).
 
 On the 2026-10-01 feed: 40,749 rows: 26,566 linked, 1,784 alt.xyz-only (775 with PSA 10
 copies; 928 have no PSA rows on alt.xyz), 2,667 not English (40 of 40 checked by hand were

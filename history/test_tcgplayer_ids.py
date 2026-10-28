@@ -108,7 +108,19 @@ ALT = [  # asset_id, year, set, variety, subject, number, expected tcgplayer_id 
     ("sd1", "2022", "Pokemon Black Star Promo", "Holo", "Special Delivery Charizard", "075", 71),   # alt drops "SWSH"
     ("jpp", "2015", "Pokemon XY Promo", "", "Pikachu", "107XYP", None),     # Japanese promo numbering
     ("tm1", "2000", "Pokemon Movie", "", "Three Treasures", "52", None),    # Topps movie card, not the TCG
+    # alt.xyz duplicate records of one card (use_asset_id, 2026-10-28): each links the same product + print run
+    ("bs1b", "1999", "Pokemon Base Set", "", "Charizard", "4", 1),
+    ("bs2b", "1999", "Pokemon Base Set", "", "Blastoise", "2", 2),
+    ("bs3b", "1999", "Pokemon Base Set", "", "Venusaur", "15", 3),
+    ("sv2b", "2023", "Pokemon Scarlet and Violet 151", "", "Mewtwo", "150", 23),
+    ("sh1", "1999", "Pokemon Base Set", "Shadowless", "Charizard", "4", 11),   # fe1's product, another print run
 ]
+# cards.csv's pop_at_grade (blank = alt.xyz has no PSA rows: unknown) and sales_total; other rows ("", 0)
+POPS = {"bs1": ("12", 3), "bs1b": ("12", 7),       # pop tie, sales decide
+        "bs2": ("40", 2), "bs2b": ("", 5),         # blank pop is unknown, not 0: sales decide
+        "bs3": ("0", 0), "bs3b": ("", 0),          # no sales either side: the row with PSA rows
+        "sv2": ("", 0), "sv2b": ("", 0),           # nothing tells them apart: no row
+        "fe1": ("5", 1), "sh1": ("100", 50)}       # 1st Edition and Shadowless: two printings, never compared
 
 
 def test_build():
@@ -166,12 +178,40 @@ def test_catalog():
         # a single with no number is listed, never matched; sealed product and code cards aren't (2026-10-05)
         assert (only["91"]["how"], only["91"]["number"], only["91"]["name"]) == ("unnumbered", "", "Pikachu")
         assert "92" not in only and "93" not in only, "sealed deck / digital code card"
-        # printings_complete (2026-10-17), the last column: 0 with no SKU cache row (this fixture has none),
+        # printings_complete (2026-10-17): 0 with no SKU cache row (this fixture has none),
         # blank for a row with no TCGplayer product; on TCGplayer-only rows too
-        assert list(rows[0].keys())[-1] == "printings_complete"
+        assert list(rows[0].keys())[-2:] == ["printings_complete", "use_asset_id"], "new columns only ever appended"
         assert by_asset["bs1"]["printings_complete"] == "0" and only["81"]["printings_complete"] == "0"
         assert by_asset["mw1"]["printings_complete"] == "" and by_asset["jp1"]["printings_complete"] == ""
+        # use_asset_id (2026-10-28, Sid): the one alt.xyz row per product + print run, on every row of the pair
+        use = {a: r["use_asset_id"] for a, r in by_asset.items()}
+        assert use["bs1"] == use["bs1b"] == "bs1b", "same pop: more sales wins"
+        assert use["bs2"] == use["bs2b"] == "bs2b", "blank pop is unknown, not 0: 40 vs blank goes to sales"
+        assert use["bs3"] == use["bs3b"] == "bs3", "no sales either side: the row alt.xyz has PSA rows for"
+        assert use["sv2"] == use["sv2b"] == "", "a tie names no row"
+        assert (use["fe1"], use["sh1"]) == ("fe1", "sh1"), "one product, two print runs: each its own row"
+        assert use["jg1"] == "jg1" and use["sv3"] == "sv3", "the only row of its product + print run"
+        assert use["mw1"] == use["ch1"] == use["jpp"] == "", "not linked: blank"
+        assert all(r["use_asset_id"] == "" for r in only.values()), "TCGplayer-only: no alt.xyz row"
     print("catalog ok")
+
+
+def test_use_rows():
+    """use_rows() on its own: three duplicate records, and a cycle nobody wins."""
+    def run(stats):
+        feed = [{"asset_id": a, "pop_at_grade": p, "sales_total": str(s)} for a, (p, s) in stats.items()]
+        cat = [{"asset_id": a, "status": "linked", "tcgplayer_id": "7", "print_run": ""} for a in stats]
+        return t.use_rows(cat, feed), {c["asset_id"]: c["use_asset_id"] for c in cat}
+    # Plasma Freeze Glaceon #23 (10-28): pop 1 / 3 sales and pop 5 / 6 sales, plus a stub with no PSA rows
+    counts, use = run({"4cd26d54": ("1", 3), "7ac250fb": ("5", 6), "stub": ("", 0)})
+    assert set(use.values()) == {"7ac250fb"} and counts == {"sales": 1}, (counts, use)
+    # a beats b on sales, b (blank pop) beats c on sales, c beats a on pop: no row beats every other
+    counts, use = run({"a": ("5", 9), "b": ("", 4), "c": ("7", 1)})
+    assert set(use.values()) == {""} and counts == {"tie": 1}, (counts, use)
+    assert t.beats((5, 0), (1, 9)) == "pop" and t.beats((1, 9), (5, 0)) is None, "pop first, both known"
+    assert t.beats((3, 0), (None, 0)) == "psa_rows" and t.beats((None, 0), (3, 0)) is None
+    assert t.beats((0, 4), (None, 2)) == "sales", "pop 0 vs blank: not comparable, sales decide"
+    print("use rows ok")
 
 
 def test_card_type():
@@ -261,9 +301,10 @@ def build_fixture(d):
     feed, chars, out = d / "cards.csv", d / "characters.csv", d / "out.csv"
     with open(feed, "w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["asset_id", "year", "set", "variety", "subject", "card_number", "card_name"])
+        w.writerow(["asset_id", "year", "set", "variety", "subject", "card_number", "card_name", "pop_at_grade", "sales_total"])
         for a, year, s, v, subj, num, _ in ALT:
-            w.writerow([a, year, s, v, subj, num, " ".join(x for x in (year, s, v, subj, f"#{num}" if num else "") if x)])
+            w.writerow([a, year, s, v, subj, num, " ".join(x for x in (year, s, v, subj, f"#{num}" if num else "") if x),
+                        *POPS.get(a, ("", 0))])
     chars.write_text("character\n" + "\n".join(["Charizard", "Blastoise", "Venusaur", "Scyther", "Mew", "Mewtwo", "Nidorina",
                                                 "Wartortle", "Ampharos", "Unown", "Unown X"]) + "\n")
     cat, sets = d / "card_catalog.csv", d / "tcgplayer_sets.csv"
@@ -277,6 +318,7 @@ if __name__ == "__main__":
     test_qualifiers()
     test_build()
     test_catalog()
+    test_use_rows()
     test_card_type()
     test_set_years()
     test_not_english()
