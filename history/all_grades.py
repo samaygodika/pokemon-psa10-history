@@ -71,6 +71,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 import flags  # noqa: E402
 import metrics  # noqa: E402
+import flagged_sales  # noqa: E402
 from ingest import GRADE_POPS, POP_GRADES, pop_col  # noqa: E402
 
 LATEST = HERE.parent / "latest" / "all_grades"
@@ -101,8 +102,10 @@ def load_grade_pops(store, today):
 
 
 def load_sales(store, assets):
-    """{grade: clean_grade(...)} over the store for these assets at every grade of GRADES (one pass)."""
+    """{grade: clean_grade(...)} over the store for these assets at every grade of GRADES (one pass). A sale Sid
+    flagged (history/flagged_sales.csv) gets the status FLAGGED, as in metrics.load_sales (2026-10-28)."""
     raw = {g: defaultdict(list) for g in GRADES}
+    flags = flagged_sales.load(store)
     for p in sorted((store / "sales").glob("*.csv")):
         with open(p, newline="", encoding="utf-8") as f:
             for s in csv.DictReader(f):
@@ -114,8 +117,11 @@ def load_sales(store, assets):
                     continue
                 if price <= 0:
                     continue
+                status = s.get("skipped_reason") or "ok"
+                if flags and flagged_sales.match(flags, s["asset_id"], s["grade"], s["date"], price, s.get("url") or ""):
+                    status = flagged_sales.FLAGGED
                 raw[s["grade"]][s["asset_id"]].append((metrics.d(s["date"]), price, s.get("source") or "", s.get("sale_type") or "",
-                                                       s.get("skipped_reason") or "ok", s.get("url") or ""))
+                                                       status, s.get("url") or ""))
     return {g: metrics.clean_grade(g, raw[g]) for g in GRADES}
 
 

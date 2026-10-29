@@ -51,6 +51,11 @@ jobs:
           # server + its token. Leaves the verify ~300 fewer lookups on the days it runs.
           WATCHLIST_URL: ${{ secrets.WATCHLIST_URL }}
           WATCHLIST_TOKEN: ${{ secrets.WATCHLIST_TOKEN }}
+          # Flagged sales (history/flagged_sales.py, 2026-10-28): Sid's flagged_sales.csv sits next to
+          # watchlist.csv, so by default it is read from WATCHLIST_URL with the file name swapped, with
+          # WATCHLIST_TOKEN. These two override that only when they exist.
+          FLAGGED_SALES_URL: ${{ secrets.FLAGGED_SALES_URL }}
+          FLAGGED_SALES_TOKEN: ${{ secrets.FLAGGED_SALES_TOKEN }}
           WATCHLIST_EBAY_BUDGET: "360"
           # Sale title check (history/sale_title_check.py, 2026-10-20): eBay's title of every held-back
           # eBay sale, this many lookups a day off the same 5,000 (a smoke run asks 20); 0 skips it.

@@ -323,6 +323,11 @@ Sale completion checks (2026-10-20, Sid's "Samay Work" list), appended after tho
                          older price with "held back"). Out of every number like NOT_PAID, not
                          a state of a listed sale (last_sale_status looks past it), carried in
                          recent_sales/ with status REMOVED so the dropdown can show it.
+  FLAGGED              = a sale Sid flagged as bad in PokeSniper (wrong card, lot, shill or unpaid;
+                         history/flagged_sales.py, 2026-10-28): treated exactly like REMOVED (out
+                         of every number, never the newest listed sale), carried in recent_sales/
+                         with status FLAGGED. Matched on asset, grade, day, price to the cent and
+                         URL when both have one; the store itself keeps alt.xyz's own status.
 
 "today" is the data date (the newest daily file), not the wall clock, so
 rebuilding latest/ from the same history always gives the same file.
@@ -340,6 +345,7 @@ from urllib.parse import urlparse
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ingest import utc_iso, when   # noqa: E402  (the store's UTC time form; CardHobby ends arrive as -04:00)
 from ebay_verify import item_id as ebay_item_id   # noqa: E402  (the eBay item id in a sale URL, for the title check)
+import flagged_sales   # noqa: E402  (Sid's flagged sales, 2026-10-28)
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
@@ -405,7 +411,7 @@ PSA9_WINDOW_COLS = ([f"psa9_price_chg_{w}_pct" for w in ("60d", "90d", "180d", "
 SINGLE_COLS = ["last_sale_single", "psa9_last_sale_single", "last_sale_status", "psa9_last_sale_status"]   # 2026-10-18, the last columns
 SALE_STATUS = {"ok": "completed", "PENDING": "pending", "PAYMENT_INITIATED": "pending", "NOT_PAID": "unpaid", "RELISTED": "relisted"}
 NOT_COMPLETED = ("PENDING", "PAYMENT_INITIATED", "NOT_PAID", "RELISTED")   # same-day tie order: the state the user most needs first
-NOT_LISTED = ("REMOVED",)   # ingest's mark for a sale alt.xyz dropped outright: not listed, so never the newest listed sale (2026-10-20)
+NOT_LISTED = ("REMOVED", flagged_sales.FLAGGED)   # ingest's mark for a sale alt.xyz dropped outright: not listed, so never the newest listed sale (2026-10-20); a sale Sid flagged, the same (2026-10-28)
 NEWER_COLS = ["last_sale_newer_price", "last_sale_newer_date", "psa9_last_sale_newer_price", "psa9_last_sale_newer_date"]   # 2026-10-20
 TITLE_COLS = ["last_sale_title_check", "psa9_last_sale_title_check"]   # 2026-10-20, the last columns
 TITLE_CHECKS = "sale_title_checks.csv"   # history/sale_title_check.py's answers: (item_id, asset_id, grade) -> status
@@ -470,8 +476,10 @@ def load_sales(store):
     held_high = {asset_id: [(date, price, source), ...]} the sales the outlier
     filter still holds back on the high side (drop_outliers); single_high =
     {asset_id: {(date, price), ...}} the subset of those at which the filter was in
-    its stale or thin band (last_sale_single, 2026-10-18)."""
+    its stale or thin band (last_sale_single, 2026-10-18). A sale Sid flagged (history/flagged_sales.csv)
+    gets the status FLAGGED (2026-10-28)."""
     raw = {g: defaultdict(list) for g in GRADES}
+    flags, hit = flagged_sales.load(store), set()
     for p in sorted((store / "sales").glob("*.csv")):
         with open(p, newline="", encoding="utf-8") as f:
             for s in csv.DictReader(f):
@@ -483,7 +491,14 @@ def load_sales(store):
                     continue
                 if price <= 0:
                     continue
-                raw[s["grade"]][s["asset_id"]].append((d(s["date"]), price, s.get("source") or "", s.get("sale_type") or "", s.get("skipped_reason") or "ok", s.get("url") or ""))
+                status = s.get("skipped_reason") or "ok"
+                f = flags and flagged_sales.match(flags, s["asset_id"], s["grade"], s["date"], price, s.get("url") or "")
+                if f:
+                    status = flagged_sales.FLAGGED
+                    hit.add((s["asset_id"], s["grade"], f))
+                raw[s["grade"]][s["asset_id"]].append((d(s["date"]), price, s.get("source") or "", s.get("sale_type") or "", status, s.get("url") or ""))
+    if flags:
+        print(f"  flagged sales: {len(hit)} of {flagged_sales.n_flags(flags)} flag(s) matched a stored PSA 10 / 9 sale", file=sys.stderr)
     return {g: clean_grade(g, raw[g]) for g in GRADES}
 
 

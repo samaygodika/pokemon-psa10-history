@@ -51,6 +51,7 @@ from datetime import date
 from pathlib import Path
 
 from metrics import drop_outliers
+import flagged_sales
 
 HERE = Path(__file__).resolve().parent
 MIN_TOTAL_SALES = 4          # the loose panel (panel.py --min-sales-180 1 --min-sales-60 0 --min-total-sales 4)
@@ -74,8 +75,10 @@ def isnan(x):
 
 
 def load_sales(store=HERE, grades=(10.0, 9.0)):
-    """{grade: {asset_id: (day ordinals, prices, is_bin, is_ebay)}} of the clean sales, in date order."""
+    """{grade: {asset_id: (day ordinals, prices, is_bin, is_ebay)}} of the clean sales, in date order. A sale Sid
+    flagged (history/flagged_sales.csv) is not one (2026-10-28)."""
     raw = {g: defaultdict(list) for g in grades}
+    flags = flagged_sales.load(store)
     for p in sorted((Path(store) / "sales").glob("*.csv")):
         with open(p, newline="", encoding="utf-8") as f:
             for r in csv.DictReader(f):
@@ -86,6 +89,8 @@ def load_sales(store=HERE, grades=(10.0, 9.0)):
                     price = float(r["price"])
                     d = date.fromisoformat(r["date"][:10])
                 except (TypeError, ValueError):
+                    continue
+                if flags and flagged_sales.match(flags, r["asset_id"], r["grade"], d, price, r.get("url") or ""):
                     continue
                 if g in raw and price > 0:
                     raw[g][r["asset_id"]].append((d, price, r.get("source") or "", r.get("sale_type") or ""))

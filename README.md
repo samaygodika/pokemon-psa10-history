@@ -74,7 +74,8 @@ the server's `GET /api/samay-data/series?ids=…` reads one shard per lookup.
 `latest/recent_sales/<xx>.csv` holds each card's last 10 PSA 10 sales, newest
 first, including sales alt.xyz flags (`status` = ok / RELISTED / NOT_PAID /
 PENDING …, or REMOVED when alt.xyz has since dropped the sale from the card outright, see
-*Ingest* below; 2026-10-20) and sales the filter is holding back (`outlier` = 1), with the sale
+*Ingest* below; 2026-10-20; or FLAGGED when Sid flagged it as bad in PokeSniper, see *Flagged
+sales* below; 2026-10-28) and sales the filter is holding back (`outlier` = 1), with the sale
 URL — `GET /api/samay-data/recent-sales?ids=…` for the app's price dropdown. The eight columns never change (PokeSniper reads everything after the 7th comma as the URL); when `cards.csv` says `last_sale_single` = 1, the `outlier` = 1 row whose date and price equal `last_sale_*` is that single sale (2026-10-18).
 `latest/recent_sales_psa9/<xx>.csv` is the same for PSA 9 sales: the same eight columns
 (`asset_id, date, price, source, sale_type, status, outlier, url`), each card's last 10 PSA 9
@@ -151,7 +152,7 @@ last column `pops_by_grade`), the sales land in the store like any other, and:
   cover those two).
 - `latest/all_grades/sales.csv`: **every** sale alt.xyz lists for those cards at every grade,
   newest first within a card and grade: `asset_id`, `grade`, `date`, `price`, `source`,
-  `sale_type`, `status` (`ok`, alt.xyz's `RELISTED` / `NOT_PAID` / `PENDING`, or `REMOVED`),
+  `sale_type`, `status` (`ok`, alt.xyz's `RELISTED` / `NOT_PAID` / `PENDING`, `REMOVED`, or `FLAGGED`),
   `outlier` (1 = an `ok` sale the filter holds back), `url`. PWCC mirror copies dropped, like
   `recent_sales/`. The first run collects each grade's full history (alt.xyz returns every sale).
 - `latest/all_grades/summary.json`: cards, grade rows, sales, the pops' date range,
@@ -688,7 +689,8 @@ read through alt.xyz's mirror here; a direct pull plugs in as another source onc
 
 Input: PokeSniper's `watchlist.csv` (`asset_id, grade, kind, profiles`), read from
 `WATCHLIST_FILE` (a local path) or `WATCHLIST_URL` with `WATCHLIST_TOKEN` as a bearer token
-(a GitHub contents-API URL returns the raw file; nothing else of that repository is read).
+(a GitHub contents-API URL returns the raw file; nothing else of that repository is read but
+`flagged_sales.csv` next to it, see *Flagged sales*).
 **Off in Actions until the repository secrets `WATCHLIST_URL` and `WATCHLIST_TOKEN` exist**
 (already wired in `.github/workflows/ebay-verify.yml`): either
 `https://api.github.com/repos/<owner>/<repo>/contents/watchlist.csv` plus a classic personal
@@ -696,6 +698,29 @@ access token with the `repo` scope (a fine-grained token cannot reach another us
 repository), or a token-protected URL served by PokeSniper's own server plus its token.
 Locally: `WATCHLIST_FILE=watchlist.csv python3 history/watchlist_listings.py` (keys from
 `~/.ebay_keys`), or `--log hits.tsv` to see every eBay hit with its accept/refuse reason.
+
+### Flagged sales (Sid's bad-sale flags, 2026-10-28)
+
+PokeSniper's owner can flag a sale in any "last 10 sales" list as bad (wrong card, wrong grade,
+lot, shill or unpaid, other). The app exports the list to its backup repository as
+`flagged_sales.csv` (`asset_id, grade, date, price, url, reason, note, flagged_at`), next to
+`watchlist.csv`, every 6 hours when it changes. `history/flagged_sales.py fetch` reads it (by
+default from `WATCHLIST_URL` with the file name swapped, with `WATCHLIST_TOKEN`; or
+`FLAGGED_SALES_URL` / `FLAGGED_SALES_TOKEN`, or `FLAGGED_SALES_FILE`) and writes
+`history/flagged_sales.csv`: only `asset_id, grade, date, price, url, flagged_at`, because this
+repository is public, so the reason and note stay in his. `nightly/run_ebay_verify.sh` fetches it
+first (07:15 UTC daily) and commits it; a fetch that fails keeps the flags on record, and a
+changed file alone is reason enough for that run to rebuild `latest/` and commit.
+
+A stored sale matches a flag on Sid's own rule: same asset, same grade, same day, same price to
+the cent, and the same URL when both have one. `metrics.py` and `all_grades.py` give a matched sale
+the status **FLAGGED**, treated exactly like REMOVED: out of every number (`clean_last_sale_*`,
+the % changes, `cap_price`, volumes, `series/`, `clean_sales/`), never the newest listed sale
+for `last_sale_*` / `last_sale_status`, and listed in `recent_sales/` with status FLAGGED. The
+v0.2 buy list's features (`history/buy_features.py`) skip it too, and the v0.1 list reads
+`cards.csv`. The store keeps alt.xyz's own status, so unflagging in the app brings the sale back
+at the next fetch. Cards.csv picks a flag up the morning after Sid's export (the eBay verify
+run), the buy list at the next nightly.
 
 ### Fanatics Collect Buy Nows, read directly (2026-10-15)
 

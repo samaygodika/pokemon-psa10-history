@@ -4,11 +4,17 @@
 # .github/workflows/ebay-verify.yml just after eBay's quota reset (07:00 UTC); ~4,800 lookups,
 # ~20-30 min. See history/ebay_verify.py for which listings and what the answers mean.
 #
-#   nightly/run_ebay_verify.sh                         # [watchlist sweep ->] [title check ->] check -> apply -> metrics -> commit
+#   nightly/run_ebay_verify.sh                         # [flagged sales ->] [watchlist sweep ->] [title check ->] check -> apply -> metrics -> commit
 #   EBAY_BUDGET=50 NO_COMMIT=1 nightly/run_ebay_verify.sh   # smoke test: 50 lookups, no commit
 #
 # Env: EBAY_CLIENT_ID / EBAY_CLIENT_SECRET (or ~/.ebay_keys), EBAY_BUDGET (4800), EBAY_WORKERS (4),
 # NO_COMMIT. Without keys it does nothing and exits 0.
+#
+# Flagged sales (2026-10-28, history/flagged_sales.py): runs first when FLAGGED_SALES_FILE /
+# FLAGGED_SALES_URL or WATCHLIST_URL is set: Sid's flagged_sales.csv (the sales he flagged as bad in
+# PokeSniper, next to watchlist.csv in his backup repo, same token) -> history/flagged_sales.csv,
+# which metrics.py, all_grades.py and the buy list read. A failure keeps the flags on record. A
+# changed file alone is reason enough to rebuild and commit.
 #
 # Watchlist sweep (2026-10-15, history/watchlist_listings.py): runs first when WATCHLIST_FILE or
 # WATCHLIST_URL (+ WATCHLIST_TOKEN) is set, writes latest/watchlist_listings.csv (+ .summary.json)
@@ -31,6 +37,18 @@ LOG="$OUT/run.log"
 exec > >(tee -a "$LOG") 2>&1
 echo "=== ebay verify $STAMP started $(date -u '+%F %T') ==="
 $PY history/store.py pull   # history/sales + daily from the release (history/store.py, 2026-10-17): metrics reads them; STORE_MODE=local skips it
+
+FLAG_NOTE=""
+if [ -n "${FLAGGED_SALES_FILE:-}${FLAGGED_SALES_URL:-}${WATCHLIST_URL:-}" ]; then
+  echo "--- flagged sales ---"
+  if $PY history/flagged_sales.py fetch --out "$OUT"; then
+    [ -f history/flagged_sales.csv ] && cp history/flagged_sales.csv "$OUT/"   # survives the re-apply below
+    FLAG_NOTE="; $($PY -c 'import json,sys;print(json.load(open(sys.argv[1]))["note"])' "$OUT/flagged_sales.json")"
+  else
+    echo "flagged sales FAILED (exit $?), the flags on record stay"
+  fi
+fi
+FLAGS_CHANGED=$(git status --porcelain -- history/flagged_sales.csv)
 
 VERIFY_BUDGET=${EBAY_BUDGET:-4800}
 SWEEP_NOTE=""
@@ -63,7 +81,7 @@ if [ "${TITLE_CHECK_BUDGET:-400}" != "0" ]; then
 fi
 
 $PY history/ebay_verify.py check --out "$OUT" --budget "$VERIFY_BUDGET" --workers "${EBAY_WORKERS:-4}"
-if [ ! -s "$OUT/ebay_results.csv" ] && [ ! -s "$OUT/watchlist_listings.csv" ] && [ ! -s "$OUT/title_results.csv" ]; then echo "=== no answers, nothing to apply ==="; exit 0; fi
+if [ ! -s "$OUT/ebay_results.csv" ] && [ ! -s "$OUT/watchlist_listings.csv" ] && [ ! -s "$OUT/title_results.csv" ] && [ -z "$FLAGS_CHANGED" ]; then echo "=== no answers, nothing to apply ==="; exit 0; fi
 [ -s "$OUT/ebay_results.csv" ] && $PY history/ebay_verify.py apply "$OUT"
 [ -s "$OUT/title_results.csv" ] && $PY history/sale_title_check.py apply "$OUT"
 echo "--- rebuild latest/ ---"
@@ -75,7 +93,7 @@ git config user.name "alt.xyz nightly"
 git config user.email "nightly@users.noreply.github.com"
 # the check's one-line summary from its status JSON ($OUT/ebay_verify.json, written by ebay_verify.py check
 # and apply), not a grep of the tee'd log (same set -e trap as above)
-SUMMARY=$($PY -c 'import json,sys;print(json.load(open(sys.argv[1]))["summary"])' "$OUT/ebay_verify.json")$SWEEP_NOTE$TITLE_NOTE
+SUMMARY=$($PY -c 'import json,sys;print(json.load(open(sys.argv[1]))["summary"])' "$OUT/ebay_verify.json")$SWEEP_NOTE$TITLE_NOTE$FLAG_NOTE
 $PY history/store.py push --note "ebay verify $STAMP"   # a no-op (this run never changes the store) unless the release moved: then exit 3, see nightly/commit_results.sh
 for attempt in 1 2 3; do
   $PY history/store.py stage   # latest/ + the history files that stay in git (never history/sales, history/daily)
@@ -96,6 +114,7 @@ for attempt in 1 2 3; do
   [ -s "$OUT/ebay_results.csv" ] && $PY history/ebay_verify.py apply "$OUT"
   [ -s "$OUT/title_results.csv" ] && $PY history/sale_title_check.py apply "$OUT"
   [ -s "$OUT/watchlist_listings.csv" ] && cp "$OUT/watchlist_listings.csv" "$OUT/watchlist_listings.summary.json" latest/
+  [ -f "$OUT/flagged_sales.csv" ] && cp "$OUT/flagged_sales.csv" history/
   $PY history/metrics.py
   $PY history/manifest.py   # last: sha256 / rows of every latest/ file into summary.json "files" + shard manifests
 done
