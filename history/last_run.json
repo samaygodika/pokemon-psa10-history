@@ -1,17 +1,17 @@
 {
- "day": "2026-10-30",
+ "day": "2026-10-31",
  "scope": "top60",
- "started_at": "2026-10-30T10:09:29+00:00",
+ "started_at": "2026-10-31T09:44:57+00:00",
  "scrape": {
-  "scope": 34702,
-  "ok": 34702,
+  "scope": 34744,
+  "ok": 34744,
   "failed": 0,
   "skipped": 0,
-  "carried": 14535,
-  "listings_asked": 34702,
+  "carried": 14521,
+  "listings_asked": 34744,
   "listings_failed": 0,
-  "psa9_listings_asked": 33925,
-  "psa9_listings_failed": 3,
+  "psa9_listings_asked": 33957,
+  "psa9_listings_failed": 0,
   "all_grades_cards": 167,
   "all_grades_requests": 996,
   "company": "PSA",
@@ -20,53 +20,53 @@
    "9.0"
   ],
   "listings_only": false,
-  "passes": 2,
-  "started_at": "2026-10-30T10:36:26+00:00",
-  "finished_at": "2026-10-30T12:31:00+00:00",
+  "passes": 1,
+  "started_at": "2026-10-31T10:12:36+00:00",
+  "finished_at": "2026-10-31T12:43:42+00:00",
   "shards": {
    "shard-0": {
-    "scope": 17351,
-    "ok": 17351,
+    "scope": 17372,
+    "ok": 17372,
     "failed": 0,
     "skipped": 0,
-    "carried": 7231,
-    "passes": 2,
-    "listings_asked": 17351,
+    "carried": 7285,
+    "passes": 1,
+    "listings_asked": 17372,
     "listings_failed": 0,
-    "psa9_listings_asked": 16950,
-    "psa9_listings_failed": 1,
-    "all_grades_cards": 93,
-    "all_grades_requests": 585,
+    "psa9_listings_asked": 16980,
+    "psa9_listings_failed": 0,
+    "all_grades_cards": 80,
+    "all_grades_requests": 487,
     "company": "PSA",
     "grade": "10.0",
     "also_grades": [
      "9.0"
     ],
     "listings_only": false,
-    "started_at": "2026-10-30T10:36:26+00:00",
-    "finished_at": "2026-10-30T12:31:00+00:00"
+    "started_at": "2026-10-31T10:12:40+00:00",
+    "finished_at": "2026-10-31T12:43:42+00:00"
    },
    "shard-1": {
-    "scope": 17351,
-    "ok": 17351,
+    "scope": 17372,
+    "ok": 17372,
     "failed": 0,
     "skipped": 0,
-    "carried": 7304,
-    "passes": 2,
-    "listings_asked": 17351,
+    "carried": 7236,
+    "passes": 1,
+    "listings_asked": 17372,
     "listings_failed": 0,
-    "psa9_listings_asked": 16975,
-    "psa9_listings_failed": 2,
-    "all_grades_cards": 74,
-    "all_grades_requests": 411,
+    "psa9_listings_asked": 16977,
+    "psa9_listings_failed": 0,
+    "all_grades_cards": 87,
+    "all_grades_requests": 509,
     "company": "PSA",
     "grade": "10.0",
     "also_grades": [
      "9.0"
     ],
     "listings_only": false,
-    "started_at": "2026-10-30T10:36:30+00:00",
-    "finished_at": "2026-10-30T12:17:25+00:00"
+    "started_at": "2026-10-31T10:12:36+00:00",
+    "finished_at": "2026-10-31T12:02:21+00:00"
    }
   }
  },
@@ -78,29 +78,33 @@
   "scraped_pct": 100.0,
   "listings_failed_pct": 0.0,
   "psa9_listings_failed_pct": 0.0,
-  "judged_at": "2026-10-30T12:32:02+00:00"
+  "judged_at": "2026-10-31T12:44:50+00:00"
  },
  "alt": {
   "ok": true,
-  "listings": 5020,
-  "auctions": 3022,
-  "cards": 3597,
-  "started_at": "2026-10-30T12:32:03+00:00",
-  "finished_at": "2026-10-30T12:32:26+00:00"
+  "listings": 5456,
+  "auctions": 3386,
+  "cards": 3817,
+  "started_at": "2026-10-31T12:44:50+00:00",
+  "finished_at": "2026-10-31T12:45:22+00:00"
  },
  "fanatics": {
-  "ok": false,
-  "error": "FanaticsBudget: Fanatics Collect: request budget of 80 used up before PSA 9 Japanese years 2025..2002 (5) all prices",
-  "requests": 80,
+  "ok": true,
+  "requests": 40,
   "budget": 80,
+  "slices": 28,
+  "listings": 20318,
+  "matched": 14101,
+  "cards": 5672,
+  "index_estimate": 21054,
   "grades": [
    10,
    9
   ],
-  "started_at": "2026-10-30T12:32:26+00:00",
-  "finished_at": "2026-10-30T12:34:30+00:00",
-  "last_ok": "2026-10-29",
-  "failed_nights": 1
+  "started_at": "2026-10-31T12:45:22+00:00",
+  "finished_at": "2026-10-31T12:46:22+00:00",
+  "last_ok": "2026-10-31",
+  "failed_nights": 0
  },
- "finished_at": "2026-10-30T12:34:30+00:00"
+ "finished_at": "2026-10-31T12:46:22+00:00"
 }
