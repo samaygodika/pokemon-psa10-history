@@ -257,6 +257,8 @@ not `printings`, which lists what TCGplayer sells, not which printing each alt.x
 still grow while `printings_complete` is `0`. So a pick never crosses print runs. Within a pair the
 row that beats every other row head to head wins:
 
+0. (2026-11-02, Sid: "a row with sales always beat a row without ... since that's an actual price")
+   a row with clean PSA 10 sales over a row with none, whatever the pops;
 1. more PSA 10 pop (`pop_at_grade`), only when both pops are known: blank is unknown, never 0;
 2. else more clean PSA 10 sales (`sales_total`);
 3. else, sales tied too, the row with a known pop (`0` included) over a blank one: alt.xyz has PSA
@@ -266,14 +268,19 @@ No row beats every other (a full tie, or a cycle that a blank pop can create) â†
 of the pair. On the 2026-10-28 feed: 1,306 pairs link 2+ rows (2,738 rows); 1,250 get a row (302 on
 pop; 787 on sales: 783 against a record whose pop is blank, 4 pop ties; 161 on step 3), 56 are ties,
 and every tie has 0 sales on all its rows. All 1,071 pairs with a clean sale on any row get a row
-(245 have clean sales on 2+ rows); in 4 the winner is an unpriced row with more pop than the priced
-one (EX Emerald Seviper #20 Reverse Holo: pop 3 / 0 sales over pop 2 / 1 sale). Many 2+-priced
+(245 have clean sales on 2+ rows); in 4 the winner was an unpriced row with more pop than the priced
+one (EX Emerald Seviper #20 Reverse Holo: pop 3 / 0 sales over pop 2 / 1 sale), which step 0 turned
+around on 2026-11-02 (Seviper, EX Hidden Legends Chinchou #56, SM Charjabug #51, SM Bewear #112:
+those 4 pairs are the only picks it changed). Many 2+-priced
 pairs are a card plus a variant print linked to the same product (Staff prerelease, theme deck,
 error, Ultra Premium Collection metal), where most pop picks the regular print: Celebrations
 Classic Collection Charizard takes `1e1e283f` (pop 36,672) over the UPC metal card `e82c66cb` (pop
 663, $15k). The pick is only as good as the link, so a wrong link can win: the Shadowless Yellow
-Cheeks Pikachu `361fb685` (pop 1,125) is linked to TCGplayer's "Pikachu (Red Cheeks)" (147229) and
-outpops the Red Cheeks Shadowless row `d6ffb0a5` (843).
+Cheeks Pikachu `361fb685` (pop 1,125) was linked to TCGplayer's "Pikachu (Red Cheeks)" (147229) and
+outpopped the Red Cheeks Shadowless row `d6ffb0a5` (843). Fixed 2026-11-02: a product whose
+bracket gives a colour to something alt.xyz's name gives another colour ("Red Cheeks" vs "Yellow
+Cheeks") is never the variant pick, so `361fb685` links to the plain "Pikachu" (107055); that rule
+changed no other link.
 
 On the 2026-10-01 feed: 40,749 rows: 26,566 linked, 1,784 alt.xyz-only (775 with PSA 10
 copies; 928 have no PSA rows on alt.xyz), 2,667 not English (40 of 40 checked by hand were

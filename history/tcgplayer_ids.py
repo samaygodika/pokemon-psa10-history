@@ -103,7 +103,7 @@ every TCGplayer English single no row is matched to.
                     blank for a row with no TCGplayer product (2026-10-17)
   use_asset_id      on a linked row: the ONE alt.xyz row to use for its tcgplayer_id + print_run, which
                     several rows share when alt.xyz keeps the card as duplicate records (Sid, 2026-10-28:
-                    most PSA 10 pop, then most sales). Its own asset_id when it is the only row or the
+                    most PSA 10 pop, then most sales; 2026-11-02: a row with sales first). Its own asset_id when it is the only row or the
                     winner, the winner's on the rows that lose. Blank on a tie, and on every row that
                     isn't linked. See use_rows().
                     The last column (2026-10-28)
@@ -174,6 +174,8 @@ SET_IMPLIES = [(re.compile(r"^Prize Pack"), ({"play"}, {"prize", "pack"})),
                (re.compile(r"^Trick or Trade"), ({"trick", "trade"}, {"pokeween"}, {"halloween"})),
                (re.compile(r"^McDonald's"), ({"mcdonald"}, {"mcdonalds"}))]
 QUALIFIER_STOP = {"pokemon", "pattern", "a", "the", "of", "and", "exclusive", "workshop", "promo"}
+# colour words: a product qualifier with one ("Red Cheeks") is out when alt names another colour of the same thing
+COLOURS = r"(red|yellow|blue|green|black|white|purple|pink|orange|brown|gr[ae]y)"
 GENERIC = {"holo", "reverse", "foil", "rare"}     # too common in alt's names to pick a variant alone
 NUM = re.compile(r"^([A-Z]*?)0*(\d+)([A-Z]*)$")
 # alt.xyz often drops a promo number's series prefix ("Special Delivery Charizard #075" is
@@ -539,10 +541,23 @@ def named_variant(row, cands):
     return None
 
 
+def contradicts(row, p):
+    """p's qualifier names a colour of something alt's name gives another colour: "Pikachu (Red
+    Cheeks)" for alt's "Yellow Cheeks Shadowless Pikachu" (2026-11-02: it shared "cheeks", so
+    pick_variant took the Red Cheeks product over the plain card, which is the yellow one)."""
+    text = alt_text(row)
+    return any(re.search(rf" (?!{colour} ){COLOURS} {noun} ", text)
+               for colour, noun in re.findall(rf"(?<= ){COLOURS} (\w+)", qualifier_text(p)))
+
+
 def pick_variant(row, cands):
     """Several products with one number in one set, none named in full: the one sharing the most
     distinctive qualifier words with alt's name ("Energy Reverse" -> "(Energy Symbol Pattern)",
-    not "(Friend Ball)"), else the plain card."""
+    not "(Friend Ball)"), else the plain card. A product whose qualifier alt's name contradicts
+    (contradicts()) is never picked."""
+    cands = [p for p in cands if not contradicts(row, p)]
+    if not cands:
+        return None, "ambiguous_variant"
     full = sorted(((len(q), p) for p in cands if (q := named_words(row, p))), key=lambda t: -t[0])
     if full and (len(full) == 1 or full[0][0] > full[1][0]):
         return full[0][1], "variant"                      # e.g. "(Reverse Holo)" when alt says so
@@ -734,7 +749,7 @@ def build(feed=FEED, src=TCGCSV_DIR, out=OUT, report=None, characters=CHARACTERS
             print(f"card_catalog: {len(cat_rows)} cards -> {catalog}  "
                   f"({dict(Counter(c['status'] for c in cat_rows))})")
             print(f"  use_asset_id: {sum(picks.values())} product + print run pairs link 2+ alt.xyz rows, "
-                  f"{sum(picks.values()) - picks['tie']} named ({picks['pop']} by pop, {picks['sales']} by sales, "
+                  f"{sum(picks.values()) - picks['tie']} named ({picks['has_sales']} by having sales, {picks['pop']} by pop, {picks['sales']} by sales, "
                   f"{picks['psa_rows']} by PSA rows), {picks['tie']} ties left blank")
     return out_rows
 
@@ -826,12 +841,17 @@ def catalog_rows(rows, decided, cands, by_number, unnumbered, skip, voted_set, y
 
 def beats(a, b):
     """The step by which alt.xyz row a wins over row b for one product + print run, or None.
-    a, b: (pop, sales), pop None when cards.csv's pop_at_grade is blank. Sid's rule (2026-10-28):
+    a, b: (pop, sales), pop None when cards.csv's pop_at_grade is blank. Sid's rule (2026-10-28,
+    has_sales first since 2026-11-02, PR #1 issuecomment-6533897948: "a row with sales always beat
+    a row without ... since that's an actual price"):
+      has_sales a row with clean PSA 10 sales over a row with none, whatever the pops
       pop       more PSA 10 pop, only when both are known: blank is unknown, never 0
       sales     else more clean PSA 10 sales (sales_total)
       psa_rows  else, sales tied too, the row whose pop is known (0 included): alt.xyz has a PSA
                 population for that record, while a blank one has no PSA rows there at all"""
     (pa, sa), (pb, sb) = a, b
+    if (sa > 0) != (sb > 0):
+        return "has_sales" if sa > 0 else None
     if pa is not None and pb is not None and pa != pb:
         return "pop" if pa > pb else None
     if sa != sb:
@@ -851,7 +871,7 @@ def use_rows(cat_rows, feed_rows):
     The row that beats() every other row of the pair wins; none does (a tie, or a cycle: a beats b on
     sales, b's pop is blank and it beats c on sales, c beats a on pop) = blank on every row of the
     pair: never guess.
-    -> Counter of how each pair of 2+ rows was decided (pop | sales | psa_rows: the last step its
+    -> Counter of how each pair of 2+ rows was decided (has_sales | pop | sales | psa_rows: the last step its
     winner needed against any loser; tie)."""
     def to_int(v):
         return int(float(v)) if str(v or "").strip() else None
@@ -861,7 +881,7 @@ def use_rows(cat_rows, feed_rows):
         c["use_asset_id"] = ""
         if c["status"] == "linked":
             pairs[(c["tcgplayer_id"], c["print_run"])].append(c)
-    steps, counts = ("pop", "sales", "psa_rows"), Counter()
+    steps, counts = ("has_sales", "pop", "sales", "psa_rows"), Counter()
     for rows in pairs.values():
         if len(rows) == 1:
             rows[0]["use_asset_id"] = rows[0]["asset_id"]

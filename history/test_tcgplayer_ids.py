@@ -49,6 +49,13 @@ def test_qualifiers():
     assert t.qualifier_words({"name": "Gyarados (21)"}) == set(), "a bare number is not a variant"
     assert t.qualifier_words({"name": "Pichu - 28/123 (Prerelease) [Staff]"}) == {"prerelease", "staff"}
     assert t.qualifier_words({"name": "Houndoom (Poke Ball Pattern)"}) == {"poke", "ball"}
+    # alt's Yellow Cheeks Shadowless Pikachu shares "cheeks" with "(Red Cheeks)": the plain card, not that (11-02)
+    yellow = {"card_name": "1999 Pokemon Base Set Yellow Cheeks Shadowless Pikachu #58", "variety": "Yellow Cheeks Shadowless"}
+    red, plain = ({"name": n, "set_qualifier": False, "implied": []} for n in ("Pikachu (Red Cheeks)", "Pikachu"))
+    assert t.contradicts(yellow, red) and not t.contradicts(yellow, plain)
+    assert not t.contradicts({"card_name": "1999 Pokemon Base Set Red Cheeks Shadowless Pikachu #58", "variety": ""}, red)
+    assert t.pick_variant(yellow, [red, plain]) == (plain, "plain_variant")
+    assert t.pick_variant(yellow, [red]) == (None, "ambiguous_variant")
     print("qualifiers ok")
 
 
@@ -204,11 +211,16 @@ def test_use_rows():
         return t.use_rows(cat, feed), {c["asset_id"]: c["use_asset_id"] for c in cat}
     # Plasma Freeze Glaceon #23 (10-28): pop 1 / 3 sales and pop 5 / 6 sales, plus a stub with no PSA rows
     counts, use = run({"4cd26d54": ("1", 3), "7ac250fb": ("5", 6), "stub": ("", 0)})
-    assert set(use.values()) == {"7ac250fb"} and counts == {"sales": 1}, (counts, use)
+    assert set(use.values()) == {"7ac250fb"} and counts == {"pop": 1}, (counts, use)   # the stub loses on has_sales
+    # EX Emerald Seviper #20 Reverse Holo (Sid 11-02: a row with sales always beats one without)
+    counts, use = run({"a61236ae": ("3", 0), "6df8e751": ("2", 1)})
+    assert set(use.values()) == {"6df8e751"} and counts == {"has_sales": 1}, (counts, use)
     # a beats b on sales, b (blank pop) beats c on sales, c beats a on pop: no row beats every other
     counts, use = run({"a": ("5", 9), "b": ("", 4), "c": ("7", 1)})
     assert set(use.values()) == {""} and counts == {"tie": 1}, (counts, use)
-    assert t.beats((5, 0), (1, 9)) == "pop" and t.beats((1, 9), (5, 0)) is None, "pop first, both known"
+    assert t.beats((1, 9), (5, 0)) == "has_sales" and t.beats((5, 0), (1, 9)) is None, "sales on record first"
+    assert t.beats((5, 1), (1, 9)) == "pop" and t.beats((1, 9), (5, 1)) is None, "then pop, both known"
+    assert t.beats((5, 0), (1, 0)) == "pop", "neither has sales: pop"
     assert t.beats((3, 0), (None, 0)) == "psa_rows" and t.beats((None, 0), (3, 0)) is None
     assert t.beats((0, 4), (None, 2)) == "sales", "pop 0 vs blank: not comparable, sales decide"
     print("use rows ok")
