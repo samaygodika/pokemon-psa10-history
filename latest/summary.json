@@ -1,6 +1,6 @@
 {
   "data_date": "2026-11-02",
-  "generated_at": "2026-11-02T20:14:23+00:00",
+  "generated_at": "2026-11-03T03:35:03+00:00",
   "daily_files": 51,
   "first_daily": "2026-09-11",
   "assets": 69577,
@@ -46,19 +46,24 @@
     "unavailable": 44
   },
   "rows_listings_checked": 69577,
-  "rows_with_live_auction": 5728,
-  "rows_with_bin_listing": 18670,
-  "rows_bin_ebay_verified": 15864,
-  "rows_psa9_bin_ebay_verified": 9216,
-  "rows_bin_suspect": 2621,
-  "rows_psa9_bin_suspect": 1031,
-  "rows_bin_first_seen_known": 18670,
-  "rows_next_auction_bid_suspect": 44,
-  "rows_psa9_bin_first_seen_known": 11217,
-  "rows_psa9_next_auction_bid_suspect": 33,
-  "rows_psa9_listings_checked": 35357,
-  "rows_with_psa9_live_auction": 3803,
-  "rows_with_psa9_bin_listing": 11217,
+  "rows_with_live_auction": 5605,
+  "rows_with_bin_listing": 18679,
+  "rows_bin_ebay_verified": 15672,
+  "rows_psa9_bin_ebay_verified": 9090,
+  "rows_bin_suspect": 2616,
+  "rows_psa9_bin_suspect": 1029,
+  "rows_bin_first_seen_known": 18679,
+  "rows_next_auction_bid_suspect": 37,
+  "rows_psa9_bin_first_seen_known": 11223,
+  "rows_psa9_next_auction_bid_suspect": 34,
+  "rows_psa9_listings_checked": 35368,
+  "rows_with_psa9_live_auction": 3716,
+  "rows_with_psa9_bin_listing": 11223,
+  "live_auctions": {
+    "10": 13476,
+    "9": 7409
+  },
+  "live_auctions_bid_suspect": 104,
   "rows_with": {
     "price_chg_30d_pct": 15674,
     "price_chg_90d_pct": 20464,
@@ -179,8 +184,8 @@
   },
   "files": {
     "cards.csv": {
-      "sha256": "f4535466a004448da1e667878cea6d243d1ef1d4bd6c1724b4557d93499ef287",
-      "bytes": 45139454,
+      "sha256": "f758596bc47a4b02559964c2937ac78aab65951c4b80c225e9824122f458a87f",
+      "bytes": 45116316,
       "rows": 69577
     },
     "characters.csv": {
@@ -222,6 +227,11 @@
       "sha256": "7d2f5777edf4a5ecc9bfac4662041c005d8673a20be812800417118c7c608c9c",
       "bytes": 5068693,
       "rows": 7689
+    },
+    "live_auctions.csv": {
+      "sha256": "b54055437f3688ec4a6bb884a979a93a7c8173a358c3aa1acc27aab7cdd82f29",
+      "bytes": 3450465,
+      "rows": 20885
     },
     "series/manifest.json": {
       "sha256": "6c4aaf479ad400009d99779e58eee63776e3f351cfcf7b7f10adf7984421a247",
