@@ -13,7 +13,7 @@ nightly/              scheduled run: index listing -> scope -> scrape -> ingest 
 history/              the store: assets.csv, live_listings.csv and the check files (committed); daily/<date>.csv and
                       sales/<month>.csv (1.2 GB, rewritten nightly) live on the GitHub release tagged `store`, one
                       gzip tarball per generation, pulled and pushed by history/store.py (2026-10-17)
-latest/               what the server reads: cards.csv, series/<xx>.csv, recent_sales/<xx>.csv, recent_sales_psa9/<xx>.csv, clean_sales/<month>.csv, characters.csv, tcgplayer_ids.csv, card_catalog.csv, tcgplayer_sets.csv, watchlist_listings.csv, all_grades/{grades,sales}.csv (the Gold Star category at every PSA grade), summary.json (with the sha256 of each)  (committed)
+latest/               what the server reads: cards.csv, series/<xx>.csv, recent_sales/<xx>.csv, recent_sales_psa9/<xx>.csv, clean_sales/<month>.csv, characters.csv, tcgplayer_ids.csv, card_catalog.csv, tcgplayer_sets.csv, watchlist_listings.csv, live_auctions.csv, all_grades/{grades,sales}.csv (the Gold Star category at every PSA grade), summary.json (with the sha256 of each)  (committed)
 snapshots/            raw per-run output (gitignored, hundreds of MB)
 .github/workflows/    GitHub Actions cron: nightly roster candidates + vintage checklist, weekly full index
 ```
@@ -177,7 +177,7 @@ the rest only when `generated_at` moved) and the run's counts:
 | `series_rows`, `recent_sales_rows`, `psa9_recent_sales_rows`, `clean_sales_months`, `clean_sales` | rows in `series/`, `recent_sales/`, `recent_sales_psa9/`; months and sales in `clean_sales/` |
 | `rows_*` | how many `cards.csv` rows have a value in the named column (`rows_listings_checked`, `rows_with_live_auction`, `rows_with_bin_listing`, `rows_bin_ebay_verified`, `rows_bin_suspect`, `rows_bin_first_seen_known`, `rows_next_auction_bid_suspect`, their `psa9_` twins, `rows_unconfirmed_last_sale`, `rows_with_psa9_last_sale`); `rows_chg_counts_held_high` and `rows_psa9_chg_counts_held_high` = rows whose `chg_held_windows` / `psa9_chg_held_windows` is set; `rows_single_last_sale` / `rows_psa9_single_last_sale` = rows with `last_sale_single` = 1, and `last_sale_status_counts` / `psa9_last_sale_status_counts` = `{completed, pending, unpaid, relisted}` row counts (2026-10-18) |
 | `rows_with` | the same for `price_chg_30d_pct`, `price_chg_90d_pct`, `price_chg_1y_pct`, `mkt_cap_chg_30d_pct`, `psa9_price_chg_30d_pct`, `psa9_price_chg_1y_pct` |
-| `files` | (2026-10-17) `{path: {"sha256", "bytes", "rows"}}` for `cards.csv`, `characters.csv`, `card_catalog.csv`, `tcgplayer_sets.csv`, `tcgplayer_ids.csv` and, once the watchlist sweep has produced it, `watchlist_listings.csv` (`rows` = data rows, the header not counted), plus `{"sha256", "bytes", "entries"}` for `series/manifest.json`, `recent_sales/manifest.json`, `recent_sales_psa9/manifest.json` and `clean_sales/manifest.json`. Written by `history/manifest.py`, the last step of every run that commits `latest/`. Why: raw GitHub caches each URL for ~5 minutes on its own clock, so a sync can read a new `summary.json` next to the previous run's `cards.csv` (or one old shard) and believe it is current until the next nightly; check each download's sha256 against this and fetch again on a mismatch. A `summary.json` without `files` (a hand rebuild with `metrics.py` alone) means "not checked", never "corrupt". |
+| `files` | (2026-10-17) `{path: {"sha256", "bytes", "rows"}}` for `cards.csv`, `characters.csv`, `card_catalog.csv`, `tcgplayer_sets.csv`, `tcgplayer_ids.csv` and, once the watchlist sweep has produced it, `watchlist_listings.csv`, plus `all_grades/grades.csv`, `all_grades/sales.csv`, `buy_list.csv` and `live_auctions.csv` (`rows` = data rows, the header not counted), plus `{"sha256", "bytes", "entries"}` for `series/manifest.json`, `recent_sales/manifest.json`, `recent_sales_psa9/manifest.json` and `clean_sales/manifest.json`. Written by `history/manifest.py`, the last step of every run that commits `latest/`. Why: raw GitHub caches each URL for ~5 minutes on its own clock, so a sync can read a new `summary.json` next to the previous run's `cards.csv` (or one old shard) and believe it is current until the next nightly; check each download's sha256 against this and fetch again on a mismatch. A `summary.json` without `files` (a hand rebuild with `metrics.py` alone) means "not checked", never "corrupt". |
 
 `latest/characters.csv` (from `history/coverage.py`) has one row per name in
 `nightly/subjects.txt` and `nightly/vintage_species.txt` (469 species): English
@@ -311,6 +311,17 @@ which card-grades were swept, which were not (budget, rate limit, unknown asset)
 rows were skipped: a card with no row *and* in `swept` had nothing live; a card in
 `not_swept` is unknown. Built by the daily eBay verify run when the watchlist secrets are set
 (see *Watchlist sweep* below); absent until then.
+
+`latest/live_auctions.csv` (2026-11-02, Sid: a "LIVE ×N" pill that lists every auction) is
+**every running auction for every card**, PSA 10 and PSA 9, one row per auction: `asset_id`,
+`grade` (`10` / `9`), `source`, `end` (UTC), `bid` (high bid, or the opening price at 0 bids),
+`bid_count`, `url`, `bid_suspect` (`next_auction_bid_suspect`'s rule on this bid: `1` above 6x
+`median_last_3` / `psa9_median_last_3`, `0` fine, blank = no clean reference), `first_seen` (the
+run day the feed first recorded the auction), `checked_at` (UTC, when it was last seen). Built
+by `history/metrics.py` from the same rows as the live columns, so a card-grade's rows are
+exactly its `live_auction_count` and the first is its `next_auction_*`. Sorted by card, grade
+(10 first), end. A snapshot like those columns: compare `end` with your own clock. Rewritten by
+every run that rebuilds `latest/` (the nightly, each listings refresh, the eBay verify).
 
 ### latest/buy_list.csv: the v0 "Claude buy" list (2026-10-21)
 

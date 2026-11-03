@@ -202,6 +202,25 @@ $2.6k Dragonite: a mislabeled lot, the same fault as mislabeled sales).
                        = the same two for the PSA 9 listing columns, judged
                          against psa9_median_last_3.
 
+latest/live_auctions.csv (2026-11-02, Sid: a "LIVE xN" pill that lists and
+links every auction, not only the soonest): one row per running auction, PSA 10
+and PSA 9, every card in cards.csv, from the same rows and check times as the
+live columns above. So a card-grade's rows are exactly its live_auction_count,
+and its soonest row is its next_auction_*. A snapshot like those columns: the
+app compares end with its own clock. Sorted by asset_id, grade (10 first), end.
+  asset_id, grade      = the card ("10" / "9").
+  source, end, bid, bid_count, url
+                       = as next_auction_source / _end (UTC) / _bid / _bid_count
+                         / _url, for this auction.
+  bid_suspect          = next_auction_bid_suspect's rule on this auction's bid:
+                         1 above SUSPECT_BID_MULT x median_last_3 (PSA 9:
+                         psa9_median_last_3), 0 judged and fine, blank = no
+                         clean reference.
+  first_seen           = the run day the feed first recorded this auction.
+  checked_at           = UTC time this auction was last seen (its own check,
+                         which can be newer than the card's listings_checked_at
+                         when a bulk pull saw it).
+
 eBay verification (2026-10-06), the last two columns of cards.csv. history/
 ebay_verify.py asks eBay's own Browse API, within its 5,000-a-day budget, whether
 the feed's eBay Buy It Nows are still live: the cards from 2013 or before first,
@@ -395,6 +414,8 @@ HELD_COLS = ["chg_held_windows"]   # 2026-10-01
 LISTING_AGE_COLS = ["lowest_bin_first_seen", "next_auction_bid_suspect",
                     "psa9_lowest_bin_first_seen", "psa9_next_auction_bid_suspect"]
 SUSPECT_BID_MULT = OUTLIER_HIGH   # a bid above this x the clean reference is flagged, same band as a sale
+# 2026-11-02: latest/live_auctions.csv, every running auction per card and grade (see the module doc)
+LIVE_AUCTIONS_COLS = ["asset_id", "grade", "source", "end", "bid", "bid_count", "url", "bid_suspect", "first_seen", "checked_at"]
 LIVE_CHECK_COLS = {"10.0": "listings_checked_at", "9.0": "psa9_listings_checked_at"}   # grade -> daily column with its check time
 # 2026-10-06, the very end of cards.csv: when eBay last confirmed the lowest BIN is still live
 EBAY_COLS = ["lowest_bin_verified_at", "psa9_lowest_bin_verified_at"]
@@ -983,6 +1004,21 @@ def listing_age_cols(checked_at, listings, ref, prefix=""):
     return {prefix + c: v for c, v in out.items()}
 
 
+def auction_rows(aid, grade, checked_at, listings, ref):
+    """latest/live_auctions.csv rows for one card and grade (see the module doc): every auction
+    live_cols counts, soonest first, each bid judged like next_auction_bid_suspect against `ref`."""
+    if not checked_at:
+        return []
+    out = []
+    for r in running_auctions(listings):
+        bid = to_float(r["current_bid"])
+        out.append({"asset_id": aid, "grade": grade, "source": r["source"], "end": utc_iso(r["end_date"]),
+                    "bid": fmt(bid), "bid_count": r["bid_count"], "url": r["url"],
+                    "bid_suspect": "" if bid is None or not ref else (1 if bid > SUSPECT_BID_MULT * ref else 0),
+                    "first_seen": r.get("first_seen", ""), "checked_at": r["checked_at"]})
+    return out
+
+
 def bin_suspect(row, ref, prefix=""):
     """lowest_bin_suspect for one card and grade (see the module doc): the lowest BIN's ask
     against `ref` (cap_price at that grade, None = no clean sale ever)."""
@@ -1121,7 +1157,7 @@ def build(store=HERE, out=LATEST):
             if p is not None:
                 pop_30[aid] = p
 
-    rows = []
+    rows, auctions = [], []   # auctions: latest/live_auctions.csv (2026-11-02)
     filled = defaultdict(int)
     for aid in sorted(latest_row):
         day, num = latest_row[aid]
@@ -1217,6 +1253,8 @@ def build(store=HERE, out=LATEST):
         row.update(ebay_verified_at(row, ebay_live, prefix="psa9_"))
         row.update(listing_age_cols(t9, live.get((aid, "9.0"), []),
                                     to_float(row["psa9_median_last_3"]), prefix="psa9_"))
+        auctions += auction_rows(aid, "10", t10, live.get((aid, "10.0"), []), ref_now)
+        auctions += auction_rows(aid, "9", t9, live.get((aid, "9.0"), []), to_float(row["psa9_median_last_3"]))
         for c in ("lowest_bin_first_seen", "psa9_lowest_bin_first_seen"):
             if row[c]:
                 filled[c] += 1
@@ -1234,6 +1272,11 @@ def build(store=HERE, out=LATEST):
         w = csv.DictWriter(f, fieldnames=CARD_COLS + DERIVED_COLS + PSA9_COLS + LIVE_COLS + PSA9_LIVE_COLS + CAP_COLS + HELD_COLS + LISTING_AGE_COLS + EBAY_COLS + BIN_SUSPECT_COLS + BIN_REF_DATE_COLS + PSA9_WINDOW_COLS + SINGLE_COLS + NEWER_COLS + TITLE_COLS, extrasaction="ignore")
         w.writeheader()
         w.writerows(rows)
+    auctions.sort(key=lambda a: (a["asset_id"], a["grade"] != "10", when(a["end"])))
+    with open(out / "live_auctions.csv", "w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=LIVE_AUCTIONS_COLS)
+        w.writeheader()
+        w.writerows(auctions)
 
     # Weekly PSA 10 sale series per asset, for real charts. Sharded into 256
     # files by the first two hex digits of the asset id (latest/series/ab.csv)
@@ -1311,6 +1354,8 @@ def build(store=HERE, out=LATEST):
         "rows_psa9_listings_checked": sum(1 for r in rows if r["psa9_listings_checked_at"]),
         "rows_with_psa9_live_auction": sum(1 for r in rows if r["psa9_live_auction_count"]),
         "rows_with_psa9_bin_listing": sum(1 for r in rows if r["psa9_lowest_bin_price"]),
+        "live_auctions": {g: sum(1 for a in auctions if a["grade"] == g) for g in ("10", "9")},          # 2026-11-02
+        "live_auctions_bid_suspect": sum(1 for a in auctions if a["bid_suspect"] == 1),
         "rows_with": {k: filled[k] for k in ("price_chg_30d_pct", "price_chg_90d_pct", "price_chg_1y_pct", "mkt_cap_chg_30d_pct",
                                              "psa9_price_chg_30d_pct", "psa9_price_chg_1y_pct")},
     }

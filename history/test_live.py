@@ -227,6 +227,34 @@ def test_metrics_listing_age_cols():
     print("listing age / suspect bid ok")
 
 
+def test_metrics_auction_rows():
+    """latest/live_auctions.csv (2026-11-02): every auction live_cols counts, soonest first, each
+    bid judged like next_auction_bid_suspect; the soonest row is next_auction_*."""
+    now = "2026-10-03T14:00:00+00:00"
+    rows = [
+        {"listing_type": "AUCTION", "end_date": "2026-10-09T00:00:00+00:00", "current_bid": "5", "bid_count": "2",
+         "source": "Alt", "url": "u2", "buy_it_now_price": "", "first_seen": "2026-10-03", "checked_at": "2026-10-03T13:00:00+00:00"},
+        {"listing_type": "AUCTION", "end_date": "2026-10-04T20:00:00-04:00", "current_bid": "700", "bid_count": "0",
+         "source": "CardHobby", "url": "u1", "buy_it_now_price": "", "first_seen": "2026-10-02", "checked_at": now},
+        {"listing_type": "BUY_IT_NOW", "end_date": "", "current_bid": "", "bid_count": "", "source": "eBay", "url": "u3",
+         "buy_it_now_price": "120", "first_seen": "2026-09-26", "checked_at": now},
+    ]
+    a = metrics.auction_rows("x", "10", now, rows, 100.0)
+    assert [r["url"] for r in a] == ["u1", "u2"], a                       # auctions only, soonest end first
+    assert list(a[0]) == metrics.LIVE_AUCTIONS_COLS
+    assert a[0] == {"asset_id": "x", "grade": "10", "source": "CardHobby", "end": "2026-10-05T00:00:00+00:00",
+                    "bid": "700", "bid_count": "0", "url": "u1", "bid_suspect": 1, "first_seen": "2026-10-02",
+                    "checked_at": now}, a[0]                               # -04:00 end in UTC; $700 opening = 7x -> suspect
+    assert a[1]["bid_suspect"] == 0 and a[1]["bid"] == "5"
+    live = metrics.live_cols(now, rows)
+    assert len(a) == live["live_auction_count"]
+    assert (a[0]["end"], a[0]["bid"], a[0]["url"]) == (live["next_auction_end"], live["next_auction_bid"], live["next_auction_url"])
+    assert a[0]["bid_suspect"] == metrics.listing_age_cols(now, rows, 100.0)["next_auction_bid_suspect"]
+    assert all(r["bid_suspect"] == "" for r in metrics.auction_rows("x", "9", now, rows, None))   # no reference -> blank
+    assert metrics.auction_rows("x", "10", "", rows, 100.0) == []         # never checked -> nothing, like the columns
+    print("auction rows ok")
+
+
 def test_metrics_bin_suspect():
     """lowest_bin_suspect: the cheapest BIN's ask against the grade's cap_price (2026-10-09)."""
     assert metrics.BIN_SUSPECT_COLS == ["lowest_bin_suspect", "psa9_lowest_bin_suspect"]
@@ -551,6 +579,7 @@ if __name__ == "__main__":
     test_metrics_psa9_live_cols()
     test_ingest_live_first_seen()
     test_metrics_listing_age_cols()
+    test_metrics_auction_rows()
     test_metrics_bin_suspect()
     test_metrics_bin_ref_date()
     test_ingest_drops_crossed_fanatics()

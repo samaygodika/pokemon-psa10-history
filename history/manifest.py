@@ -17,7 +17,8 @@ a reader can tell a stale, truncated or missing download from a current one and 
 What is written
   summary.json["files"]   {path: {"sha256", "bytes", "rows"}} for cards.csv, characters.csv,
                           card_catalog.csv, tcgplayer_sets.csv, tcgplayer_ids.csv and, when the
-                          watchlist sweep has produced it, watchlist_listings.csv; rows = data rows
+                          watchlist sweep has produced it, watchlist_listings.csv, plus all_grades/,
+                          buy_list.csv and live_auctions.csv; rows = data rows
                           (the header not counted, a quoted newline inside a field not a row).
                           Plus {path: {"sha256", "bytes", "entries"}} for the four manifests
                           (series/, recent_sales/, recent_sales_psa9/, clean_sales/), so a reader
@@ -50,7 +51,8 @@ LATEST = HERE.parent / "latest"
 # the CSVs the server downloads whole, in the order they appear in summary.json["files"]
 FILES = ["cards.csv", "characters.csv", "card_catalog.csv", "tcgplayer_sets.csv", "tcgplayer_ids.csv",
          "watchlist_listings.csv", "all_grades/grades.csv", "all_grades/sales.csv",   # the two: history/all_grades.py (2026-10-21)
-         "buy_list.csv"]                                                              # history/buy_list.py, the v0 buy list (2026-10-21)
+         "buy_list.csv",                                                              # history/buy_list.py, the v0 buy list (2026-10-21)
+         "live_auctions.csv"]                                                         # history/metrics.py, every running auction (2026-11-02)
 SHARD_DIRS = ["series", "recent_sales", "recent_sales_psa9"]      # one manifest.json each, written here
 MANIFESTS = [f"{d}/manifest.json" for d in SHARD_DIRS] + ["clean_sales/manifest.json"]
 
