@@ -1,90 +1,90 @@
 {
-  "data_date": "2026-11-07",
-  "generated_at": "2026-11-08T01:24:28+00:00",
-  "daily_files": 56,
+  "data_date": "2026-11-08",
+  "generated_at": "2026-11-08T13:45:32+00:00",
+  "daily_files": 57,
   "first_daily": "2026-09-11",
-  "assets": 69827,
-  "psa10_sales": 3357806,
-  "outliers_excluded": 7393,
-  "series_rows": 1203714,
-  "recent_sales_rows": 266160,
-  "psa9_sales": 1620951,
-  "psa9_recent_sales_rows": 150055,
+  "assets": 69905,
+  "psa10_sales": 3359873,
+  "outliers_excluded": 7394,
+  "series_rows": 1204111,
+  "recent_sales_rows": 266312,
+  "psa9_sales": 1622198,
+  "psa9_recent_sales_rows": 150213,
   "clean_sales_months": 94,
-  "clean_sales": 4967253,
-  "rows_with_psa9_last_sale": 19722,
-  "rows_unconfirmed_last_sale": 1420,
-  "rows_chg_counts_held_high": 1496,
-  "rows_psa9_chg_counts_held_high": 586,
-  "rows_single_last_sale": 1192,
-  "rows_dropped_unlisted": 36,
-  "rows_psa9_single_last_sale": 269,
+  "clean_sales": 4970558,
+  "rows_with_psa9_last_sale": 19760,
+  "rows_unconfirmed_last_sale": 1422,
+  "rows_chg_counts_held_high": 1493,
+  "rows_psa9_chg_counts_held_high": 587,
+  "rows_single_last_sale": 1193,
+  "rows_dropped_unlisted": 37,
+  "rows_psa9_single_last_sale": 272,
   "last_sale_status_counts": {
-    "completed": 34375,
-    "pending": 714,
+    "completed": 34435,
+    "pending": 672,
     "unpaid": 87,
-    "relisted": 285
+    "relisted": 294
   },
   "psa9_last_sale_status_counts": {
-    "completed": 18502,
-    "pending": 223,
+    "completed": 18565,
+    "pending": 181,
     "unpaid": 37,
-    "relisted": 140
+    "relisted": 144
   },
-  "rows_newer_sale": 1086,
-  "rows_psa9_newer_sale": 400,
+  "rows_newer_sale": 1053,
+  "rows_psa9_newer_sale": 362,
   "last_sale_title_check_counts": {
     "ok": 466,
-    "mismatch": 165,
+    "mismatch": 164,
     "unclear": 47,
     "unavailable": 191
   },
   "psa9_last_sale_title_check_counts": {
-    "ok": 208,
-    "mismatch": 61,
+    "ok": 206,
+    "mismatch": 60,
     "unclear": 27,
     "unavailable": 45
   },
-  "rows_listings_checked": 69827,
-  "rows_with_live_auction": 5947,
-  "rows_with_bin_listing": 19028,
-  "rows_bin_ebay_verified": 15807,
-  "rows_psa9_bin_ebay_verified": 9405,
-  "rows_bin_suspect": 2661,
-  "rows_psa9_bin_suspect": 1081,
-  "rows_bin_first_seen_known": 19028,
-  "rows_next_auction_bid_suspect": 26,
-  "rows_psa9_bin_first_seen_known": 11764,
-  "rows_psa9_next_auction_bid_suspect": 30,
-  "rows_psa9_listings_checked": 35782,
-  "rows_with_psa9_live_auction": 4066,
-  "rows_with_psa9_bin_listing": 11764,
+  "rows_listings_checked": 69905,
+  "rows_with_live_auction": 5894,
+  "rows_with_bin_listing": 19109,
+  "rows_bin_ebay_verified": 15578,
+  "rows_psa9_bin_ebay_verified": 9134,
+  "rows_bin_suspect": 2682,
+  "rows_psa9_bin_suspect": 1074,
+  "rows_bin_first_seen_known": 19109,
+  "rows_next_auction_bid_suspect": 23,
+  "rows_psa9_bin_first_seen_known": 11848,
+  "rows_psa9_next_auction_bid_suspect": 27,
+  "rows_psa9_listings_checked": 35853,
+  "rows_with_psa9_live_auction": 4092,
+  "rows_with_psa9_bin_listing": 11848,
   "live_auctions": {
-    "10": 15950,
-    "9": 8776
+    "10": 15498,
+    "9": 8674
   },
   "live_auctions_bid_suspect": 86,
   "rows_with": {
-    "price_chg_30d_pct": 14873,
-    "price_chg_90d_pct": 20450,
-    "price_chg_1y_pct": 19522,
-    "mkt_cap_chg_30d_pct": 14612,
-    "psa9_price_chg_30d_pct": 8985,
-    "psa9_price_chg_1y_pct": 11253
+    "price_chg_30d_pct": 14697,
+    "price_chg_90d_pct": 20419,
+    "price_chg_1y_pct": 19518,
+    "mkt_cap_chg_30d_pct": 14440,
+    "psa9_price_chg_30d_pct": 8951,
+    "psa9_price_chg_1y_pct": 11266
   },
   "last_run": {
-    "day": "2026-11-07",
+    "day": "2026-11-08",
     "scope": "top60",
-    "started_at": "2026-11-07T10:22:18+00:00",
+    "started_at": "2026-11-08T10:30:23+00:00",
     "scrape": {
-      "scope": 35224,
-      "ok": 35224,
+      "scope": 35302,
+      "ok": 35302,
       "failed": 0,
       "skipped": 0,
-      "carried": 14831,
-      "listings_asked": 35224,
+      "carried": 14863,
+      "listings_asked": 35302,
       "listings_failed": 0,
-      "psa9_listings_asked": 34433,
+      "psa9_listings_asked": 34505,
       "psa9_listings_failed": 0,
       "all_grades_cards": 168,
       "all_grades_requests": 1008,
@@ -95,52 +95,52 @@
       ],
       "listings_only": false,
       "passes": 1,
-      "started_at": "2026-11-07T10:49:36+00:00",
-      "finished_at": "2026-11-07T12:44:53+00:00",
+      "started_at": "2026-11-08T11:00:08+00:00",
+      "finished_at": "2026-11-08T13:36:51+00:00",
       "shards": {
         "shard-0": {
-          "scope": 17612,
-          "ok": 17612,
+          "scope": 17651,
+          "ok": 17651,
           "failed": 0,
           "skipped": 0,
-          "carried": 7434,
+          "carried": 7413,
           "passes": 1,
-          "listings_asked": 17612,
+          "listings_asked": 17651,
           "listings_failed": 0,
-          "psa9_listings_asked": 17218,
+          "psa9_listings_asked": 17256,
           "psa9_listings_failed": 0,
-          "all_grades_cards": 98,
-          "all_grades_requests": 621,
+          "all_grades_cards": 90,
+          "all_grades_requests": 505,
           "company": "PSA",
           "grade": "10.0",
           "also_grades": [
             "9.0"
           ],
           "listings_only": false,
-          "started_at": "2026-11-07T10:49:36+00:00",
-          "finished_at": "2026-11-07T12:44:53+00:00"
+          "started_at": "2026-11-08T11:00:17+00:00",
+          "finished_at": "2026-11-08T13:36:51+00:00"
         },
         "shard-1": {
-          "scope": 17612,
-          "ok": 17612,
+          "scope": 17651,
+          "ok": 17651,
           "failed": 0,
           "skipped": 0,
-          "carried": 7397,
+          "carried": 7450,
           "passes": 1,
-          "listings_asked": 17612,
+          "listings_asked": 17651,
           "listings_failed": 0,
-          "psa9_listings_asked": 17215,
+          "psa9_listings_asked": 17249,
           "psa9_listings_failed": 0,
-          "all_grades_cards": 70,
-          "all_grades_requests": 387,
+          "all_grades_cards": 78,
+          "all_grades_requests": 503,
           "company": "PSA",
           "grade": "10.0",
           "also_grades": [
             "9.0"
           ],
           "listings_only": false,
-          "started_at": "2026-11-07T10:49:40+00:00",
-          "finished_at": "2026-11-07T12:24:52+00:00"
+          "started_at": "2026-11-08T11:00:08+00:00",
+          "finished_at": "2026-11-08T12:19:18+00:00"
         }
       }
     },
@@ -152,61 +152,61 @@
       "scraped_pct": 100.0,
       "listings_failed_pct": 0.0,
       "psa9_listings_failed_pct": 0.0,
-      "judged_at": "2026-11-07T12:45:54+00:00"
+      "judged_at": "2026-11-08T13:38:03+00:00"
     },
     "alt": {
       "ok": true,
-      "listings": 4994,
-      "auctions": 2798,
-      "cards": 3607,
-      "started_at": "2026-11-07T12:45:54+00:00",
-      "finished_at": "2026-11-07T12:46:20+00:00"
+      "listings": 5040,
+      "auctions": 2836,
+      "cards": 3628,
+      "started_at": "2026-11-08T13:38:04+00:00",
+      "finished_at": "2026-11-08T13:38:36+00:00"
     },
     "fanatics": {
       "ok": true,
       "requests": 44,
       "budget": 80,
       "slices": 31,
-      "listings": 22285,
-      "matched": 15471,
-      "cards": 6447,
-      "index_estimate": 23004,
+      "listings": 22055,
+      "matched": 15348,
+      "cards": 6430,
+      "index_estimate": 22766,
       "grades": [
         10,
         9
       ],
-      "started_at": "2026-11-07T12:46:20+00:00",
-      "finished_at": "2026-11-07T12:47:31+00:00",
-      "last_ok": "2026-11-07",
+      "started_at": "2026-11-08T13:38:36+00:00",
+      "finished_at": "2026-11-08T13:39:31+00:00",
+      "last_ok": "2026-11-08",
       "failed_nights": 0
     },
-    "finished_at": "2026-11-07T12:47:31+00:00"
+    "finished_at": "2026-11-08T13:39:31+00:00"
   },
   "files": {
     "cards.csv": {
-      "sha256": "d14503b19b19c176533b9f8b09721db16e16387f080459734f2d1dc383ba0c6d",
-      "bytes": 45500835,
-      "rows": 69827
+      "sha256": "5bcf194129d2aefefbdca3ec3b7052e0167aac126eb0e4629c9c644404897ddd",
+      "bytes": 45533782,
+      "rows": 69905
     },
     "characters.csv": {
-      "sha256": "e58f2f3a67e42264227ed5a2b01f90ce632f6b498c7ead331d9523e8759baadb",
-      "bytes": 48481,
+      "sha256": "66da7b1f79c0812f83ff755b7a944cc9311760401dbe2a3593e90d155f04b389",
+      "bytes": 48465,
       "rows": 469
     },
     "card_catalog.csv": {
-      "sha256": "1455a346d715727d4d99b90987a71c21611e07c8f4ee1341860e6fe052869958",
-      "bytes": 7169144,
-      "rows": 42166
+      "sha256": "0f6a9753f4ab70b8d414f11c9d1ce4f690fb77ec4523213620683e57c40cc44a",
+      "bytes": 7172405,
+      "rows": 42184
     },
     "tcgplayer_sets.csv": {
-      "sha256": "77011a0791d2a40ace1d165426b771d9aa3ce819b238983c8c54c3c28b18717a",
+      "sha256": "1c756d1c9a6b6a504f62f73054cd59aa9219aec68bb00245c2c59d6f6c9514c6",
       "bytes": 14826,
       "rows": 221
     },
     "tcgplayer_ids.csv": {
-      "sha256": "e38eea4750407b497c0df4cb857a7dc2523c4a3ebcd72fe8128f6c9d7abd417f",
-      "bytes": 4579200,
-      "rows": 27542
+      "sha256": "4fb963886221ef6a6cb75f31e21d63e778f146bffd3dfa33aae752509e30c36c",
+      "bytes": 4581873,
+      "rows": 27558
     },
     "watchlist_listings.csv": {
       "sha256": "9329a50159f9bb8f0bd4c64b6b691d1f26597435f7c1054211d3d301da859d38",
@@ -214,42 +214,42 @@
       "rows": 234
     },
     "all_grades/grades.csv": {
-      "sha256": "9ddc149ab767931621b77c28b45002bae89cd1370076b59261cf02957e2819ae",
-      "bytes": 815756,
+      "sha256": "a0bc9c189a06a2ce96785b624bd545822b417cb520c9a385b99f6ef55a1e5f2d",
+      "bytes": 815684,
       "rows": 3042
     },
     "all_grades/sales.csv": {
-      "sha256": "8e26df6c12c5c9bb85d5acf2d92dc6997c7d0ac1aab0ea016e427be75dc0f48e",
-      "bytes": 3933436,
-      "rows": 25745
+      "sha256": "ab05bd71b792f55d939b9de22b81e6911965d45fec97e14379d361ffe0e16d7f",
+      "bytes": 3935215,
+      "rows": 25760
     },
     "buy_list.csv": {
-      "sha256": "680b671e4b670e19c85a93f2a1a6e9f2bd722780a486eaa1ef813a5de0713670",
-      "bytes": 6693031,
-      "rows": 8900
+      "sha256": "f99d46e630862125eb1cf9439f860a547798dd2da5661e20d6e83b2774a263cf",
+      "bytes": 6698742,
+      "rows": 8937
     },
     "live_auctions.csv": {
-      "sha256": "3f7736efb6c388f4d96e309a84c1d239748120ef46ad8bee73a39664640da7a7",
-      "bytes": 4170351,
-      "rows": 24726
+      "sha256": "8ce24f486cde1a70244c31d8fe6b8221530ead922e232f6ce84f53067a9fba83",
+      "bytes": 4067790,
+      "rows": 24172
     },
     "series/manifest.json": {
-      "sha256": "beff98925f2a01840b1e9d34610d6df142e9a68a1dc36262bd2f945bf88a4ef9",
+      "sha256": "777fbf07007f2f33d9c94ab822ebc58ae5eb2ff71db51e938649c72979f918a9",
       "bytes": 33908,
       "entries": 256
     },
     "recent_sales/manifest.json": {
-      "sha256": "89d8b6b5a7da12ee632b1ee9ba227a20897316a889013a54ff774d0d4e3cce1e",
+      "sha256": "929c7d1458f156b1b9d1a885d4dc9244aa873790ec7c0f1e36c056924c5d8593",
       "bytes": 33840,
       "entries": 256
     },
     "recent_sales_psa9/manifest.json": {
-      "sha256": "976ae9b81a922a0560583063e001f5fece3618a2a0f22ae25e9ed93feaa117f4",
+      "sha256": "4244afc63bf54f46b329fad332f46daaf298d3f42e4a5243a8c3db6257470664",
       "bytes": 33415,
       "entries": 256
     },
     "clean_sales/manifest.json": {
-      "sha256": "8e2d0aa1b4bc11dd1d4a709f57ad6052f6e6ec73bbbd509dc8bd4ab4869bf476",
+      "sha256": "6ebdef039efe29bb7d80f6c01d1d3cf77c206c7a130ce5a506c4ed1a997a1aff",
       "bytes": 13079,
       "entries": 94
     }
