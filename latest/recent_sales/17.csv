@@ -1,5 +1,5 @@
 asset_id,date,price,source,sale_type,status,outlier,url
-17498860-b1c6-42b1-95dc-ff327eeea53c,2026-11-05,16494,Alt,AUCTION,PENDING,0,https://alt.xyz/exchange/select-listing?ids=8845eb36-54e5-41da-acb1-e28431dff5c5
+17498860-b1c6-42b1-95dc-ff327eeea53c,2026-11-05,16494,Alt,AUCTION,PAYMENT_INITIATED,0,https://alt.xyz/exchange/select-listing?ids=8845eb36-54e5-41da-acb1-e28431dff5c5
 17498860-b1c6-42b1-95dc-ff327eeea53c,2026-11-05,16281.6,Alt,AUCTION,PENDING,0,https://alt.xyz/exchange/select-listing?ids=b3b6152a-abd0-4b48-aac7-6246e1b5d57f
 17498860-b1c6-42b1-95dc-ff327eeea53c,2026-11-03,26000,PWCC Fixed Price,BEST_OFFER,ok,0,https://www.fanaticscollect.com/buy-now/200982d7-5c60-4fb9-a953-b43ed7cb56b7
 17498860-b1c6-42b1-95dc-ff327eeea53c,2026-10-29,22200,Alt,AUCTION,ok,0,https://alt.xyz/exchange/select-listing?ids=b68bf9c3-8a9c-4c89-952d-a1f3078ea5aa
@@ -19,6 +19,7 @@ asset_id,date,price,source,sale_type,status,outlier,url
 176af801-12ff-4d5d-a825-a7a5eccd582a,2026-10-07,300,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/307219147104
 176af801-12ff-4d5d-a825-a7a5eccd582a,2026-10-06,300,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/117115419403
 176af801-12ff-4d5d-a825-a7a5eccd582a,2026-10-06,280,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/389178208936
+17e027a1-47f8-4822-96e6-5627f576eb9e,2026-11-10,199.5,eBay,AUCTION,ok,0,https://www.ebay.com/itm/960150919507
 17e027a1-47f8-4822-96e6-5627f576eb9e,2026-11-08,217.5,eBay,AUCTION,ok,0,https://www.ebay.com/itm/287692914549
 17e027a1-47f8-4822-96e6-5627f576eb9e,2026-11-07,272,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/800869303774
 17e027a1-47f8-4822-96e6-5627f576eb9e,2026-11-07,219.19,eBay,AUCTION,ok,0,https://www.ebay.com/itm/377615796786
@@ -28,7 +29,6 @@ asset_id,date,price,source,sale_type,status,outlier,url
 17e027a1-47f8-4822-96e6-5627f576eb9e,2026-11-04,265,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/900065473464
 17e027a1-47f8-4822-96e6-5627f576eb9e,2026-11-03,265,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/307259189304
 17e027a1-47f8-4822-96e6-5627f576eb9e,2026-11-03,259.99,PWCC Fixed Price,BEST_OFFER,ok,0,https://www.fanaticscollect.com/buy-now/e3f1ba44-612e-4fb9-bb1c-12db00eb68d2
-17e027a1-47f8-4822-96e6-5627f576eb9e,2026-11-03,250,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/318839629314
 1713b1ae-1098-43b6-857e-e6b16a8d0068,2026-11-08,5520,PWCC Weekly Auctions,AUCTION,ok,0,https://www.fanaticscollect.com/weekly/12105944-d351-11f1-aa34-0a58a9feac02
 1713b1ae-1098-43b6-857e-e6b16a8d0068,2026-10-25,9900,PWCC Weekly Auctions,AUCTION,ok,0,https://www.fanaticscollect.com/weekly/5fc69f84-c7eb-11f1-aa88-0a58a9feac02
 1713b1ae-1098-43b6-857e-e6b16a8d0068,2026-10-15,10552.8,Alt,AUCTION,ok,0,https://alt.xyz/exchange/select-listing?ids=ca0ec3ff-a883-4e82-91ef-a92146c98f62
@@ -291,7 +291,7 @@ asset_id,date,price,source,sale_type,status,outlier,url
 171d8ceb-c49a-401c-822a-be9d48f74a62,2022-04-19,37,eBay,AUCTION,ok,0,https://www.ebay.com/itm/2017-Pokemon-Sun-Moon-Burning-Shadows-Multi-Switch-Secret-164-PSA-10-Gem-MT-/334402043291
 171d8ceb-c49a-401c-822a-be9d48f74a62,2021-06-20,43.33,eBay,AUCTION,ok,0,https://www.ebay.com/itm/PSA-10-Gem-Mint-Multi-Switch-Full-Art-Holo-164-147-Burning-Shadows-Sun-Moon-/224490868126
 171d8ceb-c49a-401c-822a-be9d48f74a62,2021-06-15,41,eBay,AUCTION,ok,0,https://www.ebay.com/itm/Pokemon-Burning-Shadows-Multi-Switch-F-A-Secret-Rare-164-147-PSA-10-GEM-MINT-/164906028278
-17900905-d7b0-4441-b27c-86a6ce686783,2026-11-05,5216.4,Alt,AUCTION,PENDING,0,https://alt.xyz/exchange/select-listing?ids=934a02cf-c8f2-45d7-9107-8cc17ac029e4
+17900905-d7b0-4441-b27c-86a6ce686783,2026-11-05,5216.4,Alt,AUCTION,ok,0,https://alt.xyz/exchange/select-listing?ids=934a02cf-c8f2-45d7-9107-8cc17ac029e4
 17900905-d7b0-4441-b27c-86a6ce686783,2026-09-22,4899,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/188930686711
 17900905-d7b0-4441-b27c-86a6ce686783,2026-09-08,2500,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/147552512248
 17900905-d7b0-4441-b27c-86a6ce686783,2026-08-30,1800,PWCC Weekly Auctions,AUCTION,ok,0,https://www.fanaticscollect.com/weekly/a8e0062a-947d-11f1-b327-0a58a9feac02
