@@ -61,7 +61,7 @@ asset_id,date,price,source,sale_type,status,outlier,url
 292eb675-c853-410b-b477-590944d9931f,2026-10-06,950,eBay,AUCTION,ok,0,https://www.ebay.com/itm/377531820849
 29c02829-cc28-40b5-b78b-d6a4b96522f8,2026-11-10,4159,eBay,AUCTION,ok,0,https://www.ebay.com/itm/117500408788
 29c02829-cc28-40b5-b78b-d6a4b96522f8,2026-11-07,6999.98,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/257817647579
-29c02829-cc28-40b5-b78b-d6a4b96522f8,2026-11-05,5640,Alt,AUCTION,PENDING,0,https://alt.xyz/exchange/select-listing?ids=4c3abb95-ec5f-4722-880a-1cc55b103c05
+29c02829-cc28-40b5-b78b-d6a4b96522f8,2026-11-05,5640,Alt,AUCTION,REMOVED,0,https://alt.xyz/exchange/select-listing?ids=4c3abb95-ec5f-4722-880a-1cc55b103c05
 29c02829-cc28-40b5-b78b-d6a4b96522f8,2026-10-25,7066,eBay,AUCTION,ok,0,https://www.ebay.com/itm/900021230967
 29c02829-cc28-40b5-b78b-d6a4b96522f8,2026-10-25,6750,eBay,AUCTION,ok,0,https://www.ebay.com/itm/287652924774
 29c02829-cc28-40b5-b78b-d6a4b96522f8,2026-10-21,7200,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/366736495254
@@ -507,6 +507,7 @@ asset_id,date,price,source,sale_type,status,outlier,url
 2986cca7-7abd-4b83-8e06-410a7d406682,2025-03-05,103.26,eBay,AUCTION,ok,0,https://www.ebay.com/itm/306139507575
 2986cca7-7abd-4b83-8e06-410a7d406682,2024-12-04,128.41,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/Carte-Pokemon-Nidorino-37-102-Set-Base-Edition-1-PSA-10-GEM-MINT-/316014152748
 2986cca7-7abd-4b83-8e06-410a7d406682,2024-07-12,56.88,eBay,AUCTION,ok,0,https://www.ebay.com/itm/1999-Pokemon-Nidorino-37-1st-First-Edition-French-Base-PSA-10-Mint-Very-Rare-/186542384712
+29711eed-a76a-45e0-98c0-83ec03b76e37,2026-11-11,1625.01,eBay,AUCTION,ok,0,https://www.ebay.com/itm/377627019105
 29711eed-a76a-45e0-98c0-83ec03b76e37,2026-10-18,2130,PWCC Weekly Auctions,AUCTION,ok,0,https://www.fanaticscollect.com/weekly/09f34aca-c576-11f1-a8de-0a58a9feac02
 29711eed-a76a-45e0-98c0-83ec03b76e37,2026-10-17,2425,eBay,AUCTION,ok,0,https://www.ebay.com/itm/307217624501
 29711eed-a76a-45e0-98c0-83ec03b76e37,2026-10-16,2100,eBay,AUCTION,ok,0,https://www.ebay.com/itm/298743354473
@@ -516,7 +517,6 @@ asset_id,date,price,source,sale_type,status,outlier,url
 29711eed-a76a-45e0-98c0-83ec03b76e37,2026-09-28,1250,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/188863627664
 29711eed-a76a-45e0-98c0-83ec03b76e37,2026-09-24,1050,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/366614152114
 29711eed-a76a-45e0-98c0-83ec03b76e37,2026-09-24,1050,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/117424409564
-29711eed-a76a-45e0-98c0-83ec03b76e37,2026-09-02,892.06,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/800570981611
 2932b2b4-3bb4-44e4-b2d6-39219e7762a0,2026-08-19,24.99,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/407156859729
 2932b2b4-3bb4-44e4-b2d6-39219e7762a0,2024-05-14,21.6,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/PSA-10-POP-2-2020-Pokemon-SWSH-Professors-Research-Reverse-Foil-Graded-Card-/166755727577
 2932b2b4-3bb4-44e4-b2d6-39219e7762a0,2024-02-03,12,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/48212968-2020-Pokemon-SWSH-Professors-Research-Reverse-Foil-PSA-10-POP-2-/315137647750
@@ -669,16 +669,16 @@ asset_id,date,price,source,sale_type,status,outlier,url
 29fd33b9-9bcf-4588-986e-b581d41a6ebd,2026-02-04,85,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/156218224605
 29fd33b9-9bcf-4588-986e-b581d41a6ebd,2025-12-08,38.75,eBay,AUCTION,ok,0,https://www.ebay.com/itm/376750801370
 29fd33b9-9bcf-4588-986e-b581d41a6ebd,2022-12-13,62.49,eBay,AUCTION,ok,0,https://www.ebay.com/itm/Pokemon-Japanese-Wind-Sea-1st-Edition-Parasect-006-PSA-10-Gem-Mint-/115632837907
+291c51fb-783f-4cac-b5ca-29ab2a5aec2f,2026-11-11,265,eBay,BEST_OFFER,LISTING_PRICE,0,https://www.ebay.com/itm/287717691258
+291c51fb-783f-4cac-b5ca-29ab2a5aec2f,2026-11-11,235,eBay,BEST_OFFER,LISTING_PRICE,0,https://www.ebay.com/itm/237177205182
+291c51fb-783f-4cac-b5ca-29ab2a5aec2f,2026-11-11,216.5,eBay,AUCTION,ok,0,https://www.ebay.com/itm/366784959481
+291c51fb-783f-4cac-b5ca-29ab2a5aec2f,2026-11-11,190.5,eBay,AUCTION,ok,0,https://www.ebay.com/itm/377621790903
 291c51fb-783f-4cac-b5ca-29ab2a5aec2f,2026-11-10,250,eBay,BEST_OFFER,LISTING_PRICE,0,https://www.ebay.com/itm/940008985007
 291c51fb-783f-4cac-b5ca-29ab2a5aec2f,2026-11-09,265,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/336889399292
 291c51fb-783f-4cac-b5ca-29ab2a5aec2f,2026-11-08,264.99,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/307270504770
 291c51fb-783f-4cac-b5ca-29ab2a5aec2f,2026-11-08,250,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/206682082212
 291c51fb-783f-4cac-b5ca-29ab2a5aec2f,2026-11-07,265,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/920040101710
 291c51fb-783f-4cac-b5ca-29ab2a5aec2f,2026-11-07,255,eBay,AUCTION,ok,0,https://www.ebay.com/itm/900052142404
-291c51fb-783f-4cac-b5ca-29ab2a5aec2f,2026-11-06,255,eBay,AUCTION,ok,0,https://www.ebay.com/itm/307256149719
-291c51fb-783f-4cac-b5ca-29ab2a5aec2f,2026-11-05,275,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/366768083906
-291c51fb-783f-4cac-b5ca-29ab2a5aec2f,2026-11-05,275,eBay,BEST_OFFER,LISTING_PRICE,0,https://www.ebay.com/itm/336876172531
-291c51fb-783f-4cac-b5ca-29ab2a5aec2f,2026-11-05,228,Alt,AUCTION,ok,0,https://alt.xyz/exchange/select-listing?ids=c75fd0f7-4453-49a7-82b8-fde31bf6c70d
 29ea125d-eebc-432e-b047-a28813d4dbad,2026-11-06,33,eBay,AUCTION,ok,0,https://www.ebay.com/itm/117493405743
 29ea125d-eebc-432e-b047-a28813d4dbad,2026-11-05,50,eBay,AUCTION,ok,0,https://www.ebay.com/itm/168818108091
 29ea125d-eebc-432e-b047-a28813d4dbad,2026-11-01,50,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/800815669819
@@ -892,6 +892,7 @@ asset_id,date,price,source,sale_type,status,outlier,url
 29f2c95c-03e0-416f-98f9-083d9af81b0c,2023-12-03,163.62,eBay,AUCTION,ok,0,https://www.ebay.com/itm/2023-POKEMON-GERMAN-OBSIDIAN-FLAMES-228-CHARIZARD-ex-HYPERRARE-PSA-10-/134819717813
 29f2c95c-03e0-416f-98f9-083d9af81b0c,2023-11-26,218.8,eBay,AUCTION,ok,0,https://www.ebay.com/itm/2023-POKEMON-GERMAN-OBF-DE-OBSIDIAN-FLAMES-228-CHARIZARD-ex-HYPERRARE-PSA-10-/134811911551
 29f2c95c-03e0-416f-98f9-083d9af81b0c,2023-11-12,230.48,eBay,AUCTION,RELISTED,0,https://www.ebay.com/itm/2023-POKEMON-GERMAN-OBF-DE-OBSIDIAN-FLAMES-228-CHARIZARD-ex-HYPER-RARE-PSA-10-/134791897045
+29cbad6f-405b-4d6c-b711-c34d4dabbc10,2026-11-11,50,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/407315882203
 29cbad6f-405b-4d6c-b711-c34d4dabbc10,2026-11-09,131.43,eBay,BEST_OFFER,LISTING_PRICE,0,https://www.ebay.com/itm/227431839210
 29cbad6f-405b-4d6c-b711-c34d4dabbc10,2026-11-07,50,eBay,AUCTION,ok,0,https://www.ebay.com/itm/287700334599
 29cbad6f-405b-4d6c-b711-c34d4dabbc10,2026-11-07,26,eBay,AUCTION,ok,0,https://www.ebay.com/itm/336872517954
@@ -901,7 +902,6 @@ asset_id,date,price,source,sale_type,status,outlier,url
 29cbad6f-405b-4d6c-b711-c34d4dabbc10,2026-10-24,75,eBay,BEST_OFFER,LISTING_PRICE,0,https://www.ebay.com/itm/158006247174
 29cbad6f-405b-4d6c-b711-c34d4dabbc10,2026-10-21,47,eBay,BEST_OFFER,RELISTED,0,https://www.ebay.com/itm/237113446997
 29cbad6f-405b-4d6c-b711-c34d4dabbc10,2026-10-17,55,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/900013830626
-29cbad6f-405b-4d6c-b711-c34d4dabbc10,2026-10-17,49.99,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/318854723623
 29400759-4eaa-4a2f-be70-044089294a40,2026-11-05,40.8,Alt,AUCTION,PENDING,0,https://alt.xyz/exchange/select-listing?ids=a6f5d35c-1625-467a-8fcc-784f4d285f46
 29400759-4eaa-4a2f-be70-044089294a40,2026-09-28,28.49,eBay,AUCTION,ok,0,https://www.ebay.com/itm/298693496002
 29400759-4eaa-4a2f-be70-044089294a40,2026-09-11,22.5,eBay,AUCTION,ok,0,https://www.ebay.com/itm/298641587190

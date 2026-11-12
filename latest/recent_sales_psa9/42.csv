@@ -19,6 +19,7 @@ asset_id,date,price,source,sale_type,status,outlier,url
 42537e15-e515-4f9b-bf10-9583cefd7b7f,2026-03-22,19.5,eBay,AUCTION,ok,0,https://www.ebay.com/itm/298104558436
 42537e15-e515-4f9b-bf10-9583cefd7b7f,2026-03-01,10.5,eBay,AUCTION,ok,0,https://www.ebay.com/itm/287156731564
 42537e15-e515-4f9b-bf10-9583cefd7b7f,2026-01-30,40,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/295134870134
+4223a475-1c79-4254-bc3f-a35ad10e977e,2026-11-11,375,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/117494761287
 4223a475-1c79-4254-bc3f-a35ad10e977e,2026-11-08,345,PWCC Fixed Price,BEST_OFFER,ok,0,https://www.fanaticscollect.com/buy-now/5d40bc97-1d3c-4e7e-9008-ee0073693921
 4223a475-1c79-4254-bc3f-a35ad10e977e,2026-11-06,400,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/117430309370
 4223a475-1c79-4254-bc3f-a35ad10e977e,2026-11-05,387.68,eBay,BEST_OFFER,LISTING_PRICE,0,https://www.ebay.com/itm/377290712619
@@ -28,7 +29,6 @@ asset_id,date,price,source,sale_type,status,outlier,url
 4223a475-1c79-4254-bc3f-a35ad10e977e,2026-10-29,300,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/880059031753
 4223a475-1c79-4254-bc3f-a35ad10e977e,2026-10-28,330,PWCC Fixed Price,BEST_OFFER,ok,0,https://www.fanaticscollect.com/buy-now/c6811c35-bbfe-4aac-88c8-1c888a5b3b3f
 4223a475-1c79-4254-bc3f-a35ad10e977e,2026-10-27,468,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/128156488283
-4223a475-1c79-4254-bc3f-a35ad10e977e,2026-10-25,1890,PWCC Weekly Auctions,AUCTION,ok,0,https://www.fanaticscollect.com/weekly/f977c816-c718-11f1-bf5a-0a58a9feac02
 42c4d05a-809a-4d3b-b918-03d6ea79ddd2,2026-11-09,5500,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/117508830312
 42c4d05a-809a-4d3b-b918-03d6ea79ddd2,2026-11-08,7000,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/366783375977
 42c4d05a-809a-4d3b-b918-03d6ea79ddd2,2026-11-05,4719.6,Alt,AUCTION,ok,0,https://alt.xyz/exchange/select-listing?ids=30cb5cd7-77d8-4ee2-be88-ae56554afe7b
@@ -218,7 +218,7 @@ asset_id,date,price,source,sale_type,status,outlier,url
 427f418d-d45b-4680-9902-90db71786218,2026-10-27,580,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/227301165759
 427f418d-d45b-4680-9902-90db71786218,2026-10-25,575,eBay,AUCTION,ok,0,https://www.ebay.com/itm/287652925790
 427f418d-d45b-4680-9902-90db71786218,2026-10-25,520.6,eBay,BEST_OFFER,LISTING_PRICE,0,https://www.ebay.com/itm/287637865548
-427f418d-d45b-4680-9902-90db71786218,2026-10-21,9,PWCC Fixed Price,BEST_OFFER,ok,1,https://www.fanaticscollect.com/buy-now/e3533ef3-7157-4019-80ae-8087c30d2cfc
+427f418d-d45b-4680-9902-90db71786218,2026-10-21,9,PWCC Fixed Price,BEST_OFFER,REMOVED,0,https://www.fanaticscollect.com/buy-now/e3533ef3-7157-4019-80ae-8087c30d2cfc
 42a8becc-bdf7-404b-b39f-bd66b0adbf31,2026-10-15,583.91,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/137661955775
 42a8becc-bdf7-404b-b39f-bd66b0adbf31,2026-09-24,299.99,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/298455901628
 42a8becc-bdf7-404b-b39f-bd66b0adbf31,2026-09-19,234.19,eBay,AUCTION,ok,0,https://www.ebay.com/itm/800652957026
@@ -346,6 +346,8 @@ asset_id,date,price,source,sale_type,status,outlier,url
 42abf9d4-c54e-416a-ba53-5b0cf106ddf0,2022-06-01,8.29,eBay,AUCTION,ok,0,https://www.ebay.com/itm/2000-TOPPS-POKEMON-TV-ANIMATION-SERIES-2-FOIL-77-PONYTA-PSA-9-A3349055-245-/384909631258
 42abf9d4-c54e-416a-ba53-5b0cf106ddf0,2022-01-30,32,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/2000-Ponyta-Topps-Foil-Holo-Pokemon-Box-PSA-9-Graded-Pop-6-Animation-Series-2-/125110896070
 42abf9d4-c54e-416a-ba53-5b0cf106ddf0,2022-01-16,27.8,eBay,AUCTION,ok,0,https://www.ebay.com/itm/PSA-9-Ponyta-Foil-2000-Topps-Pokemon-TV-Animation-Series-2-77-/154785692066
+42fa4ace-a780-4da7-b702-db3a89fa1dd9,2026-11-11,154.49,eBay,BUY_IT_NOW,LISTING_PRICE,0,https://www.ebay.com/itm/257745450179
+42fa4ace-a780-4da7-b702-db3a89fa1dd9,2026-11-11,95,PWCC Fixed Price,BEST_OFFER,ok,0,https://www.fanaticscollect.com/buy-now/4559be91-d302-4887-a8bb-ce0f79f2a91f
 42fa4ace-a780-4da7-b702-db3a89fa1dd9,2026-11-08,100,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/800890694990
 42fa4ace-a780-4da7-b702-db3a89fa1dd9,2026-11-08,81.6,PWCC Weekly Auctions,AUCTION,ok,0,https://www.fanaticscollect.com/weekly/6dd144e2-c063-11f1-9cea-02ffffe3139f
 42fa4ace-a780-4da7-b702-db3a89fa1dd9,2026-11-07,95,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/880080763464
@@ -354,8 +356,6 @@ asset_id,date,price,source,sale_type,status,outlier,url
 42fa4ace-a780-4da7-b702-db3a89fa1dd9,2026-11-04,79.89,eBay,AUCTION,ok,0,https://www.ebay.com/itm/128165139363
 42fa4ace-a780-4da7-b702-db3a89fa1dd9,2026-11-04,78.11,eBay,AUCTION,ok,0,https://www.ebay.com/itm/267826710184
 42fa4ace-a780-4da7-b702-db3a89fa1dd9,2026-11-01,126.58,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/407307850504
-42fa4ace-a780-4da7-b702-db3a89fa1dd9,2026-11-01,115,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/377265392147
-42fa4ace-a780-4da7-b702-db3a89fa1dd9,2026-11-01,92,eBay,AUCTION,ok,0,https://www.ebay.com/itm/287671323086
 4261b56c-b5c0-4037-83a9-b70dba45a72c,2026-07-05,46.32,eBay,AUCTION,ok,0,https://www.ebay.com/itm/137448487629
 4261b56c-b5c0-4037-83a9-b70dba45a72c,2026-04-26,59.09,eBay,AUCTION,ok,0,https://www.ebay.com/itm/298236309385
 4261b56c-b5c0-4037-83a9-b70dba45a72c,2026-04-19,48,eBay,AUCTION,ok,0,https://www.ebay.com/itm/287264960699
@@ -481,6 +481,7 @@ asset_id,date,price,source,sale_type,status,outlier,url
 42090d1c-6693-4cec-9bcd-a5f6c80edbcd,2026-10-04,37.5,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/257688361275
 42090d1c-6693-4cec-9bcd-a5f6c80edbcd,2026-10-04,34.99,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/257380679903
 42090d1c-6693-4cec-9bcd-a5f6c80edbcd,2026-09-25,26.99,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/204223880097
+42878130-442b-4d47-a435-00c0318026e1,2026-11-11,162.5,eBay,AUCTION,ok,0,https://www.ebay.com/itm/377622534826
 42878130-442b-4d47-a435-00c0318026e1,2026-09-29,150,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/188961708484
 42878130-442b-4d47-a435-00c0318026e1,2023-05-08,39,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/2019-Pokemon-Sun-Moon-Team-Up-Magikarp-Reverse-Holo-29-PSA-9-MINT-/334864964093
 42878130-442b-4d47-a435-00c0318026e1,2023-05-08,30,eBay,BEST_OFFER,RELISTED,0,https://www.ebay.com/itm/2019-Pokemon-Sun-Moon-Team-Up-Magikarp-Reverse-Holo-29-PSA-9-MINT-/334527962189
@@ -702,6 +703,7 @@ asset_id,date,price,source,sale_type,status,outlier,url
 422d7d9a-7264-4f5c-a808-c1a9b2cabc01,2026-08-16,14,eBay,AUCTION,ok,0,https://www.ebay.com/itm/298570525398
 422d7d9a-7264-4f5c-a808-c1a9b2cabc01,2026-08-16,14,eBay,AUCTION,ok,0,https://www.ebay.com/itm/117347849515
 422d7d9a-7264-4f5c-a808-c1a9b2cabc01,2026-08-16,12.5,eBay,AUCTION,ok,0,https://www.ebay.com/itm/298570517449
+42762748-4a85-4296-badc-39adcdcff92f,2026-11-11,30,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/377631923233
 42762748-4a85-4296-badc-39adcdcff92f,2026-09-09,20.5,eBay,AUCTION,ok,0,https://www.ebay.com/itm/298637804710
 428826cc-997f-4ad0-b2a9-7d8af06292f7,2026-09-09,25,PWCC Fixed Price,BEST_OFFER,ok,0,https://www.fanaticscollect.com/buy-now/d8e4d063-88df-4151-8b7c-6d035113a053
 42f1cf4f-1c99-48ff-a74b-78df1a0ec43c,2026-09-26,175,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/820145542727
