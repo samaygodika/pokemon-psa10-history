@@ -39,6 +39,7 @@ asset_id,date,price,source,sale_type,status,outlier,url
 10dfc993-6b7c-4899-8989-9d7f323eb908,2026-09-23,380,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/168716066933
 10dfc993-6b7c-4899-8989-9d7f323eb908,2026-09-22,380,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/168536237092
 10dfc993-6b7c-4899-8989-9d7f323eb908,2026-08-23,310,eBay,AUCTION,ok,0,https://www.ebay.com/itm/287524901211
+10432267-8412-4e93-a9d1-71bcee99afa2,2026-11-12,4560,Alt,AUCTION,PENDING,0,https://alt.xyz/exchange/select-listing?ids=21831b1e-49f2-479c-8001-aae763859b0f
 10432267-8412-4e93-a9d1-71bcee99afa2,2026-11-06,5198.25,eBay,AUCTION,ok,0,https://www.ebay.com/itm/227590088199
 10432267-8412-4e93-a9d1-71bcee99afa2,2026-11-05,4920,Alt,AUCTION,PAYMENT_INITIATED,0,https://alt.xyz/exchange/select-listing?ids=04eb8eb0-7ce1-4f9e-a125-52d552592f51
 10432267-8412-4e93-a9d1-71bcee99afa2,2026-11-01,6300,PWCC Weekly Auctions,AUCTION,ok,0,https://www.fanaticscollect.com/weekly/b17c9e92-cd6c-11f1-8c78-0a58a9feac02
@@ -48,7 +49,6 @@ asset_id,date,price,source,sale_type,status,outlier,url
 10432267-8412-4e93-a9d1-71bcee99afa2,2026-10-29,5775.6,Alt,AUCTION,ok,0,https://alt.xyz/exchange/select-listing?ids=abf8d9f5-88b1-43cc-93eb-a83a9a2e7e6c
 10432267-8412-4e93-a9d1-71bcee99afa2,2026-10-29,5078.4,Alt,AUCTION,ok,0,https://alt.xyz/exchange/select-listing?ids=5684fdf0-4c3d-424c-a2c9-f77e9b39ecf0
 10432267-8412-4e93-a9d1-71bcee99afa2,2026-10-29,5040,Alt,AUCTION,ok,0,https://alt.xyz/exchange/select-listing?ids=12d46c5b-9818-4f61-94d4-67f682a398de
-10432267-8412-4e93-a9d1-71bcee99afa2,2026-10-29,5000,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/307254464123
 103d6fe8-9e9e-4557-91a3-50dbfc3d5515,2026-11-11,1750,eBay,AUCTION,ok,0,https://www.ebay.com/itm/128180069960
 103d6fe8-9e9e-4557-91a3-50dbfc3d5515,2026-11-08,1860,PWCC Weekly Auctions,AUCTION,ok,0,https://www.fanaticscollect.com/weekly/37ea5c7c-d3f7-11f1-983e-02ffef09bfad
 103d6fe8-9e9e-4557-91a3-50dbfc3d5515,2026-11-06,2250,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/820312473235
@@ -836,8 +836,8 @@ asset_id,date,price,source,sale_type,status,outlier,url
 10c8c559-860a-4618-abc6-ff430181f938,2026-09-22,19.39,CardHobby,AUCTION,ok,0,https://www.cardhobby.com/#/carddetails/136701323
 105efdc0-db8f-42cd-8b8e-4c558e10ac4b,2026-11-11,520.42,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/267840892870
 105efdc0-db8f-42cd-8b8e-4c558e10ac4b,2026-11-11,485,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/880081609243
-105efdc0-db8f-42cd-8b8e-4c558e10ac4b,2026-11-10,495,eBay,BEST_OFFER,LISTING_PRICE,0,https://www.ebay.com/itm/377634335784
 105efdc0-db8f-42cd-8b8e-4c558e10ac4b,2026-11-10,494.99,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/206689985577
+105efdc0-db8f-42cd-8b8e-4c558e10ac4b,2026-11-10,470.25,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/377634335784
 105efdc0-db8f-42cd-8b8e-4c558e10ac4b,2026-11-08,500,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/128182205247
 105efdc0-db8f-42cd-8b8e-4c558e10ac4b,2026-11-08,474.69,eBay,AUCTION,ok,0,https://www.ebay.com/itm/287692909264
 105efdc0-db8f-42cd-8b8e-4c558e10ac4b,2026-11-08,474,eBay,AUCTION,ok,0,https://www.ebay.com/itm/287683337413
@@ -945,6 +945,7 @@ asset_id,date,price,source,sale_type,status,outlier,url
 1092e8a0-497d-4742-bc90-87af5404a6af,2026-07-27,89.99,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/298490654589
 1092e8a0-497d-4742-bc90-87af5404a6af,2026-07-12,56,eBay,AUCTION,ok,0,https://www.ebay.com/itm/117278278019
 1092e8a0-497d-4742-bc90-87af5404a6af,2023-07-05,133.99,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/PSA-10-Pokemon-Drowzee-2000-Silver-Deck-9-Spades-POP-1-/175763349725
+10427270-3225-4f14-8980-a14505dc2698,2026-11-12,17400,Alt,AUCTION,PENDING,0,https://alt.xyz/exchange/select-listing?ids=aa4db4cb-4adf-423b-a8d0-b7b3b465583f
 10427270-3225-4f14-8980-a14505dc2698,2026-01-20,510,eBay,AUCTION,ok,0,https://www.ebay.com/itm/116979032009
 10427270-3225-4f14-8980-a14505dc2698,2025-09-21,356,eBay,AUCTION,ok,0,https://www.ebay.com/itm/297608429072
 10427270-3225-4f14-8980-a14505dc2698,2024-05-21,177.92,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/Pokemon-Expedition-Skarmory-Reverse-Holo-63-165-Psa-10-/386977561312
