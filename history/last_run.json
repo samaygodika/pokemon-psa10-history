@@ -1,86 +1,72 @@
 {
- "day": "2026-11-15",
- "scope": "full",
- "started_at": "2026-11-15T16:12:04+00:00",
+ "day": "2026-11-16",
+ "scope": "top60",
+ "started_at": "2026-11-16T11:34:58+00:00",
  "scrape": {
-  "scope": 70892,
-  "ok": 70892,
+  "scope": 35555,
+  "ok": 35555,
   "failed": 0,
   "skipped": 0,
-  "carried": 0,
-  "listings_asked": 70892,
+  "carried": 14992,
+  "listings_asked": 35555,
   "listings_failed": 0,
-  "psa9_listings_asked": 0,
+  "psa9_listings_asked": 34747,
   "psa9_listings_failed": 0,
   "all_grades_cards": 167,
-  "all_grades_requests": 2083,
+  "all_grades_requests": 1025,
   "company": "PSA",
   "grade": "10.0",
-  "also_grades": [],
+  "also_grades": [
+   "9.0"
+  ],
   "listings_only": false,
-  "passes": 2,
-  "started_at": "2026-11-15T16:45:29+00:00",
-  "finished_at": "2026-11-15T19:40:21+00:00",
+  "passes": 1,
+  "started_at": "2026-11-16T12:02:44+00:00",
+  "finished_at": "2026-11-16T14:46:41+00:00",
   "shards": {
    "shard-0": {
-    "scope": 23631,
-    "ok": 23631,
+    "scope": 17778,
+    "ok": 17778,
     "failed": 0,
     "skipped": 0,
-    "carried": 0,
-    "passes": 2,
-    "listings_asked": 23631,
+    "carried": 7469,
+    "passes": 1,
+    "listings_asked": 17778,
     "listings_failed": 0,
-    "psa9_listings_asked": 0,
+    "psa9_listings_asked": 17380,
     "psa9_listings_failed": 0,
-    "all_grades_cards": 63,
-    "all_grades_requests": 780,
+    "all_grades_cards": 83,
+    "all_grades_requests": 521,
     "company": "PSA",
     "grade": "10.0",
-    "also_grades": [],
+    "also_grades": [
+     "9.0"
+    ],
     "listings_only": false,
-    "started_at": "2026-11-15T16:45:29+00:00",
-    "finished_at": "2026-11-15T18:58:22+00:00"
+    "started_at": "2026-11-16T12:02:44+00:00",
+    "finished_at": "2026-11-16T13:46:26+00:00"
    },
    "shard-1": {
-    "scope": 23631,
-    "ok": 23631,
+    "scope": 17777,
+    "ok": 17777,
     "failed": 0,
     "skipped": 0,
-    "carried": 0,
+    "carried": 7523,
     "passes": 1,
-    "listings_asked": 23631,
+    "listings_asked": 17777,
     "listings_failed": 0,
-    "psa9_listings_asked": 0,
+    "psa9_listings_asked": 17367,
     "psa9_listings_failed": 0,
-    "all_grades_cards": 55,
-    "all_grades_requests": 737,
+    "all_grades_cards": 84,
+    "all_grades_requests": 504,
     "company": "PSA",
     "grade": "10.0",
-    "also_grades": [],
+    "also_grades": [
+     "9.0"
+    ],
     "listings_only": false,
-    "started_at": "2026-11-15T16:45:29+00:00",
-    "finished_at": "2026-11-15T18:39:17+00:00"
-   },
-   "shard-2": {
-    "scope": 23630,
-    "ok": 23630,
-    "failed": 0,
-    "skipped": 0,
-    "carried": 0,
-    "passes": 1,
-    "listings_asked": 23630,
-    "listings_failed": 0,
-    "psa9_listings_asked": 0,
-    "psa9_listings_failed": 0,
-    "all_grades_cards": 49,
-    "all_grades_requests": 566,
-    "company": "PSA",
-    "grade": "10.0",
-    "also_grades": [],
-    "listings_only": false,
-    "started_at": "2026-11-15T16:45:41+00:00",
-    "finished_at": "2026-11-15T19:40:21+00:00"
+    "started_at": "2026-11-16T12:03:09+00:00",
+    "finished_at": "2026-11-16T14:46:41+00:00"
    }
   }
  },
@@ -92,15 +78,33 @@
   "scraped_pct": 100.0,
   "listings_failed_pct": 0.0,
   "psa9_listings_failed_pct": 0.0,
-  "judged_at": "2026-11-15T19:41:21+00:00"
+  "judged_at": "2026-11-16T14:48:04+00:00"
  },
  "alt": {
   "ok": true,
-  "listings": 4971,
-  "auctions": 2765,
-  "cards": 3544,
-  "started_at": "2026-11-15T19:41:22+00:00",
-  "finished_at": "2026-11-15T19:41:46+00:00"
+  "listings": 4987,
+  "auctions": 2773,
+  "cards": 3557,
+  "started_at": "2026-11-16T14:48:04+00:00",
+  "finished_at": "2026-11-16T14:48:36+00:00"
  },
- "finished_at": "2026-11-15T19:41:46+00:00"
+ "fanatics": {
+  "ok": true,
+  "requests": 43,
+  "budget": 80,
+  "slices": 31,
+  "listings": 22622,
+  "matched": 15777,
+  "cards": 6595,
+  "index_estimate": 23331,
+  "grades": [
+   10,
+   9
+  ],
+  "started_at": "2026-11-16T14:48:36+00:00",
+  "finished_at": "2026-11-16T14:49:34+00:00",
+  "last_ok": "2026-11-16",
+  "failed_nights": 0
+ },
+ "finished_at": "2026-11-16T14:49:34+00:00"
 }
