@@ -1,8 +1,8 @@
 asset_id,date,price,source,sale_type,status,outlier,url
 d8ff604f-9ea2-479e-9f9d-8108801be06a,2026-11-15,2550,eBay,AUCTION,ok,0,https://www.ebay.com/itm/287711736673
 d8ff604f-9ea2-479e-9f9d-8108801be06a,2026-11-01,3050,eBay,AUCTION,ok,0,https://www.ebay.com/itm/287671339008
-d8ff604f-9ea2-479e-9f9d-8108801be06a,2026-10-29,5160,Alt,AUCTION,PAYMENT_INITIATED,0,https://alt.xyz/exchange/select-listing?ids=2c7f270a-f527-431c-9f12-35fb5f3f8652
-d8ff604f-9ea2-479e-9f9d-8108801be06a,2026-10-29,4920,Alt,AUCTION,PAYMENT_INITIATED,0,https://alt.xyz/exchange/select-listing?ids=ec56a71f-a5d1-49a0-85fb-534cec53740a
+d8ff604f-9ea2-479e-9f9d-8108801be06a,2026-10-29,5160,Alt,AUCTION,PENDING,0,https://alt.xyz/exchange/select-listing?ids=2c7f270a-f527-431c-9f12-35fb5f3f8652
+d8ff604f-9ea2-479e-9f9d-8108801be06a,2026-10-29,4920,Alt,AUCTION,PENDING,0,https://alt.xyz/exchange/select-listing?ids=ec56a71f-a5d1-49a0-85fb-534cec53740a
 d8ff604f-9ea2-479e-9f9d-8108801be06a,2026-10-24,7300,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/840054289031
 d8ff604f-9ea2-479e-9f9d-8108801be06a,2026-09-27,5800,eBay,AUCTION,ok,0,https://www.ebay.com/itm/407225757235
 d8ff604f-9ea2-479e-9f9d-8108801be06a,2026-09-04,2800,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/227333460658
@@ -458,6 +458,7 @@ d8f172a4-00bd-4c64-a9c0-0ea9bf1d5722,2025-11-21,70,eBay,BEST_OFFER,ok,0,https://
 d8f172a4-00bd-4c64-a9c0-0ea9bf1d5722,2024-01-09,11,eBay,AUCTION,ok,0,https://www.ebay.com/itm/2020-Pokemon-Japanese-SWSH-VMAX-Rising-020-Magikarp-PSA-9-MINT-/364657213568
 d8850d92-fdb8-490f-8d9d-34ac89c7d414,2024-12-20,17,eBay,AUCTION,ok,0,https://www.ebay.com/itm/2013-POKEMON-B-W-PLASMA-BLAST-49-MACHAMP-REVERSE-FOIL-PSA-9-/305971542872
 d8850d92-fdb8-490f-8d9d-34ac89c7d414,2023-10-29,28,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/2013-Pokemon-Plasma-Blast-49-101-Machamp-Reverse-Holo-Rare-Graded-PSA-9-/354916653041
+d83f2b27-098a-4f18-a989-632bef0d12dd,2026-11-15,35,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/377224337721
 d83f2b27-098a-4f18-a989-632bef0d12dd,2026-11-15,17.5,eBay,AUCTION,ok,0,https://www.ebay.com/itm/137905857728
 d83f2b27-098a-4f18-a989-632bef0d12dd,2026-11-13,45.99,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/197294864128
 d83f2b27-098a-4f18-a989-632bef0d12dd,2026-11-13,20,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/920039509989
@@ -467,7 +468,6 @@ d83f2b27-098a-4f18-a989-632bef0d12dd,2026-10-26,42.82,eBay,BEST_OFFER,ok,0,https
 d83f2b27-098a-4f18-a989-632bef0d12dd,2026-10-25,25.28,eBay,AUCTION,ok,0,https://www.ebay.com/itm/900020497715
 d83f2b27-098a-4f18-a989-632bef0d12dd,2026-10-23,28.99,eBay,BEST_OFFER,LISTING_PRICE,0,https://www.ebay.com/itm/398395472149
 d83f2b27-098a-4f18-a989-632bef0d12dd,2026-10-22,25,eBay,BEST_OFFER,LISTING_PRICE,0,https://www.ebay.com/itm/820252630224
-d83f2b27-098a-4f18-a989-632bef0d12dd,2026-10-21,30,eBay,BEST_OFFER,LISTING_PRICE,0,https://www.ebay.com/itm/358841319448
 d81e4bc5-caa8-4f09-94ef-96d6f798c2e0,2026-11-15,67.24,eBay,AUCTION,ok,0,https://www.ebay.com/itm/137907645208
 d81e4bc5-caa8-4f09-94ef-96d6f798c2e0,2026-11-01,72.54,eBay,AUCTION,ok,0,https://www.ebay.com/itm/137859553085
 d81e4bc5-caa8-4f09-94ef-96d6f798c2e0,2026-09-27,75.18,eBay,AUCTION,ok,0,https://www.ebay.com/itm/137746756722
@@ -517,6 +517,7 @@ d847ec14-71cb-4151-8bb0-5b3161cb0d6a,2024-04-22,17.51,eBay,AUCTION,ok,0,https://
 d8ec5867-0130-4eb5-9783-b5ff3c028258,2026-08-09,128.3,eBay,AUCTION,ok,0,https://www.ebay.com/itm/287489090428
 d8ec5867-0130-4eb5-9783-b5ff3c028258,2026-03-22,130.76,eBay,AUCTION,ok,0,https://www.ebay.com/itm/287194690276
 d8ec5867-0130-4eb5-9783-b5ff3c028258,2024-05-15,97.43,eBay,AUCTION,ok,0,https://www.ebay.com/itm/Celebi-V-245-264-Full-Art-Alternative-Colpo-Fusione-PSA-9-Mint-ITA-/266803266671
+d81b7584-0c90-4e71-9379-45e678800e25,2026-11-15,280,eBay,AUCTION,ok,0,https://www.ebay.com/itm/900072559178
 d81b7584-0c90-4e71-9379-45e678800e25,2026-09-19,255,eBay,AUCTION,ok,0,https://www.ebay.com/itm/298661762386
 d81b7584-0c90-4e71-9379-45e678800e25,2026-04-23,239.99,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/227194826010
 d81b7584-0c90-4e71-9379-45e678800e25,2024-06-01,93,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/Pokemon-PSA-9-Mint-1996-Playing-Card-Green-Poker-Card-Pikachu-3-Diamonds-/325980625801
