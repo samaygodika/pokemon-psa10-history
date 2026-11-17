@@ -35,7 +35,7 @@ $PY history/store.py push --note "$(msg "${COMMIT_PREFIX:-nightly}")"   # histor
 for attempt in 1 2 3; do
   $PY history/store.py stage   # latest/ + the history files that stay in git (never history/sales, history/daily)
   if git commit -q -m "$(msg "${COMMIT_PREFIX:-nightly}")"; then
-    if git push -q origin HEAD:main; then
+    if git -c pack.usePathWalk=true push -q origin HEAD:main; then   # path-walk (git >= 2.49; older git ignores it): our 256 xx.csv shards per dir defeat the default delta search, ~14.5 -> ~5 MiB per nightly push (2026-11-16)
       echo "pushed on attempt $attempt: $(git log --oneline -1)"
       exit 0
     fi
