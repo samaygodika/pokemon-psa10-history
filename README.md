@@ -416,6 +416,10 @@ the same data date replaces that date's rows. Blank = unknown, never 0. Research
 
 ## Scheduled runs
 
+Operating it (what healthy looks like, what to do when a run fails, secrets and expiry dates): see
+[RUNBOOK.md](RUNBOOK.md). A daily **feed health** run (22:30 UTC, `nightly/feed_health.py`) checks the
+published `latest/` itself and opens an issue when it is stale, doesn't match `summary.json`, or shrank.
+
 `nightly/run_nightly.sh` does everything: full index listing (~65k cards, ~25 min),
 scope filter, scrape with two retry passes, then `history/ingest.py` and
 `history/metrics.py`. On GitHub Actions (since 2026-10-17) the same script runs in three jobs,

@@ -1,0 +1,62 @@
+# Daily feed health check (2026-11-17): nightly/feed_health.py on what main publishes.
+# The other workflows go red when they crash; this one goes red when the feed itself is wrong
+# while every job looked green: the nightly didn't publish (stale latest/), a file doesn't match
+# summary.json (Sid's server refuses it and keeps the old copy), or the night's counts fell.
+# A red run emails whoever last edited this cron line, and opens (or comments on) one GitHub issue
+# titled "Feed health check failed" that anyone watching the repo sees; the next green run closes it.
+# 22:30 UTC: the nightly (cron 03:17, GitHub starts it hours late) has published by ~15:00 on a
+# normal day, so a 30 h age limit here means one missed night is reported the same day.
+name: feed health (is latest/ fresh and intact?)
+on:
+  schedule:
+    - cron: "30 22 * * *"
+  workflow_dispatch:
+permissions:
+  contents: read
+  issues: write
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ISSUE_TITLE: Feed health check failed
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: the last few nightlies' summary.json, for the night-over-night counts
+        run: |
+          mkdir -p "$RUNNER_TEMP/prev"
+          gh api "repos/${{ github.repository }}/commits?sha=main&path=latest/summary.json&per_page=60" \
+            --jq '.[] | select(.commit.message | startswith("nightly ")) | .sha' | head -3 > "$RUNNER_TEMP/prev/shas" || true
+          while read -r sha; do
+            gh api -H "Accept: application/vnd.github.raw" \
+              "repos/${{ github.repository }}/contents/latest/summary.json?ref=$sha" > "$RUNNER_TEMP/prev/$sha.json" \
+              || rm -f "${RUNNER_TEMP:?}/prev/${sha:?}.json"
+          done < "$RUNNER_TEMP/prev/shas"
+          ls -l "$RUNNER_TEMP/prev"
+      - name: check the feed
+        id: check
+        run: |
+          python3 nightly/feed_health.py --root latest --prev "$RUNNER_TEMP"/prev/*.json \
+            --raw-url "https://raw.githubusercontent.com/${{ github.repository }}/main/latest/summary.json" \
+            --report "$RUNNER_TEMP/report.md"
+      - name: report in the run summary
+        if: always()
+        run: cat "$RUNNER_TEMP/report.md" >> "$GITHUB_STEP_SUMMARY" 2>/dev/null || true
+      - name: open or update the issue
+        if: failure() && steps.check.outcome == 'failure'
+        run: |
+          body="$(cat "$RUNNER_TEMP/report.md")
+
+          Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          n=$(gh issue list --state open --search "\"$ISSUE_TITLE\" in:title" --json number --jq '.[0].number // empty')
+          if [ -n "$n" ]; then gh issue comment "$n" --body "$body"; else gh issue create --title "$ISSUE_TITLE" --body "$body"; fi
+      - name: close the issue once the feed is healthy again
+        if: success()
+        run: |
+          for n in $(gh issue list --state open --search "\"$ISSUE_TITLE\" in:title" --json number --jq '.[].number'); do
+            gh issue close "$n" --comment "Healthy again: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          done
