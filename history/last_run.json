@@ -1,72 +1,72 @@
 {
- "day": "2026-11-17",
+ "day": "2026-11-18",
  "scope": "top60",
- "started_at": "2026-11-17T11:59:56+00:00",
+ "started_at": "2026-11-18T11:52:41+00:00",
  "scrape": {
-  "scope": 35604,
-  "ok": 35604,
+  "scope": 35613,
+  "ok": 35613,
   "failed": 0,
   "skipped": 0,
-  "carried": 14944,
-  "listings_asked": 35604,
+  "carried": 14931,
+  "listings_asked": 35613,
   "listings_failed": 0,
-  "psa9_listings_asked": 34796,
+  "psa9_listings_asked": 34804,
   "psa9_listings_failed": 0,
-  "all_grades_cards": 167,
-  "all_grades_requests": 1025,
+  "all_grades_cards": 166,
+  "all_grades_requests": 1014,
   "company": "PSA",
   "grade": "10.0",
   "also_grades": [
    "9.0"
   ],
   "listings_only": false,
-  "passes": 1,
-  "started_at": "2026-11-17T12:28:54+00:00",
-  "finished_at": "2026-11-17T15:00:40+00:00",
+  "passes": 2,
+  "started_at": "2026-11-18T12:21:42+00:00",
+  "finished_at": "2026-11-18T14:48:54+00:00",
   "shards": {
    "shard-0": {
-    "scope": 17802,
-    "ok": 17802,
+    "scope": 17807,
+    "ok": 17807,
     "failed": 0,
     "skipped": 0,
-    "carried": 7404,
-    "passes": 1,
-    "listings_asked": 17802,
+    "carried": 7488,
+    "passes": 2,
+    "listings_asked": 17807,
     "listings_failed": 0,
-    "psa9_listings_asked": 17412,
+    "psa9_listings_asked": 17422,
     "psa9_listings_failed": 0,
-    "all_grades_cards": 86,
-    "all_grades_requests": 520,
+    "all_grades_cards": 82,
+    "all_grades_requests": 525,
     "company": "PSA",
     "grade": "10.0",
     "also_grades": [
      "9.0"
     ],
     "listings_only": false,
-    "started_at": "2026-11-17T12:28:54+00:00",
-    "finished_at": "2026-11-17T14:59:51+00:00"
+    "started_at": "2026-11-18T12:21:59+00:00",
+    "finished_at": "2026-11-18T14:48:54+00:00"
    },
    "shard-1": {
-    "scope": 17802,
-    "ok": 17802,
+    "scope": 17806,
+    "ok": 17806,
     "failed": 0,
     "skipped": 0,
-    "carried": 7540,
+    "carried": 7443,
     "passes": 1,
-    "listings_asked": 17802,
+    "listings_asked": 17806,
     "listings_failed": 0,
-    "psa9_listings_asked": 17384,
+    "psa9_listings_asked": 17382,
     "psa9_listings_failed": 0,
-    "all_grades_cards": 81,
-    "all_grades_requests": 505,
+    "all_grades_cards": 84,
+    "all_grades_requests": 489,
     "company": "PSA",
     "grade": "10.0",
     "also_grades": [
      "9.0"
     ],
     "listings_only": false,
-    "started_at": "2026-11-17T12:28:54+00:00",
-    "finished_at": "2026-11-17T15:00:40+00:00"
+    "started_at": "2026-11-18T12:21:42+00:00",
+    "finished_at": "2026-11-18T14:01:36+00:00"
    }
   }
  },
@@ -78,33 +78,29 @@
   "scraped_pct": 100.0,
   "listings_failed_pct": 0.0,
   "psa9_listings_failed_pct": 0.0,
-  "judged_at": "2026-11-17T15:01:44+00:00"
+  "judged_at": "2026-11-18T14:50:07+00:00"
  },
  "alt": {
   "ok": true,
-  "listings": 5351,
-  "auctions": 3165,
-  "cards": 3739,
-  "started_at": "2026-11-17T15:01:44+00:00",
-  "finished_at": "2026-11-17T15:02:09+00:00"
+  "listings": 5563,
+  "auctions": 3376,
+  "cards": 3851,
+  "started_at": "2026-11-18T14:50:07+00:00",
+  "finished_at": "2026-11-18T14:50:37+00:00"
  },
  "fanatics": {
-  "ok": true,
-  "requests": 45,
+  "ok": false,
+  "error": "RuntimeError: Fanatics Collect: 5+ PSA 10 English years 2022..2002 (3) currentPrice >= 499.0 currentPrice < 500.0 listings at $499.0 in one slice; the paging cannot get past them (slice the years finer)",
+  "requests": 46,
   "budget": 80,
-  "slices": 32,
-  "listings": 22659,
-  "matched": 15778,
-  "cards": 6584,
-  "index_estimate": 23355,
   "grades": [
    10,
    9
   ],
-  "started_at": "2026-11-17T15:02:09+00:00",
-  "finished_at": "2026-11-17T15:03:27+00:00",
+  "started_at": "2026-11-18T14:50:37+00:00",
+  "finished_at": "2026-11-18T14:51:39+00:00",
   "last_ok": "2026-11-17",
-  "failed_nights": 0
+  "failed_nights": 1
  },
- "finished_at": "2026-11-17T15:03:27+00:00"
+ "finished_at": "2026-11-18T14:51:39+00:00"
 }
