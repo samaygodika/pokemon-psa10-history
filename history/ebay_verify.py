@@ -86,6 +86,29 @@ def item_id(url):
     return m.group(1) if m else None
 
 
+NO_REDIRECT = "nordt=true"
+
+
+def sale_link(url):
+    """A sale's URL as latest/ shows it (2026-11-23, Sid: "past sale auction links don't work"):
+    an eBay item page gets ?nordt=true. Without it eBay sends a browser on an ended listing
+    to a catalog "for sale" page (/p/<id>) of other listings; with it the sold listing shows
+    ("Item sold on ...", winning price). eBay keeps an ended listing about 90 days, then the
+    page is gone either way. Other sites and URLs that already ask for it come back as they are;
+    the store keeps the plain URL."""
+    url = url or ""
+    if not item_id(url) or NO_REDIRECT in url:
+        return url
+    base, hash_, frag = url.partition("#")
+    return base + ("&" if "?" in base else "?") + NO_REDIRECT + hash_ + frag
+
+
+def url_key(url):
+    """What two sale URLs must share to be the same sale: the eBay item id when there is one
+    (so a link with ?nordt=true or any other query still matches the plain one), else the URL."""
+    return item_id(url) or (url or "")
+
+
 def load_checks(store):
     path = store / "ebay_checks.csv"
     return {r["item_id"]: r for r in ingest.read_csv(path)} if path.exists() else {}

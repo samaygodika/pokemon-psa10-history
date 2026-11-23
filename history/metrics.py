@@ -39,7 +39,9 @@ never as 0.
                          first, INCLUDING ones alt.xyz flags (status column:
                          ok / RELISTED / NOT_PAID / PENDING …) and ones the
                          outlier filter holds back (outlier = 1), with the
-                         sale URL — so a user can eyeball a suspicious price.
+                         sale URL — so a user can eyeball a suspicious price
+                         (eBay item links carry ?nordt=true so the ended listing
+                         shows, not eBay's catalog page; 2026-11-23).
   ref price at a date  = median of the up-to-3 most recent clean PSA 10 sales
                          on or before that date, looking back at most 180 days.
   price_chg_30d_pct    = ref(today) vs ref(today-30d), only when both exist AND
@@ -364,6 +366,7 @@ from urllib.parse import urlparse
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ingest import utc_iso, when   # noqa: E402  (the store's UTC time form; CardHobby ends arrive as -04:00)
 from ebay_verify import item_id as ebay_item_id   # noqa: E402  (the eBay item id in a sale URL, for the title check)
+from ebay_verify import sale_link   # noqa: E402  (eBay sale links get ?nordt=true in latest/, 2026-11-23)
 import flagged_sales   # noqa: E402  (Sid's flagged sales, 2026-10-28)
 
 HERE = Path(__file__).resolve().parent
@@ -1066,7 +1069,7 @@ def write_recent(recent_dir, raw_sales, sales):
         lst.sort(reverse=True)
         for sd, price, src, stype, status, url in lst[:RECENT_N]:
             outlier = 1 if (status == "ok" and (sd, price) not in clean_keys) else 0
-            rshards[aid[:2]].append([aid, sd.isoformat(), fmt(price), src, stype, status, outlier, url])
+            rshards[aid[:2]].append([aid, sd.isoformat(), fmt(price), src, stype, status, outlier, sale_link(url)])
             n_recent += 1
     for shard, rows_ in rshards.items():
         with open(recent_dir / f"{shard}.csv", "w", newline="", encoding="utf-8") as f:

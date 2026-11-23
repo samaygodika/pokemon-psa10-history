@@ -87,6 +87,17 @@ def test_match_is_sids_rule():
     assert not fs.match(ix, "a2", "10.0", "2026-10-20", 1830.0, "")
 
 
+def test_match_ignores_nordt():
+    """2026-11-23: the feed's eBay links carry ?nordt=true; a flag made from one still matches the
+    plain store URL, and an old plain flag matches either."""
+    plain, link = "https://www.ebay.com/itm/178465997592", "https://www.ebay.com/itm/178465997592?nordt=true"
+    for flag_url, sale_url in ((link, plain), (plain, link), (link, link)):
+        ix = {"a1": {fs.grade_key("10.0"): [("2026-09-13", 2177500, flag_url)]}}
+        assert fs.match(ix, "a1", "10.0", "2026-09-13", 21775.0, sale_url), (flag_url, sale_url)
+    ix = {"a1": {fs.grade_key("10.0"): [("2026-09-13", 2177500, link)]}}
+    assert not fs.match(ix, "a1", "10.0", "2026-09-13", 21775.0, "https://www.ebay.com/itm/198734854879")
+
+
 def test_source():
     assert fs.sibling_url(URL) == URL.replace("watchlist.csv", "flagged_sales.csv")
     assert fs.sibling_url(URL + "?ref=main") == URL.replace("watchlist.csv", "flagged_sales.csv") + "?ref=main"

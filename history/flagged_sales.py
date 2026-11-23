@@ -29,7 +29,9 @@ it. So % change, cap_price, the weekly series, clean_sales, the last sale and th
 out from the next run that rebuilds them.
 
 Match (Sid's own, PokeSniper lib/flaggedSales.js matchIn): same asset, same grade (his "10" is our
-"10.0"), same sale day, same price to the cent, and the same URL when both sides have one.
+"10.0"), same sale day, same price to the cent, and the same URL when both sides have one (eBay
+URLs compare by item id, so a flag made from the feed's ?nordt=true link matches the plain store
+URL, 2026-11-23).
 
 Standard library only, like the rest of the feed."""
 import argparse
@@ -42,6 +44,9 @@ import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from ebay_verify import url_key  # noqa: E402  (a flag made from a ?nordt=true link matches the plain store URL)
 
 HERE = Path(__file__).resolve().parent
 FILE = "flagged_sales.csv"
@@ -109,7 +114,7 @@ def match(index, aid, grade, day, price, url=""):
         return None
     day, c = str(day)[:10], cents(price)
     for f in flags:
-        if f[0] == day and f[1] == c and (not f[2] or not url or f[2] == url):
+        if f[0] == day and f[1] == c and (not f[2] or not url or url_key(f[2]) == url_key(url)):
             return f
     return None
 

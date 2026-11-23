@@ -76,7 +76,11 @@ first, including sales alt.xyz flags (`status` = ok / RELISTED / NOT_PAID /
 PENDING …, or REMOVED when alt.xyz has since dropped the sale from the card outright, see
 *Ingest* below; 2026-10-20; or FLAGGED when Sid flagged it as bad in PokeSniper, see *Flagged
 sales* below; 2026-10-28) and sales the filter is holding back (`outlier` = 1), with the sale
-URL — `GET /api/samay-data/recent-sales?ids=…` for the app's price dropdown. The eight columns never change (PokeSniper reads everything after the 7th comma as the URL); when `cards.csv` says `last_sale_single` = 1, the `outlier` = 1 row whose date and price equal `last_sale_*` is that single sale (2026-10-18).
+URL — `GET /api/samay-data/recent-sales?ids=…` for the app's price dropdown. An eBay item URL
+carries `?nordt=true` (2026-11-23, here and in `all_grades/sales.csv`): without it eBay sends a
+browser on an ended listing to a catalog "for sale" page of other listings; with it the sold
+listing shows, for about 90 days after the sale (then eBay drops the page). The store keeps the
+plain URL. The eight columns never change (PokeSniper reads everything after the 7th comma as the URL); when `cards.csv` says `last_sale_single` = 1, the `outlier` = 1 row whose date and price equal `last_sale_*` is that single sale (2026-10-18).
 `latest/recent_sales_psa9/<xx>.csv` is the same for PSA 9 sales: the same eight columns
 (`asset_id, date, price, source, sale_type, status, outlier, url`), each card's last 10 PSA 9
 sales newest first, only for cards whose PSA 9 sales have been collected (`psa9_scraped_date`),
@@ -735,7 +739,8 @@ first (07:15 UTC daily) and commits it; a fetch that fails keeps the flags on re
 changed file alone is reason enough for that run to rebuild `latest/` and commit.
 
 A stored sale matches a flag on Sid's own rule: same asset, same grade, same day, same price to
-the cent, and the same URL when both have one. `metrics.py` and `all_grades.py` give a matched sale
+the cent, and the same URL when both have one (eBay URLs compare by item id, so a flag with or
+without `?nordt=true` matches; 2026-11-23). `metrics.py` and `all_grades.py` give a matched sale
 the status **FLAGGED**, treated exactly like REMOVED: out of every number (`clean_last_sale_*`,
 the % changes, `cap_price`, volumes, `series/`, `clean_sales/`), never the newest listed sale
 for `last_sale_*` / `last_sale_status`, and listed in `recent_sales/` with status FLAGGED. The

@@ -65,6 +65,20 @@ def test_item_id():
     assert ev.item_id("https://www.ebay.com/itm/some-title/286456815956?hash=x") == "286456815956"
     assert ev.item_id("https://www.ebay.co.uk/itm/123456789012") == "123456789012"
     assert ev.item_id("https://www.fanaticscollect.com/x/123456789012") is None
+
+
+def test_sale_link_and_url_key():
+    """2026-11-23: eBay item links get ?nordt=true (ended listings otherwise redirect to a
+    catalog page); other sites and links that already ask for it are left alone."""
+    assert ev.sale_link("https://www.ebay.com/itm/377599618525") == "https://www.ebay.com/itm/377599618525?nordt=true"
+    assert ev.sale_link("https://www.ebay.com/itm/377599618525?hash=x") == "https://www.ebay.com/itm/377599618525?hash=x&nordt=true"
+    assert ev.sale_link("https://www.ebay.com/itm/377599618525#top") == "https://www.ebay.com/itm/377599618525?nordt=true#top"
+    once = ev.sale_link("https://www.ebay.com/itm/377599618525")
+    assert ev.sale_link(once) == once
+    for other in ("https://www.fanaticscollect.com/x/123456789012", "https://alt.xyz/itm/x", "", None):
+        assert ev.sale_link(other) == (other or "")
+    assert ev.url_key(once) == ev.url_key("https://www.ebay.com/itm/377599618525") == "377599618525"
+    assert ev.url_key("https://alt.xyz/itm/x") == "https://alt.xyz/itm/x" and ev.url_key(None) == ""
     assert ev.item_id("") is None and ev.item_id(None) is None
     print("item_id ok")
 
@@ -201,4 +215,5 @@ if __name__ == "__main__":
     test_rate_limit_stops()
     test_no_keys_is_a_no_op()
     test_ingest_skips_dead_and_metrics_column()
+    test_sale_link_and_url_key()
     print("all ebay-verify checks passed")

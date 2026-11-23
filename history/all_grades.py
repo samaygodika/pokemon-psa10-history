@@ -52,8 +52,9 @@ any other. This step reads both and writes:
   latest/all_grades/sales.csv    every sale alt.xyz lists for those cards at every grade, newest first
                                  within a card and grade: asset_id, grade, date, price, source, sale_type,
                                  status (ok, or alt.xyz's RELISTED / NOT_PAID / PENDING, or REMOVED),
-                                 outlier (1 = an ok sale the filter holds back), url. PWCC mirror copies
-                                 dropped, like recent_sales/.
+                                 outlier (1 = an ok sale the filter holds back), url (eBay item links
+                                 + ?nordt=true, like recent_sales/). PWCC mirror copies dropped, like
+                                 recent_sales/.
   latest/all_grades/summary.json cards, grade rows, sales, pops_date range, generated_at.
 
 The pop history itself stays in history/grade_pops.csv (committed, one row per card and night).
@@ -216,7 +217,8 @@ def build(store=HERE, out=LATEST, today=None):
             clean_keys = {(t[0], t[1]) for t in clean}
             for sd, price, src, stype, status, url in sorted(raw, reverse=True):
                 outlier = 1 if (status == "ok" and (sd, price) not in clean_keys) else 0
-                sale_rows.append([aid, g, sd.isoformat(), metrics.fmt(price), src, stype, status, outlier, url])
+                sale_rows.append([aid, g, sd.isoformat(), metrics.fmt(price), src, stype, status, outlier,
+                                  metrics.sale_link(url)])
                 n_sales += 1
     out.mkdir(parents=True, exist_ok=True)
     with open(out / "grades.csv", "w", newline="", encoding="utf-8") as f:
