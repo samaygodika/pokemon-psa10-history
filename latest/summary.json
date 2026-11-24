@@ -1,6 +1,6 @@
 {
   "data_date": "2026-11-23",
-  "generated_at": "2026-11-23T22:06:46+00:00",
+  "generated_at": "2026-11-24T06:00:12+00:00",
   "daily_files": 72,
   "first_daily": "2026-09-11",
   "assets": 71368,
@@ -46,24 +46,24 @@
     "unavailable": 43
   },
   "rows_listings_checked": 71368,
-  "rows_with_live_auction": 5363,
-  "rows_with_bin_listing": 20720,
-  "rows_bin_ebay_verified": 17755,
-  "rows_psa9_bin_ebay_verified": 10400,
-  "rows_bin_suspect": 2928,
-  "rows_psa9_bin_suspect": 1110,
-  "rows_bin_first_seen_known": 20720,
-  "rows_next_auction_bid_suspect": 28,
-  "rows_psa9_bin_first_seen_known": 12791,
-  "rows_psa9_next_auction_bid_suspect": 28,
-  "rows_psa9_listings_checked": 36349,
-  "rows_with_psa9_live_auction": 3592,
-  "rows_with_psa9_bin_listing": 12791,
+  "rows_with_live_auction": 5220,
+  "rows_with_bin_listing": 20724,
+  "rows_bin_ebay_verified": 17684,
+  "rows_psa9_bin_ebay_verified": 10354,
+  "rows_bin_suspect": 2927,
+  "rows_psa9_bin_suspect": 1107,
+  "rows_bin_first_seen_known": 20724,
+  "rows_next_auction_bid_suspect": 26,
+  "rows_psa9_bin_first_seen_known": 12790,
+  "rows_psa9_next_auction_bid_suspect": 30,
+  "rows_psa9_listings_checked": 36367,
+  "rows_with_psa9_live_auction": 3487,
+  "rows_with_psa9_bin_listing": 12790,
   "live_auctions": {
-    "10": 12103,
-    "9": 7163
+    "10": 11629,
+    "9": 6809
   },
-  "live_auctions_bid_suspect": 89,
+  "live_auctions_bid_suspect": 86,
   "rows_with": {
     "price_chg_30d_pct": 14848,
     "price_chg_90d_pct": 20786,
@@ -184,8 +184,8 @@
   },
   "files": {
     "cards.csv": {
-      "sha256": "71c9aa525c27181362f084e5bf66156e10c283402ca585d380403f45ae8c6160",
-      "bytes": 46553263,
+      "sha256": "f708929af72d0949b4fb13bdd0f17e71e13aae3650ecee911e67c88e8b77ed79",
+      "bytes": 46531579,
       "rows": 71368
     },
     "characters.csv": {
@@ -229,9 +229,9 @@
       "rows": 9144
     },
     "live_auctions.csv": {
-      "sha256": "8e4d22cb6e523ab5b2a8c4c201f8270d603a5d7ac5c667de29ecb1b44e3ef158",
-      "bytes": 3167003,
-      "rows": 19266
+      "sha256": "4fc6a2acd7584674f23775b0757f82b0d09c7e9d01dc8a00bfff0eba537e4b39",
+      "bytes": 3043107,
+      "rows": 18438
     },
     "series/manifest.json": {
       "sha256": "176ba4f42c017d51bed0fb3da2df895f2738586887d4cdd116de9eb3dc3c0ce9",
@@ -239,13 +239,13 @@
       "entries": 256
     },
     "recent_sales/manifest.json": {
-      "sha256": "912112afa4e62bbdc739b2e2ecf2507fb4a0cad0d4a75b65cb6ccbbb3b91c122",
+      "sha256": "349a8c858f3d16210e706a0f23ffb287f2248f3860c7113a61416e1ee76cc77e",
       "bytes": 33855,
       "entries": 256
     },
     "recent_sales_psa9/manifest.json": {
-      "sha256": "1e5c50d223a1280553415b70c9314dc7625454dadde287f27489d179ca5be5fa",
-      "bytes": 33415,
+      "sha256": "eb7d8abcd42a35c645161af365386223a3e7c5031d3aa764a10b219fc0c2a849",
+      "bytes": 33422,
       "entries": 256
     },
     "clean_sales/manifest.json": {
