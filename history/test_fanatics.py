@@ -118,6 +118,46 @@ def test_match_rules():
     print("match rules ok")
 
 
+
+# 2026-11-24: real alt.xyz rows (history/assets.csv) behind Sid's 11-05 cheap-ask report.
+OTHER_PRODUCTS = [
+    _asset("bsvenu", "2000 Pokemon Black Star Promo Holo Venusaur #13", "2000", "Pokemon Black Star Promo", "13", "Venusaur", "Holo"),
+    _asset("jpbuzz", "1996 Pokemon Base Set Japanese Electabuzz #125", "1996", "Pokemon Base Set", "125", "Electabuzz", "Japanese"),
+    _asset("cdbuzz", "1996 Pokemon Bandai Carddass Part 2 Red Electabuzz #125", "1996", "Pokemon Bandai Carddass Part 2 Red", "125", "Electabuzz"),
+    _asset("celpika", "2021 Pokemon Sword and Shield Celebrations Pikachu #005", "2021", "Pokemon Sword and Shield Celebrations", "005", "Pikachu", "Holo"),
+    _asset("pop6pika", "2007 Pokemon Pop Series 6 Pop Series 6 Pikachu #9", "2007", "Pokemon Pop Series 6", "9", "Pikachu", "Pop Series 6"),
+    _asset("spwart", "2000 Pokemon Tv Animation Edition Series Chrome Spectra Wartortle #8", "2000",
+           "Pokemon Tv Animation Edition Series Chrome Spectra", "8", "Wartortle"),
+    _asset("gumwart", "2000 Pokemon Super Bubble Gum Stickers Wartortle #8", "2000", "Pokemon Super Bubble Gum Stickers", "8", "Wartortle"),
+    _asset("spnido", "2000 Pokemon Chrome Spectra-Chrome Nidorina #30", "2000", "Pokemon Chrome Spectra-Chrome", "30", "Nidorina"),
+    _asset("tvnido", "2000 Topps Chrome Pokemon Tv Nidorina #30", "2000", "Topps Chrome Pokemon Tv", "30", "Nidorina", "Pokemon Tv"),
+]
+
+
+def test_match_other_products():
+    """Listings of another product with the card's year and number (2026-11-24): refused, not matched."""
+    idx = fm.load_assets(rows=OTHER_PRODUCTS)
+    m = lambda *a, **k: fm.match(hit(*a, **k), idx)   # noqa: E731
+    for title, year, num in [
+            ("2000 Pokemon Merlin Tattoos With Coating Hitmonchan Vileplume Venusaur #13 PSA 10 GEM MINT", "2000", "13"),
+            ("1996 Pokemon Japanese Red Poker Set Nintendo Playing Card Electabuzz #125 PSA 10", "1996", "125"),
+            ("1997 Pokemon Japanese Topsun Blue Back Electabuzz #125 PSA 9 MINT", "1996", "125"),
+            ("2021 Pokemon Asia 25th Anniv Promo Pikachu V Golden Box PSA 10 #005", "2021", "005"),
+            ("2007 Pokemon POP Series 6 Pokemon Day '08 Pikachu #9 PSA 9 MINT", "2007", "9"),
+            ("2000 Topps Chrome Pokemon Series 1 Wartortle #8 PSA 10 GEM MINT", "2000", "8")]:   # neither Spectra nor sticker
+        r = m(title, year, num, cats=(EN, JP))
+        assert r[1] == "no_survivor", (title, r)
+    # the plain titles still match
+    assert m("2000 Pokemon Black Star Promo Venusaur #13 PSA 10", "2000", "13")[:2] == ("bsvenu", "matched")
+    assert m("1996 Pokemon Japanese Base Set Electabuzz #125 PSA 9", "1996", "125", cats=(JP,))[:2] == ("jpbuzz", "matched")
+    assert m("1996 Pokemon Bandai Carddass Red Electabuzz #125 PSA 9", "1996", "125")[:2] == ("cdbuzz", "matched")
+    assert m("2007 Pokemon POP Series 6 Pikachu #9 PSA 9 MINT", "2007", "9")[:2] == ("pop6pika", "matched")
+    assert m("2000 Pokemon Super Bubble Gum Stickers Wartortle #8 PSA 9", "2000", "8")[:2] == ("gumwart", "matched"), "sticker = stickers"
+    # Spectra now tells the parallel from the plain Chrome card (both used to explain the title: ambiguous)
+    assert m("2000 Topps Chrome Pokemon TV Spectra Nidorina #30 PSA 10 GEM MINT", "2000", "30")[:2] == ("spnido", "matched")
+    assert m("2000 Topps Chrome Pokemon TV Nidorina #30 PSA 10 GEM MINT", "2000", "30")[:2] == ("tvnido", "matched")
+    print("other products ok")
+
 def test_fixture_page():
     """The recorded 2009 PSA 9 page (40 hits) against the real card list: Sid's Arceus lands on fc925763."""
     page = json.load(open(FIX / "fanatics_page_2009_psa9.json"))["results"][0]
@@ -466,6 +506,7 @@ def test_ingest_fanatics():
 if __name__ == "__main__":
     test_words()
     test_match_rules()
+    test_match_other_products()
     test_fixture_page()
     test_pull_paging_and_budget()
     test_adaptive_slicing()

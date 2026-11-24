@@ -261,6 +261,11 @@ def test_metrics_bin_suspect():
     # Sid's 10-09 example: Arceus LV.X DP53 PSA 9, Fanatics BIN $100,000 vs a $359 clean sale
     assert metrics.bin_suspect({"psa9_lowest_bin_price": "100000"}, 359.0, "psa9_") == {"psa9_lowest_bin_suspect": 1}
     assert metrics.bin_suspect({"lowest_bin_price": "95"}, 100.0) == {"lowest_bin_suspect": 0}
+    # 2026-11-24, the low side (Sid 11-05): Black Star Venusaur #13 PSA 10 asked $369 vs $22,800
+    assert metrics.SUSPECT_ASK_LOW == metrics.OUTLIER_LOW == 0.25
+    assert metrics.bin_suspect({"lowest_bin_price": "369"}, 22800.0) == {"lowest_bin_suspect": 1}
+    assert metrics.bin_suspect({"psa9_lowest_bin_price": "24.99"}, 100.0, "psa9_") == {"psa9_lowest_bin_suspect": 1}
+    assert metrics.bin_suspect({"lowest_bin_price": "25"}, 100.0) == {"lowest_bin_suspect": 0}   # at the band is in it
     # exactly at the band is not above it
     assert metrics.bin_suspect({"lowest_bin_price": str(100 * metrics.SUSPECT_BID_MULT)}, 100.0)["lowest_bin_suspect"] == 0
     # no BIN, or no clean sale ever -> blank (unknown)

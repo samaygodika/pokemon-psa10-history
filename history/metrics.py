@@ -241,10 +241,15 @@ $3,500. Those are real, live listings (so the eBay check keeps them), not prices
   lowest_bin_suspect   = 1 when lowest_bin_price is above SUSPECT_BID_MULT x the
                          card's cap_price (median_last_3, else the newest clean
                          sale of any age: joke asks sit on cards that rarely
-                         sell, which have no sale in the median's window); 0 =
-                         judged and not out of line; blank = no BIN, or no clean
-                         sale ever to judge by. A 1 means "do not show this ask
-                         as what the card costs", not "fake listing".
+                         sell, which have no sale in the median's window), or
+                         (2026-11-24) below SUSPECT_ASK_LOW x it, the sales' own
+                         low band: a cheap ask is mostly another item matched to
+                         the card (Sid 11-05: a Merlin tattoo sticker as the
+                         $22,800 Black Star Venusaur #13 at $369); 0 = judged and
+                         not out of line; blank = no BIN, or no clean sale ever
+                         to judge by. A 1 means "do not show this ask as what
+                         the card costs", not "fake listing": on the low side it
+                         can be a real bargain, so worth a look, not a price.
   psa9_lowest_bin_suspect
                        = the same for psa9_lowest_bin_price, against the PSA 9
                          clean sales.
@@ -417,6 +422,7 @@ HELD_COLS = ["chg_held_windows"]   # 2026-10-01
 LISTING_AGE_COLS = ["lowest_bin_first_seen", "next_auction_bid_suspect",
                     "psa9_lowest_bin_first_seen", "psa9_next_auction_bid_suspect"]
 SUSPECT_BID_MULT = OUTLIER_HIGH   # a bid above this x the clean reference is flagged, same band as a sale
+SUSPECT_ASK_LOW = OUTLIER_LOW     # 2026-11-24: a Buy It Now under this x the reference is flagged too (sales' low band)
 # 2026-11-02: latest/live_auctions.csv, every running auction per card and grade (see the module doc)
 LIVE_AUCTIONS_COLS = ["asset_id", "grade", "source", "end", "bid", "bid_count", "url", "bid_suspect", "first_seen", "checked_at"]
 LIVE_CHECK_COLS = {"10.0": "listings_checked_at", "9.0": "psa9_listings_checked_at"}   # grade -> daily column with its check time
@@ -1026,7 +1032,7 @@ def bin_suspect(row, ref, prefix=""):
     """lowest_bin_suspect for one card and grade (see the module doc): the lowest BIN's ask
     against `ref` (cap_price at that grade, None = no clean sale ever)."""
     price = to_float(row[prefix + "lowest_bin_price"])
-    v = "" if price is None or not ref else (1 if price > SUSPECT_BID_MULT * ref else 0)
+    v = "" if price is None or not ref else (1 if price > SUSPECT_BID_MULT * ref or price < SUSPECT_ASK_LOW * ref else 0)
     return {prefix + "lowest_bin_suspect": v}
 
 

@@ -23,7 +23,9 @@ Per listing, against history/assets.csv (every card alt.xyz has a PSA pop for):
               Prerelease, ...) in the title but not in the card's name disqualifies the card: the
               listing is some other print of it, which may or may not be in alt.xyz. One anywhere
               in the card's name (alt.xyz puts "Reverse Foil" in some set names) is required in the
-              title.
+              title. Since 2026-11-24 DISTINCT also holds product words (Topsun, Carddass, Vending,
+              Tomy Scratch, Poker, Merlin Tattoos, Stickers, Spectra, Golden Box, Pokemon Day): a "1997 Topsun
+              Green Back Rhydon #112" was matched to the Jungle Japanese Rhydon #112.
   winner      the surviving card whose words explain a strict superset of what every other
               survivor explains (set words included); a lone survivor wins even when the
               title doesn't spell out its whole set name (alt.xyz's "Black Star Promo Arceus
@@ -59,7 +61,13 @@ LANGUAGES = {"japanese", "german", "italian", "french", "spanish", "korean", "ch
 DISTINCT = {"shadowless", "1st", "reverse", "error", "prerelease", "staff", "stamp", "stamped", "winner",
             "jumbo", "unlimited", "4th", "misprint", "miscut", "cosmos", "league", "championship", "championships",
             "sample", "crystal", "crosshatch", "pokeball", "masterball", "pattern", "signed", "auto", "autograph",
-            "autographed"}
+            "autographed",
+            # 2026-11-24 (Sid's 11-05 cheap-ask report): other products and parallels that share a card's
+            # year and number: Topsun / Carddass / vending / Tomy scratch cards, Nintendo poker-set playing
+            # cards, Merlin tattoos, Topps Chrome Spectra, the Asia 25th Golden Box, Pokemon Day stamps.
+            # Their titles passed before because no rule asks for the card's set words.
+            "spectra", "poker", "tattoo", "merlin", "topsun", "carddass", "vending", "tomy", "scratch",
+            "golden", "day", "meiji", "sticker"}
 # Words in a card's name the title need not repeat: rarity labels and finish, which Fanatics abbreviates
 # ("SIR" for alt's "Special Illustration Rare"), spells differently ("Reverse Foil" / "Reverse Holo", both
 # sides) or leaves out ("Holo", "Promo" on a third-party seller's title). They still count towards which
@@ -74,7 +82,7 @@ CATEGORY_LANG = {"Trading Card Games > Pokémon (English)": "english", "Trading 
 
 def words(text):
     """Lower-case ascii word set: '&' -> and, possessives and dots dropped ("Lv.X" -> lvx, "Collector's"
-    -> collector), 'lv x' joined to lvx, stop words out."""
+    -> collector), 'lv x' joined to lvx, "stickers" / "tattoos" singular, stop words out."""
     s = (text or "").replace("&", " and ").replace("\u2019", "'").replace("\u2018", "'")
     s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode().lower()
     s = re.sub(r"'s\b", "", s).replace("'", "").replace(".", "")
@@ -91,6 +99,8 @@ def words(text):
             out[-1] = "lvx"
         elif t in ("promos",):
             out.append("promo")
+        elif t in ("stickers", "tattoos"):
+            out.append(t[:-1])
         elif t == "foil":
             out.append("holo")
         elif t == "etb":
