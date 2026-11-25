@@ -62,7 +62,7 @@ asset_id,date,price,source,sale_type,status,outlier,url
 9991d697-27a7-4d77-bc00-2d234d59b4a2,2026-11-19,15000,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/117507176237?nordt=true
 9991d697-27a7-4d77-bc00-2d234d59b4a2,2026-11-08,16200,PWCC Weekly Auctions,AUCTION,ok,0,https://www.fanaticscollect.com/weekly/9bd02c46-ce4b-11f1-a7c8-0a58a9feac02
 9991d697-27a7-4d77-bc00-2d234d59b4a2,2026-11-08,15600,PWCC Weekly Auctions,AUCTION,ok,0,https://www.fanaticscollect.com/weekly/2dee442c-d208-11f1-8b75-02ffd2c449f1
-9991d697-27a7-4d77-bc00-2d234d59b4a2,2026-11-05,13488,Alt,AUCTION,PENDING,0,https://alt.xyz/exchange/select-listing?ids=4db0fa59-d101-450d-b0a0-2e7351ee8aa4
+9991d697-27a7-4d77-bc00-2d234d59b4a2,2026-11-05,13488,Alt,AUCTION,REMOVED,0,https://alt.xyz/exchange/select-listing?ids=4db0fa59-d101-450d-b0a0-2e7351ee8aa4
 9991d697-27a7-4d77-bc00-2d234d59b4a2,2026-10-29,13800,Alt,AUCTION,ok,0,https://alt.xyz/exchange/select-listing?ids=56219394-93e3-4442-99e4-dfe84d919cfc
 9991d697-27a7-4d77-bc00-2d234d59b4a2,2026-10-29,13200,Alt,AUCTION,ok,0,https://alt.xyz/exchange/select-listing?ids=370168e0-f2d7-4b32-8a83-4f514a01bc7f
 9991d697-27a7-4d77-bc00-2d234d59b4a2,2026-10-29,9159.99,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/117174948125?nordt=true
@@ -147,6 +147,7 @@ asset_id,date,price,source,sale_type,status,outlier,url
 99d026dc-6827-4cde-b501-f54c5b6063ef,2026-02-15,2220,PWCC Weekly Auctions,AUCTION,ok,0,https://www.fanaticscollect.com/weekly/fe221fb0-0747-11f1-8516-0281862650db
 99d026dc-6827-4cde-b501-f54c5b6063ef,2026-01-11,2605.74,eBay,AUCTION,ok,0,https://www.ebay.com/itm/287045665249?nordt=true
 99d026dc-6827-4cde-b501-f54c5b6063ef,2025-07-13,1336,eBay,AUCTION,ok,0,https://www.ebay.com/itm/396828397473?nordt=true
+9970a992-4618-4228-8f31-5e7ce62601e3,2026-11-25,450,eBay,BEST_OFFER,LISTING_PRICE,0,https://www.ebay.com/itm/900113398300?nordt=true
 9970a992-4618-4228-8f31-5e7ce62601e3,2026-11-13,455,eBay,AUCTION,ok,0,https://www.ebay.com/itm/117501692696?nordt=true
 9970a992-4618-4228-8f31-5e7ce62601e3,2026-10-30,610,eBay,AUCTION,ok,0,https://www.ebay.com/itm/168815782405?nordt=true
 9970a992-4618-4228-8f31-5e7ce62601e3,2026-08-25,300,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/117356940382?nordt=true
@@ -156,7 +157,6 @@ asset_id,date,price,source,sale_type,status,outlier,url
 9970a992-4618-4228-8f31-5e7ce62601e3,2026-06-03,242,eBay,AUCTION,RELISTED,0,https://www.ebay.com/itm/800080909909?nordt=true
 9970a992-4618-4228-8f31-5e7ce62601e3,2026-05-31,231.5,eBay,AUCTION,ok,0,https://www.ebay.com/itm/117199354766?nordt=true
 9970a992-4618-4228-8f31-5e7ce62601e3,2026-05-03,223.49,eBay,AUCTION,ok,0,https://www.ebay.com/itm/287292296115?nordt=true
-9970a992-4618-4228-8f31-5e7ce62601e3,2026-04-19,280,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/306888493434?nordt=true
 99dbfa2a-1c5e-49a2-90cc-833bf1606d81,2026-11-19,3834,Alt,AUCTION,ok,0,https://alt.xyz/exchange/select-listing?ids=9d1d87ee-e996-4218-aa2f-a96594c5793b
 99dbfa2a-1c5e-49a2-90cc-833bf1606d81,2026-10-29,5000,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/880026085400?nordt=true
 99dbfa2a-1c5e-49a2-90cc-833bf1606d81,2026-10-18,7200,PWCC Weekly Auctions,AUCTION,ok,0,https://www.fanaticscollect.com/weekly/7a5658a4-c349-11f1-953c-0a58a9feac02
@@ -443,7 +443,7 @@ asset_id,date,price,source,sale_type,status,outlier,url
 99f2e021-774b-4a06-b0b7-c50ddc671626,2026-08-14,273.37,Pristine Auction,AUCTION,ok,0,https://www.pristineauction.com/a12736211-Blastoise-2021-Pokemon-TCG-Sword-Shield-25th-Anniversary-Collection-Promos-Traditional-Chinese-003-CONFETTI-HOLO-PSA-10
 99f2e021-774b-4a06-b0b7-c50ddc671626,2026-08-08,110.5,eBay,AUCTION,ok,0,https://www.ebay.com/itm/117333050133?nordt=true
 99f2e021-774b-4a06-b0b7-c50ddc671626,2026-07-22,71,eBay,AUCTION,ok,0,https://www.ebay.com/itm/178313636393?nordt=true
-99096472-d219-4502-a8be-739ea7bb7c63,2026-11-12,4584,Alt,AUCTION,PENDING,0,https://alt.xyz/exchange/select-listing?ids=f9648940-7d64-4c12-91fe-426ac447f932
+99096472-d219-4502-a8be-739ea7bb7c63,2026-11-12,4584,Alt,AUCTION,REMOVED,0,https://alt.xyz/exchange/select-listing?ids=f9648940-7d64-4c12-91fe-426ac447f932
 99096472-d219-4502-a8be-739ea7bb7c63,2026-11-12,3921.6,Alt,AUCTION,ok,0,https://alt.xyz/exchange/select-listing?ids=506a991a-5caa-42c6-b216-fef15590f096
 99096472-d219-4502-a8be-739ea7bb7c63,2026-10-30,6500,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/267826372256?nordt=true
 99096472-d219-4502-a8be-739ea7bb7c63,2026-10-25,5700,eBay,AUCTION,ok,0,https://www.ebay.com/itm/940016687473?nordt=true
