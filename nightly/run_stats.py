@@ -90,7 +90,8 @@ def start(out, day, scope):
 
 
 SUM_KEYS = ("scope", "ok", "failed", "skipped", "carried", "listings_asked", "listings_failed",
-            "psa9_listings_asked", "psa9_listings_failed", "all_grades_cards", "all_grades_requests")
+            "psa9_listings_asked", "psa9_listings_failed", "all_grades_cards", "all_grades_requests",
+            "every_grade_sales_dropped")
 
 
 def scope_size(path):
@@ -133,7 +134,7 @@ def merge_shards(out):
             total[k] += int(s.get(k) or 0)
     first = next((s for s in shards.values() if not s.get("unfinished")), next(iter(shards.values())))
     merged = dict(total)
-    merged.update({k: first.get(k) for k in ("company", "grade", "also_grades", "listings_only") if k in first})
+    merged.update({k: first.get(k) for k in ("company", "grade", "also_grades", "listings_only", "every_grade") if k in first})
     merged["passes"] = max(int(s.get("passes") or 0) for s in shards.values())
     starts = [s["started_at"] for s in shards.values() if s.get("started_at")]
     ends = [s["finished_at"] for s in shards.values() if s.get("finished_at")]

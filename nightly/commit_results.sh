@@ -53,7 +53,7 @@ for attempt in 1 2 3; do
   [ -f "$OUT/tcgplayer_sku_printings.csv" ] && $PY history/tcgplayer_skus.py --merge "$OUT/tcgplayer_sku_printings.csv" || true
   $PY history/ingest.py "$OUT" --date "$DAY"
   $PY history/metrics.py
-  $PY history/all_grades.py       # latest/all_grades/ from the re-ingested grade_pops.csv + store (2026-10-21)
+  $PY history/all_grades.py       # latest/all_grades/ (+ grades/, recent_sales_grades/) from the re-ingested store (2026-10-21, 11-25)
   $PY history/coverage.py
   $PY history/flags.py            # appends this run's data_date rows; without it a rejected push lost that night's PSA 9 flag rows (until 2026-10-17)
   $PY history/buy_list.py         # latest/buy_list.csv + this data_date's ledger rows (replaces them on a rerun, 2026-10-21)

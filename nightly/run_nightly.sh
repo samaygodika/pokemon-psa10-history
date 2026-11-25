@@ -25,6 +25,7 @@
 #   5. metrics        -> latest/cards.csv, latest/series/*.csv, latest/recent_sales{,_psa9}/*.csv, latest/summary.json
 #   5b. all grades    -> latest/all_grades/{grades,sales}.csv (the Gold Star category at every PSA grade, 2026-10-21:
 #                        history/all_grades.py over history/grade_pops.csv + the store; the list comes from step 2c)
+#                        + latest/grades/ and latest/recent_sales_grades/ (every card at PSA 1-8.5, 2026-11-25)
 #   6. coverage       -> latest/characters.csv (per-character alt-side market cap and coverage)
 #   7. flags          -> history/psa9_flags.csv, history/psa9_category_moves.csv (Sid's PSA 9 buy conditions, logged forward)
 #   8. tcgplayer ids  -> latest/tcgplayer_ids.csv (each English card's TCGplayer product id + image URL, from
@@ -51,7 +52,9 @@
 # off), NIGHTLY_MIN_SCRAPED_PCT (90) and NIGHTLY_MAX_LISTINGS_FAILED_PCT (20) (the gate, see
 # nightly/run_stats.py), NIGHTLY_SCOPE (top60 = the subjects lists | full), NIGHTLY_ALSO_GRADE (9 on the nightly scope,
 # empty on full; "" turns it off), NIGHTLY_ALL_GRADES (1: the Gold Star category at every PSA grade, both scopes;
-# 0 turns it off), NIGHTLY_ALSO_LISTINGS (1 = also fetch the live listings at the
+# 0 turns it off), NIGHTLY_EVERY_GRADE (1: EVERY card at every PSA grade 1-10, both scopes, one sales request
+# per card, alt_scraper.py --every-grade, 2026-11-25; 0 = back to PSA 10 + the --also-grade grade + the Gold
+# Star ladder), NIGHTLY_ALSO_LISTINGS (1 = also fetch the live listings at the
 # --also-grade grade, i.e. PSA 9 listings; default empty = off, and never on the full run, which
 # has no --also-grade), NIGHTLY_WORKERS (4), NIGHTLY_DELAY
 # (0.25 s per worker between requests), NIGHTLY_LIMIT (scrape only the first N
@@ -176,6 +179,11 @@ stage_scrape() {   # $1 = list file, $2 = folder for cards.csv / sales.csv / lis
   # --all-grades-for: the scope stage's list of cards asked at every PSA grade (step 2c; absent when
   # NIGHTLY_ALL_GRADES=0 there). Both scopes: the weekly full run refetches these at every grade too.
   if [ -f "$OUT/all_grades.txt" ]; then SCRAPE+=(--all-grades-for "$OUT/all_grades.txt"); fi
+  # --every-grade (2026-11-25, Samay: PSA 1-10 for every card): one allGrades request per card brings every
+  # grade's sales, replacing the PSA 10 + PSA 9 (+ Gold Star ladder) sale requests: same or less time per card
+  # (150 random cards: 218 s vs 233 s for the PSA 10 request alone; 120: 164 s vs 246 s for 10 + 9). Live
+  # listings stay at PSA 10 and 9. Both scopes. NIGHTLY_EVERY_GRADE=0 turns it off.
+  if [ "${NIGHTLY_EVERY_GRADE-1}" = "1" ]; then SCRAPE+=(--every-grade); fi
   # NIGHTLY_SKIP_UNCHANGED=1: pass the previous run's daily file (newest history/daily/*.csv
   # dated before DAY; the names are YYYY-MM-DD so lexical order is date order). Never on the
   # full scope, which is what refetches every carried card once a week.
@@ -258,8 +266,8 @@ stage_assemble() {
   echo "--- 5/8 rebuild latest/ ---"
   $PY history/metrics.py
 
-  echo "--- 5b/8 every PSA grade for the Gold Star category -> latest/all_grades/ ---"
-  $PY history/all_grades.py   # from history/grade_pops.csv + the store; a no-op until the first run with the list
+  echo "--- 5b/8 every PSA grade: Gold Star -> latest/all_grades/, every card at 1-8.5 -> latest/grades/ + recent_sales_grades/ ---"
+  $PY history/all_grades.py   # from history/grade_pops.csv, the daily files' pops_by_grade + the store
 
   echo "--- 6/8 per-character coverage ---"
   $PY history/coverage.py

@@ -65,7 +65,12 @@ Store layout (all plain CSV, all append/merge-friendly so git diffs stay small):
                                   from cards.csv's pops_by_grade. Append-only across days;
                                   the same (day, asset) is merged, newest scraped_at wins.
                                   Committed (a few hundred rows a night). history/all_grades.py
-                                  reads it for latest/all_grades/grades.csv.
+                                  reads it for latest/all_grades/grades.csv. Since every card
+                                  carries pops_by_grade (--every-grade, 2026-11-25) it still
+                                  keeps only the category (flags.ALL_GRADES_TYPES by card_type,
+                                  plus any card already in it): every card's would be ~35k rows
+                                  a night in git. Every card's pop history is in daily/<day>.csv's
+                                  pops_by_grade column instead (the store, not git).
     history/last_run.json         the newest nightly's account of itself (the run's
                                   run_stats.json, written by alt_scraper.py and
                                   nightly/run_stats.py: cards asked / ok / failed /
@@ -169,6 +174,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
+sys.path.insert(0, str(HERE))
+import flags  # noqa: E402  (flags.ALL_GRADES_TYPES / card_type: which cards history/grade_pops.csv keeps)
 
 IDENTITY_COLS = ["asset_id", "card_name", "alt_url", "year", "set", "card_number", "subject", "variety",
                  "grading_company", "grade"]
@@ -177,7 +184,8 @@ DAILY_COLS = ["asset_id", "pop_at_grade", "company_total_pop", "index_total_pop"
               "num_sales", "last_sale_price", "last_sale_date", "last_sale_source", "avg_last_3_sales",
               "highest_sale", "lowest_sale", "scraped_at", "alt_public_url",
               "listing_source", "listing_grade", "listing_grading_company", "listing_price", "listing_url",
-              "pop_at_grade_9", "extra_grades", "listings_checked_at", "psa9_listings_checked_at", "sales_fetched"]
+              "pop_at_grade_9", "extra_grades", "listings_checked_at", "psa9_listings_checked_at", "sales_fetched",
+              "pops_by_grade"]   # pops_by_grade (2026-11-25): the pop at every PSA grade, every card (alt_scraper.py --every-grade)
 SALE_COLS = ["asset_id", "date", "price", "grading_company", "grade", "source", "sale_type", "url",
              "label", "subject_to_change", "skipped_reason", "alt_tx_id"]
 LIVE_COLS = ["asset_id", "grading_company", "grade", "listing_type", "source", "current_bid", "bid_count", "end_date",
@@ -370,11 +378,14 @@ def ingest_grade_pops(cards, store, day):
     (day, asset, company), merged newest scraped_at wins, every other day's rows kept. Returns the rows
     of this day in the file after the merge (0 when the run had no all-grades cards: the file is then
     left as it is, not even rewritten)."""
-    fresh = [row for row in (grade_pops_row(r, day) for r in cards) if row]
-    if not fresh:
-        return 0
     path = store / GRADE_POPS
     kept = {(r["data_date"], r["asset_id"], r["grading_company"]): r for r in read_csv(path)}
+    known = {aid for _, aid, _ in kept}
+    # the category only (see the module doc): every card has pops_by_grade under --every-grade
+    fresh = [row for row in (grade_pops_row(r, day) for r in cards
+                             if r["asset_id"] in known or flags.card_type(r) in flags.ALL_GRADES_TYPES) if row]
+    if not fresh:
+        return 0
     replaced = 0
     for row in fresh:
         key = (row["data_date"], row["asset_id"], row["grading_company"])

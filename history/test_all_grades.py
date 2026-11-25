@@ -83,6 +83,10 @@ def test_scraper_helpers():
 
 def card(aid, pops, scraped_at="2026-10-21T05:00:00+00:00", **kw):
     r = {"asset_id": aid, "grading_company": "PSA", "pops_by_grade": pops, "scraped_at": scraped_at}
+    if aid in INDEX:   # the identity cards.csv carries (flags.card_type reads it: grade_pops keeps the category only)
+        d = INDEX[aid]
+        r.update({"card_name": d["name"], "year": str(d["year"]), "set": d["brand"], "card_number": d["cardNumber"],
+                  "subject": d["subject"]})
     r.update(kw)
     return r
 
@@ -105,6 +109,13 @@ def test_ingest_grade_pops():
         assert rows[("2026-10-21", A)]["pop_10"] == "99" and rows[("2026-10-22", A)]["pop_10"] == "100" and len(rows) == 3
         assert list(rows) == sorted(rows), "sorted by day then asset"
         assert ingest.GRADE_POP_COLS[:4] == ["data_date", "asset_id", "grading_company", "pop_0"] and ingest.GRADE_POP_COLS[-2:] == ["pop_total", "scraped_at"]
+        # --every-grade (2026-11-25): every card has pops_by_grade, the file still keeps only the category. D (an LV.X)
+        # stays out; a card already in the file stays in whatever its name says now (here A renamed)
+        n = ingest.ingest_grade_pops([card(D, "9.0:5 10.0:2"), card(A, "10.0:101", card_name="renamed", scraped_at="2026-10-23T05:00:00+00:00")],
+                                     store, "2026-10-23")
+        rows = {(r["data_date"], r["asset_id"]): r for r in ingest.read_csv(store / "grade_pops.csv")}
+        assert n == 1 and ("2026-10-23", D) not in rows and rows[("2026-10-23", A)]["pop_10"] == "101", rows.keys()
+        assert "pops_by_grade" in ingest.DAILY_COLS, "every card's pop history lives in the daily files"
     print("ingest grade pops ok")
 
 

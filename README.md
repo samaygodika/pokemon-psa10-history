@@ -13,7 +13,7 @@ nightly/              scheduled run: index listing -> scope -> scrape -> ingest 
 history/              the store: assets.csv, live_listings.csv and the check files (committed); daily/<date>.csv and
                       sales/<month>.csv (1.2 GB, rewritten nightly) live on the GitHub release tagged `store`, one
                       gzip tarball per generation, pulled and pushed by history/store.py (2026-10-17)
-latest/               what the server reads: cards.csv, series/<xx>.csv, recent_sales/<xx>.csv, recent_sales_psa9/<xx>.csv, clean_sales/<month>.csv, characters.csv, tcgplayer_ids.csv, card_catalog.csv, tcgplayer_sets.csv, watchlist_listings.csv, live_auctions.csv, all_grades/{grades,sales}.csv (the Gold Star category at every PSA grade), summary.json (with the sha256 of each)  (committed)
+latest/               what the server reads: cards.csv, series/<xx>.csv, recent_sales/<xx>.csv, recent_sales_psa9/<xx>.csv, clean_sales/<month>.csv, characters.csv, tcgplayer_ids.csv, card_catalog.csv, tcgplayer_sets.csv, watchlist_listings.csv, live_auctions.csv, all_grades/{grades,sales}.csv (the Gold Star category at every PSA grade), grades/<xx>.csv + recent_sales_grades/<xx>.csv (every card at PSA 1-8.5, 2026-11-25), summary.json (with the sha256 of each)  (committed)
 snapshots/            raw per-run output (gitignored, hundreds of MB)
 .github/workflows/    GitHub Actions cron: nightly roster candidates + vintage checklist, weekly full index
 ```
@@ -168,6 +168,45 @@ Frontiers Charizard Gold Star alone had 1,374 sales at 16 ladder grades (PSA 7: 
 clean sales, last $20,000, +409% over a year), and a German record with no PSA 10 copies still
 had 7 sales at PSA 1–8.
 
+### Every card at every PSA grade (2026-11-25)
+
+Since 2026-11-25 the nightly asks **every** card at every PSA grade, not only the Gold Stars:
+`alt_scraper.py --every-grade` makes **one** sales request per card (`allGrades: true`), which
+brings every sale alt.xyz holds for the card at every grade and company, and keeps the PSA ones on
+the 1–10 ladder (1, 1.5, … 8.5, 9, 10; BGS / CGC / raw and PSA's "0.0" Authentic rows are left
+out, the last counted in `run_stats` `every_grade_sales_dropped`). It replaces the PSA 10 and
+PSA 9 (and Gold Star ladder) requests, so a night makes fewer requests than before and takes no
+longer: on 150 random cards the one request took 218 s against 233 s for the PSA 10 request
+alone; on 120 cards 164 s against 246 s for PSA 10 + PSA 9. Checked against the per-grade
+requests on 60 cards (2026-11-25): `cards.csv` and every PSA 10 / PSA 9 sale identical, plus 424
+sales at PSA 1–8.5; alt.xyz's filter has no date or paging field, so the answer is always the
+card's whole record (the biggest, 48,483 sales, comes back whole in ~60 s). Live listings stay at
+PSA 10 and PSA 9 (alt.xyz has no all-grades listings request: one request per grade). The
+dormant rule of `--skip-unchanged-sales` becomes "no PSA copies at any grade and no PSA 10
+sales", so a card with PSA 8s but no PSA 10 is fetched. Both scopes; `NIGHTLY_EVERY_GRADE=0`
+goes back to the old requests. What changes where:
+
+- `cards.csv`, `recent_sales/`, `recent_sales_psa9/`, `clean_sales/`, `series/` and every PSA 10 /
+  PSA 9 number: unchanged. `cards.csv`'s `extra_grades` now lists every ladder grade the run
+  vouched for; `pops_by_grade` (not in `latest/cards.csv`) is filled for every card.
+- The store's `daily/<day>.csv` gains `pops_by_grade` (every card's pop at every grade, every
+  night): that is the pop history for every card. `history/grade_pops.csv` stays the Gold Star
+  category only (every card's would be ~35k committed rows a night).
+- Lower-grade sales land in the store and get the same `REMOVED` / flag handling as PSA 10 / 9.
+- **`latest/grades/<xx>.csv`** (new, sharded by the first two hex digits of `asset_id` like
+  `recent_sales/`, with `manifest.json`): `latest/all_grades/grades.csv`'s columns for **every
+  card at PSA 1–8.5** (PSA 10 and 9 are in `cards.csv`). One row per card and grade that has
+  copies (`pop` > 0) or any sale in the store; a grade with neither (pop a real 0 or unknown, and
+  nothing ever sold) has no row. Cards with no PSA pop rows show a blank `pop` (unknown) on the
+  rows their sales give them. `pop_30d_ago` fills once the daily files hold 30 days of
+  `pops_by_grade`. A Gold Star's rows equal its `all_grades/grades.csv` rows.
+- **`latest/recent_sales_grades/<xx>.csv`** (new, sharded, `manifest.json`): the last 10 sales
+  per card and grade 1–8.5, newest first, flagged and held-back ones included, with
+  `all_grades/sales.csv`'s columns (`asset_id`, `grade`, `date`, `price`, `source`, `sale_type`,
+  `status`, `outlier`, `url`).
+- `latest/grades/summary.json`: cards, grade rows, clean sales, recent rows, pops' date range.
+- `latest/all_grades/` (the Gold Star files) is unchanged: same cards, same rows.
+
 `latest/summary.json` is the sync check (PokeSniper's server fetches it hourly and downloads
 the rest only when `generated_at` moved) and the run's counts:
 
@@ -181,7 +220,7 @@ the rest only when `generated_at` moved) and the run's counts:
 | `series_rows`, `recent_sales_rows`, `psa9_recent_sales_rows`, `clean_sales_months`, `clean_sales` | rows in `series/`, `recent_sales/`, `recent_sales_psa9/`; months and sales in `clean_sales/` |
 | `rows_*` | how many `cards.csv` rows have a value in the named column (`rows_listings_checked`, `rows_with_live_auction`, `rows_with_bin_listing`, `rows_bin_ebay_verified`, `rows_bin_suspect`, `rows_bin_first_seen_known`, `rows_next_auction_bid_suspect`, their `psa9_` twins, `rows_unconfirmed_last_sale`, `rows_with_psa9_last_sale`); `rows_chg_counts_held_high` and `rows_psa9_chg_counts_held_high` = rows whose `chg_held_windows` / `psa9_chg_held_windows` is set; `rows_single_last_sale` / `rows_psa9_single_last_sale` = rows with `last_sale_single` = 1, and `last_sale_status_counts` / `psa9_last_sale_status_counts` = `{completed, pending, unpaid, relisted}` row counts (2026-10-18) |
 | `rows_with` | the same for `price_chg_30d_pct`, `price_chg_90d_pct`, `price_chg_1y_pct`, `mkt_cap_chg_30d_pct`, `psa9_price_chg_30d_pct`, `psa9_price_chg_1y_pct` |
-| `files` | (2026-10-17) `{path: {"sha256", "bytes", "rows"}}` for `cards.csv`, `characters.csv`, `card_catalog.csv`, `tcgplayer_sets.csv`, `tcgplayer_ids.csv` and, once the watchlist sweep has produced it, `watchlist_listings.csv`, plus `all_grades/grades.csv`, `all_grades/sales.csv`, `buy_list.csv` and `live_auctions.csv` (`rows` = data rows, the header not counted), plus `{"sha256", "bytes", "entries"}` for `series/manifest.json`, `recent_sales/manifest.json`, `recent_sales_psa9/manifest.json` and `clean_sales/manifest.json`. Written by `history/manifest.py`, the last step of every run that commits `latest/`. Why: raw GitHub caches each URL for ~5 minutes on its own clock, so a sync can read a new `summary.json` next to the previous run's `cards.csv` (or one old shard) and believe it is current until the next nightly; check each download's sha256 against this and fetch again on a mismatch. A `summary.json` without `files` (a hand rebuild with `metrics.py` alone) means "not checked", never "corrupt". |
+| `files` | (2026-10-17) `{path: {"sha256", "bytes", "rows"}}` for `cards.csv`, `characters.csv`, `card_catalog.csv`, `tcgplayer_sets.csv`, `tcgplayer_ids.csv` and, once the watchlist sweep has produced it, `watchlist_listings.csv`, plus `all_grades/grades.csv`, `all_grades/sales.csv`, `buy_list.csv` and `live_auctions.csv` (`rows` = data rows, the header not counted), plus `{"sha256", "bytes", "entries"}` for `series/manifest.json`, `recent_sales/manifest.json`, `recent_sales_psa9/manifest.json`, `grades/manifest.json`, `recent_sales_grades/manifest.json` (2026-11-25) and `clean_sales/manifest.json`. Written by `history/manifest.py`, the last step of every run that commits `latest/`. Why: raw GitHub caches each URL for ~5 minutes on its own clock, so a sync can read a new `summary.json` next to the previous run's `cards.csv` (or one old shard) and believe it is current until the next nightly; check each download's sha256 against this and fetch again on a mismatch. A `summary.json` without `files` (a hand rebuild with `metrics.py` alone) means "not checked", never "corrupt". |
 
 `latest/characters.csv` (from `history/coverage.py`) has one row per name in
 `nightly/subjects.txt` and `nightly/vintage_species.txt` (469 species): English

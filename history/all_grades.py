@@ -2,7 +2,8 @@
 """Every PSA grade for the Gold Star category (2026-10-21): latest/all_grades/, step 5b of the nightly.
 
     python3 history/all_grades.py                 # history/ -> latest/all_grades/{grades.csv,sales.csv,summary.json}
-    python3 history/all_grades.py --store DIR --out DIR
+                                                  #   + latest/grades/ and latest/recent_sales_grades/ (every card)
+    python3 history/all_grades.py --store DIR --out DIR --latest DIR
 
 Samay and Sid bought a Gold Star and want the whole category tracked at every grade, not only
 the PSA 10 / PSA 9 the feed carries for every card. The scraper pulls those cards (nightly/
@@ -58,6 +59,29 @@ any other. This step reads both and writes:
   latest/all_grades/summary.json cards, grade rows, sales, pops_date range, generated_at.
 
 The pop history itself stays in history/grade_pops.csv (committed, one row per card and night).
+
+EVERY CARD at grades 1 - 8.5 (2026-11-25, Samay: "PSA 1-10 for all pokemon, no longer just 9 and 10"):
+the nightly asks every card at every PSA grade in one request (alt_scraper.py --every-grade), so the
+store holds every card's sales at every grade and daily/<day>.csv's pops_by_grade its pop at every
+grade. build_every_card writes the grades latest/cards.csv does not carry (PSA 10 / PSA 9 stay there,
+in recent_sales/ and in recent_sales_psa9/), sharded by the first two hex digits of asset_id like
+recent_sales/ (one manifest.json each, history/manifest.py):
+
+  latest/grades/<xx>.csv         grades.csv's columns (above), one row per card and grade 1.0 .. 8.5 that
+                                 has copies (pop > 0) or any sale in the store. A grade with neither
+                                 (pop a real 0, or unknown, and nothing ever sold) has no row: it would
+                                 carry nothing but its pop, which is 0 or blank. Cards: every card with a
+                                 pops_by_grade in the last POPS_LOOKBACK_DAYS of daily files (the weekly
+                                 full run reaches the cards outside the nightly scope) or a sale at those
+                                 grades, less the records alt.xyz no longer indexes. pop / pop_date /
+                                 scraped_date = the newest daily row with pops_by_grade; pop_30d_ago from
+                                 the newest one at least 30 days old (blank until 30 days of them exist).
+  latest/recent_sales_grades/<xx>.csv  the last RECENT_N (10) sales per card and grade 1.0 .. 8.5, newest
+                                 first, flagged ones included: sales.csv's columns (asset_id, grade, date,
+                                 price, source, sale_type, status, outlier, url), as recent_sales/ does for
+                                 PSA 10.
+  latest/grades/summary.json     cards, grade rows, sales, pops date range, generated_at.
+
 Reuses history/metrics.py's functions so a figure here equals the one cards.csv would show for
 the same sales. Standard library only."""
 import argparse
@@ -73,7 +97,8 @@ sys.path.insert(0, str(HERE))
 import flags  # noqa: E402
 import metrics  # noqa: E402
 import flagged_sales  # noqa: E402
-from ingest import GRADE_POPS, POP_GRADES, pop_col  # noqa: E402
+from ingest import GRADE_POPS, POP_GRADES, grade_pops_row, pop_col  # noqa: E402
+import manifest  # noqa: E402
 
 LATEST = HERE.parent / "latest" / "all_grades"
 GRADES = [g for g in POP_GRADES if g != "0.0"]   # 1.0 .. 10.0: the grades asked for sales (0.0 = Authentic, pops only)
@@ -85,6 +110,10 @@ GRADE_COLS = (IDENTITY + ["grading_company", "grade", "pop", "pop_date", "pop_30
               + [f"volume_{w}" for w in metrics.CAP_WINDOWS] + [f"price_chg_{w}_pct" for w in metrics.CAP_WINDOWS]
               + ["chg_held_windows", "highest_sale", "lowest_sale", "sales_first_date", "outliers_excluded"])
 SALE_COLS = ["asset_id", "grade", "date", "price", "source", "sale_type", "status", "outlier", "url"]
+# Every card (build_every_card, 2026-11-25): the grades cards.csv does not carry, and where they go
+EVERY_GRADES = [g for g in GRADES if g not in ("9.0", "10.0")]   # 1.0 .. 8.5
+EVERY_DIR, EVERY_SALES_DIR = "grades", "recent_sales_grades"
+POPS_LOOKBACK_DAYS = 14   # a card's newest pops_by_grade may be this old (outside the nightly scope: the weekly run)
 
 
 def load_grade_pops(store, today):
@@ -102,15 +131,17 @@ def load_grade_pops(store, today):
     return {aid: (newest[aid], old.get(aid)) for aid in newest}
 
 
-def load_sales(store, assets):
-    """{grade: clean_grade(...)} over the store for these assets at every grade of GRADES (one pass). A sale Sid
-    flagged (history/flagged_sales.csv) gets the status FLAGGED, as in metrics.load_sales (2026-10-28)."""
-    raw = {g: defaultdict(list) for g in GRADES}
+def load_sales(store, assets, grades=GRADES):
+    """{grade: clean_grade(...)} over the store for these assets (None = every asset) at each of `grades` (one
+    pass). A sale Sid flagged (history/flagged_sales.csv) gets the status FLAGGED, as in metrics.load_sales
+    (2026-10-28)."""
+    raw = {g: defaultdict(list) for g in grades}
     flags = flagged_sales.load(store)
     for p in sorted((store / "sales").glob("*.csv")):
         with open(p, newline="", encoding="utf-8") as f:
             for s in csv.DictReader(f):
-                if s["asset_id"] not in assets or s.get("grading_company") != "PSA" or s.get("grade") not in raw:
+                if (assets is not None and s["asset_id"] not in assets) or s.get("grading_company") != "PSA" \
+                        or s.get("grade") not in raw:
                     continue
                 try:
                     price = float(s["price"])
@@ -123,7 +154,7 @@ def load_sales(store, assets):
                     status = flagged_sales.FLAGGED
                 raw[s["grade"]][s["asset_id"]].append((metrics.d(s["date"]), price, s.get("source") or "", s.get("sale_type") or "",
                                                        status, s.get("url") or ""))
-    return {g: metrics.clean_grade(g, raw[g]) for g in GRADES}
+    return {g: metrics.clean_grade(g, raw[g]) for g in grades}
 
 
 def category_assets(assets, card_types=flags.ALL_GRADES_TYPES):
@@ -242,12 +273,118 @@ def build(store=HERE, out=LATEST, today=None):
     return summary
 
 
+def load_daily_pops(store, today, lookback=POPS_LOOKBACK_DAYS):
+    """{asset_id: (newest pops row, row at least 30 days old or None)} from the daily files' pops_by_grade
+    (every card since --every-grade, 2026-11-25), in load_grade_pops's shape (ingest.grade_pops_row). The
+    newest is looked for in the last `lookback` days, the old one between 30 and 30 + `lookback` days back;
+    the files in between are not read."""
+    newest, old = {}, {}
+    for p in sorted((store / "daily").glob("*.csv"), reverse=True):
+        try:
+            age = (today - metrics.d(p.stem)).days
+        except ValueError:
+            continue
+        want_new, want_old = 0 <= age <= lookback, 30 <= age <= 30 + lookback
+        if age > 30 + lookback:
+            break
+        if not (want_new or want_old):
+            continue
+        with open(p, newline="", encoding="utf-8") as f:
+            for r in csv.DictReader(f):
+                if not r.get("pops_by_grade"):
+                    continue
+                aid = r["asset_id"]
+                if want_new and aid not in newest:
+                    newest[aid] = grade_pops_row({**r, "grading_company": "PSA"}, p.stem)
+                if want_old and aid not in old:
+                    old[aid] = grade_pops_row({**r, "grading_company": "PSA"}, p.stem)
+    return {aid: (newest[aid], old.get(aid)) for aid in newest}
+
+
+def write_shards(shard_dir, cols, rows_by_shard):
+    """<shard_dir>/<xx>.csv, one per shard with rows (old shard files removed first, like
+    metrics.write_recent), then <shard_dir>/manifest.json (history/manifest.py)."""
+    shard_dir.mkdir(parents=True, exist_ok=True)
+    for old_f in shard_dir.glob("*.csv"):
+        old_f.unlink()
+    for shard, rows in sorted(rows_by_shard.items()):
+        with open(shard_dir / f"{shard}.csv", "w", newline="", encoding="utf-8") as f:
+            w = csv.writer(f)
+            w.writerow(cols)
+            w.writerows(rows)
+    manifest.write_shard_manifest(shard_dir)
+
+
+def build_every_card(store=HERE, latest=LATEST.parent, today=None):
+    """latest/grades/ + latest/recent_sales_grades/ (see the module doc). A no-op (returns None) until a daily
+    file carries pops_by_grade, i.e. before the first --every-grade run."""
+    assets = {a["asset_id"]: a for a in metrics.read_csv(store / "assets.csv")} if (store / "assets.csv").exists() else {}
+    if today is None:
+        days = sorted(p.stem for p in (store / "daily").glob("*.csv"))
+        today = metrics.d(days[-1]) if days else datetime.now(timezone.utc).date()
+    pops = load_daily_pops(store, today)
+    # The category's pops from history/grade_pops.csv where it is newer (or the daily files have none): a Gold
+    # Star outside the nightly scope then keeps its pop until the weekly run asks it at every grade
+    def newer(a, b):
+        return b if a is None or (b is not None and b["data_date"] > a["data_date"]) else a
+    if pops:
+        for aid, (gp_new, gp_old) in load_grade_pops(store, today).items():
+            have_new, have_old = pops.get(aid, (None, None))
+            pops[aid] = (newer(have_new, gp_new), newer(have_old, gp_old))
+    if not pops:
+        print(f"every grade: no daily file in the last {POPS_LOOKBACK_DAYS} days carries pops_by_grade yet "
+              "(no --every-grade run), latest/grades/ not written")
+        return None
+    by_grade = load_sales(store, None, EVERY_GRADES)
+    with_sales = {aid for g in EVERY_GRADES for aid in by_grade[g][3]}
+    cards = (set(pops) | with_sales) - unlisted_assets(store, today)
+    rows, recent = defaultdict(list), defaultdict(list)
+    n_rows = n_recent = n_clean = 0
+    for aid in sorted(cards):
+        ident, card_pops = assets.get(aid, {"asset_id": aid}), pops.get(aid)
+        newest_pop = card_pops[0] if card_pops else None
+        for g in EVERY_GRADES:
+            clean_by, _, outliers, raw_by, held_high, single_high = by_grade[g]
+            clean, raw = clean_by.get(aid, []), raw_by.get(aid, [])
+            if not raw and not (newest_pop and metrics.to_int(newest_pop.get(pop_col(g)))):
+                continue   # no copies and nothing ever sold at the grade: no row (module doc)
+            row = grade_row(ident, g, card_pops, clean, raw, held_high.get(aid, []), single_high.get(aid, set()),
+                            outliers.get(aid, 0), today)
+            rows[aid[:2]].append([row[c] for c in GRADE_COLS])
+            n_rows += 1
+            n_clean += row["sales_total"]
+            clean_keys = {(t[0], t[1]) for t in clean}
+            for sd, price, src, stype, status, url in sorted(raw, reverse=True)[:metrics.RECENT_N]:
+                outlier = 1 if (status == "ok" and (sd, price) not in clean_keys) else 0
+                recent[aid[:2]].append([aid, g, sd.isoformat(), metrics.fmt(price), src, stype, status, outlier,
+                                        metrics.sale_link(url)])
+                n_recent += 1
+    write_shards(latest / EVERY_DIR, GRADE_COLS, rows)
+    write_shards(latest / EVERY_SALES_DIR, SALE_COLS, recent)
+    dates = sorted(p[0]["data_date"] for p in pops.values())
+    summary = {"data_date": today.isoformat(), "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+               "grades": EVERY_GRADES, "cards": len({aid for shard in rows.values() for aid, *_ in shard}),
+               "cards_with_pops": len(pops), "grade_rows": n_rows, "clean_sales": n_clean, "recent_sales_rows": n_recent,
+               "sales": sum(len(lst) for g in EVERY_GRADES for lst in by_grade[g][3].values()),
+               "pops_date_oldest": dates[0], "pops_date_newest": dates[-1]}
+    with open(latest / EVERY_DIR / "summary.json", "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2)
+        f.write("\n")
+    print(f"every grade: {summary['cards']} card(s) with a row at PSA 1-8.5 ({len(pops)} with a pop table) -> "
+          f"{latest / EVERY_DIR}/ ({n_rows} rows, {n_clean} clean sales), {latest / EVERY_SALES_DIR}/ ({n_recent} rows); "
+          f"pops as of {dates[0]}..{dates[-1]}")
+    return summary
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--store", default=str(HERE), help="history store directory (default: this folder)")
     ap.add_argument("--out", default=str(LATEST), help="output directory (default: latest/all_grades)")
+    ap.add_argument("--latest", default=str(LATEST.parent),
+                    help="where latest/grades/ and latest/recent_sales_grades/ go (default: latest)")
     args = ap.parse_args()
     build(Path(args.store), Path(args.out))
+    build_every_card(Path(args.store), Path(args.latest))
 
 
 if __name__ == "__main__":
