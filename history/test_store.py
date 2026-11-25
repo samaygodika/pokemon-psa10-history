@@ -24,7 +24,8 @@ def run(env, *argv):
     """store.main under this env; (exit code, stdout+stderr)."""
     saved = dict(os.environ)
     os.environ.update(env)
-    for k in ("STORE_MODE", "STORE_BACKEND", "STORE_DIR", "STORE_STATE_DIR", "STORE_KEEP", "GITHUB_RUN_ID"):
+    for k in ("STORE_MODE", "STORE_BACKEND", "STORE_DIR", "STORE_STATE_DIR", "STORE_KEEP", "GITHUB_RUN_ID",
+              "STORE_UPLOAD_TRIES", "STORE_RETRY_WAIT"):
         if k not in env:
             os.environ.pop(k, None)
     out = io.StringIO()
@@ -184,6 +185,58 @@ def test_local_mode_and_preconditions():
         assert code == 0 and "generation 1 is current" in out, out
         code, out = run(a, "status")
         assert code == 0 and "generation 1" in out and "the same as the release" in out, out
+
+
+def test_upload_retries_and_cleans_up():
+    """2026-11-25: GitHub answered a generation upload with HTTP 502 although the file had landed.
+    One failed try is retried (the leftover deleted first); a push whose every try fails exits 1 and
+    leaves no generation and the old pointer behind."""
+    with tempfile.TemporaryDirectory() as d:
+        root = Path(d)
+        a = checkout(root, "a", SEED)
+        a["STORE_RETRY_WAIT"] = "0"
+        code, out = run(a, "init")
+        assert code == 0 and "generation 1 is current" in out, out
+        ha = Path(a["STORE_DIR"])
+        real = store.DirBackend.upload
+        calls = []
+
+        def lands_then_502(self, path, clobber=False):
+            calls.append(Path(path).name)
+            real(self, path, clobber)
+            if len(calls) == 1:
+                raise store.StoreError("gh release upload store failed: HTTP 502: Error creating policy")
+
+        (ha / "sales" / "2026-11.csv").write_text("asset_id,date,price\nA,2026-11-01,13\n")
+        store.DirBackend.upload = lands_then_502
+        try:
+            code, out = run(a, "push", "--note", "nightly")
+        finally:
+            store.DirBackend.upload = real
+        assert code == 0 and "generation 2 is current" in out, out
+        assert "try 1 of 3" in out and "left on the release by the failed try" in out, out
+        assert calls[0] == calls[1] and calls[0].endswith("-g2.tar.gz") and calls[2] == store.POINTER, calls
+        b = checkout(root, "b")
+        code, out = run(b, "pull")
+        assert code == 0 and "generation 2 extracted" in out, out
+        assert files_of(b) == files_of(a)
+
+        def always_502(self, path, clobber=False):
+            if not clobber:                                  # the partial file a dying upload can leave
+                (self.dir / Path(path).name).write_bytes(b"partial")
+            raise store.StoreError("gh release upload store failed: HTTP 502")
+
+        (ha / "sales" / "2026-11.csv").write_text("asset_id,date,price\nA,2026-11-01,14\n")
+        store.DirBackend.upload = always_502
+        try:
+            code, out = run(a, "push")
+        finally:
+            store.DirBackend.upload = real
+        assert code == 1 and "try 2 of 3" in out, out
+        assert not any(n.endswith("-g3.tar.gz") for n in os.listdir(root / "release")), os.listdir(root / "release")
+        assert json.loads((root / "release" / store.POINTER).read_text())["generation"] == 2
+        code, out = run(a, "push")                           # the next run's push still works
+        assert code == 0 and "generation 3 is current" in out, out
 
 
 if __name__ == "__main__":

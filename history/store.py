@@ -26,6 +26,8 @@ Env:  STORE_MODE     release (default): talk to the release | local: pull and pu
       STORE_REPO     OWNER/REPO (default $GITHUB_REPOSITORY, else samaygodika/pokemon-psa10-history)
       STORE_TAG      the release's tag (store)
       STORE_KEEP     generations kept besides the first of each month (3)
+      STORE_UPLOAD_TRIES  tries per upload (3); STORE_RETRY_WAIT: seconds before the 2nd try, doubled
+                     for the 3rd (30). See upload_retrying.
       STORE_DIR      the history folder (this file's); STORE_STATE_DIR: snapshots/store (state.json, the
                      cached tarball)
 
@@ -42,6 +44,7 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -85,6 +88,8 @@ class Config:
         self.history = Path(env.get("STORE_DIR") or HERE)
         self.state_dir = Path(env.get("STORE_STATE_DIR") or (ROOT / "snapshots" / "store"))
         self.run_id = env.get("GITHUB_RUN_ID")
+        self.upload_tries = max(1, int(env.get("STORE_UPLOAD_TRIES", "3")))
+        self.retry_wait = float(env.get("STORE_RETRY_WAIT", "30"))
 
     def backend(self):
         if self.backend_spec == "gh":
@@ -424,7 +429,7 @@ def push(cfg, note=""):
     sha, size = file_sha256(tarball), tarball.stat().st_size
     backend.ensure_release()
     log(f"generation {gen}: uploading {size / 1e6:.0f} MB")
-    backend.upload(tarball)
+    upload_retrying(cfg, backend, tarball)
     again = current_pointer(backend, ignore=name)
     if (again["generation"] if again else 0) != remote_gen:
         backend.delete(name)
@@ -437,7 +442,7 @@ def push(cfg, note=""):
     with tempfile.TemporaryDirectory() as d:
         p = Path(d) / POINTER
         p.write_text(json.dumps(pointer, indent=1) + "\n")
-        backend.upload(p, clobber=True)
+        upload_retrying(cfg, backend, p, clobber=True)
     cfg.write_state(gen, name, sha, local)
     for p in cfg.state_dir.glob("store-*.tar.gz"):
         if p.name != name:
@@ -445,6 +450,39 @@ def push(cfg, note=""):
     log(f"generation {gen} is current ({counts['sales']} sales + {counts['daily']} daily files, {size / 1e6:.0f} MB)")
     prune(cfg, backend, current=name)
     return 0
+
+
+def upload_retrying(cfg, backend, path, clobber=False):
+    """backend.upload, tried up to cfg.upload_tries times. 2026-11-25: GitHub answered the nightly's
+    generation upload with "HTTP 502: Error creating policy" (the file had in fact landed), and that one
+    answer failed the publish step of a finished scrape. Before each retry of a new generation, an asset
+    of its name left by the failed try is deleted, whole or partial: the name is this push's own, and
+    only a fresh upload makes its bytes certain. If every try fails it is deleted too, so a failed push
+    leaves nothing behind. The pointer (clobber) is simply uploaded again."""
+    path = Path(path)
+
+    def drop_leftover():
+        if clobber:
+            return
+        try:
+            if any(a["name"] == path.name for a in backend.assets()):
+                log(f"deleting {path.name}, left on the release by the failed try")
+                backend.delete(path.name)
+        except StoreError as e:
+            log(f"WARNING: could not check for or delete a leftover {path.name}: {e}")
+
+    for attempt in range(1, cfg.upload_tries + 1):
+        try:
+            backend.upload(path, clobber=clobber)
+            return
+        except StoreError as e:
+            if attempt == cfg.upload_tries:
+                drop_leftover()
+                raise
+            wait = cfg.retry_wait * 2 ** (attempt - 1)
+            log(f"upload of {path.name} failed (try {attempt} of {cfg.upload_tries}): {e}; trying again in {wait:.0f} s")
+            time.sleep(wait)
+            drop_leftover()
 
 
 def prune(cfg, backend, current):
