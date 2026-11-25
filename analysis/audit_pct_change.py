@@ -57,6 +57,11 @@ Definitions audited (README, "The data PokeSniper gets"):
   REMOVED          (2026-10-20) a skipped_reason ingest writes when a complete fetch of the card no
                    longer lists the sale: excluded from the clean sales like any flag, and NOT a
                    listed sale, so last_sale_status looks past it.
+  FLAGGED          (2026-10-28; audited from 2026-11-24) a sale Sid flagged in PokeSniper
+                   (history/flagged_sales.csv): treated exactly like REMOVED. Matched on asset,
+                   grade, day, price to the cent and, when both sides have a URL, the same listing
+                   (the eBay item id for eBay links, so ?nordt=true does not matter). Read here
+                   straight from that file, not through history/flagged_sales.py.
   last_sale_newer_price / _date  (2026-10-20) when last_sale_status is pending / unpaid / relisted,
                    the price and date of the newest-day sale in that state (the dearest on a tie);
                    blank otherwise. psa9_ pair the same over the PSA 9 sales.
@@ -97,6 +102,50 @@ STATUS = {"PENDING": "pending", "PAYMENT_INITIATED": "pending", "NOT_PAID": "unp
 MIRRORS = ("fanaticscollect.com", "pwccmarketplace.com")
 EBAY_RX = re.compile(r"ebay\.[a-z.]+/itm/(?:[^/?#]+/)?(\d{9,})")   # the eBay legacy item id in a sale URL (2026-10-20)
 TITLE_CHECKS = STORE / "sale_title_checks.csv"
+NOT_LISTED = ("REMOVED", "FLAGGED")
+
+
+def _cents(price):
+    return round(float(price) * 100)
+
+
+def _grade(g):
+    try:
+        return float(g)
+    except (TypeError, ValueError):
+        return None
+
+
+def _same_listing(a, b):
+    """Two sale URLs are one listing: equal eBay item ids when both are eBay items, else equal URLs."""
+    ia, ib = EBAY_RX.search(a), EBAY_RX.search(b)
+    if ia and ib:
+        return ia.group(1) == ib.group(1)
+    return a == b
+
+
+def load_flags(path):
+    """(asset_id, grade as float, day) -> [(cents, url), ...] from history/flagged_sales.csv (Sid's flagged
+    sales, 2026-10-28; read here since 2026-11-24); {} without it."""
+    flags = defaultdict(list)
+    if not Path(path).exists():
+        return flags
+    with open(path, newline="", encoding="utf-8") as f:
+        for r in csv.DictReader(f):
+            try:
+                c = _cents(r["price"])
+            except (TypeError, ValueError):
+                continue
+            flags[(r["asset_id"], _grade(r["grade"]), (r["date"] or "")[:10])].append((c, (r.get("url") or "").strip()))
+    return flags
+
+
+def is_flagged(flags, aid, grade, day, price, url):
+    """Sid's rule: same asset, grade, day and price to the cent, and the same listing when both have a URL."""
+    for c, furl in flags.get((aid, _grade(grade), day[:10]), ()):
+        if c == _cents(price) and (not furl or not url or _same_listing(furl, url)):
+            return True
+    return False
 
 
 def mirror_of(url):
@@ -113,8 +162,10 @@ def load_sales():
     source, url), for PSA 10 and PSA 9; flagged = alt.xyz's status flag (RELISTED, NOT_PAID,
     PENDING ...), "" when the sale is settled. A PWCC lot recorded under both mirror hosts (same asset,
     grade, date, price) is one sale: per (asset, date, price) keep the host with more rows
-    (fanaticscollect on a tie) and drop the other's."""
+    (fanaticscollect on a tie) and drop the other's. A sale Sid flagged (history/flagged_sales.csv)
+    gets flagged = "FLAGGED"."""
     rows = {g: [] for g in GRADES}
+    flags = load_flags(STORE / "flagged_sales.csv")
     for p in sorted((STORE / "sales").glob("*.csv")):
         with open(p, newline="", encoding="utf-8") as f:
             for s in csv.DictReader(f):
@@ -126,8 +177,11 @@ def load_sales():
                     continue
                 if price <= 0:
                     continue
+                status = s["skipped_reason"] or ""
+                if flags and is_flagged(flags, s["asset_id"], s["grade"], s["date"], price, s["url"] or ""):
+                    status = "FLAGGED"
                 rows[s["grade"]].append((s["asset_id"], date.fromisoformat(s["date"][:10]), price, s["source"] or "",
-                                         s["skipped_reason"] or "", mirror_of(s["url"] or ""), s["url"] or ""))
+                                         status, mirror_of(s["url"] or ""), s["url"] or ""))
     return {g: _dedupe_mirrors(rows[g]) for g in GRADES}
 
 
@@ -252,7 +306,7 @@ def derive(raw, today, windows):
     # (2026-10-22) a not-completed sale on or after the newest settled one that the filter would hold back
     # LOW had it settled is another item (Base Set Charizard's unpaid $169 against $40,401): not listed here
     newest_ok_day = newest[0] if newest else None
-    listed = [t for t in raw if t[3] != "REMOVED"
+    listed = [t for t in raw if t[3] not in NOT_LISTED
               and not (t[3] in STATUS and newest_ok_day is not None and t[0] >= newest_ok_day and held_low(raw, t))]
     mine["last_sale_newer_price"], mine["last_sale_newer_date"] = None, ""
     if listed:
