@@ -418,8 +418,7 @@ def split_by_grade(sales, company):
         a = s.get("attributes") or {}
         if a.get("gradingCompany") != company:
             continue
-        g = a.get("gradeNumber")
-        g = normalise_grade(g) if g not in (None, "") else None
+        g = grade_or_none(a.get("gradeNumber"))
         if g in PSA_GRADES:
             by[g].append(s)
         else:
@@ -697,11 +696,23 @@ def ladder_grades(grade, also_grades=()):
     return [g for g in PSA_GRADES if g != grade and g not in also_grades]
 
 
+def grade_or_none(g):
+    """alt.xyz's gradeNumber as the ladder key ('10' -> '10.0'), or None when it is blank or not a number."""
+    try:
+        return normalise_grade(g) if str(g if g is not None else "").strip() else None
+    except ValueError:
+        return None
+
+
 def pops_by_grade(pops, company):
     """'0.0:30 1.0:912 1.5:32 ... 10.0:98': the company's rows of the pop table, by grade; '' when
-    it has none (unknown, not zero). history/ingest.py keeps it in history/grade_pops.csv."""
-    rows = sorted(((p["gradeNumber"], p["count"]) for p in pops if p["gradingCompany"] == company), key=lambda t: float(t[0]))
-    return " ".join(f"{g}:{n}" for g, n in rows)
+    it has none (unknown, not zero). history/ingest.py keeps it in history/grade_pops.csv. A row whose
+    grade is blank or not a number (seen 2026-11-25: a PSA row with gradeNumber '' and 1,509 copies on a
+    card with 15,056 PSA 10s, about 1 card in 1,000) is written as 'na:<count>' at the end: ingest counts
+    it in pop_total only. Until --every-grade such a row made the card fail."""
+    rows = [(grade_or_none(p["gradeNumber"]), p["count"]) for p in pops if p["gradingCompany"] == company]
+    ok = sorted(((g, n) for g, n in rows if g is not None), key=lambda t: float(t[0]))
+    return " ".join([f"{g}:{n}" for g, n in ok] + [f"na:{n}" for g, n in rows if g is None])
 
 
 def read_all_grades(paths):

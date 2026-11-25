@@ -117,6 +117,13 @@ def test_split_by_grade():
     by, dropped = alt_scraper.split_by_grade(ALL[P], "PSA")
     assert {g: [s["id"] for s in v] for g, v in by.items()} == {"10.0": ["tx1", "tx2"], "9.0": ["tx3"], "8.0": ["tx4", "tx5", "tx6"]}
     assert dropped == 2, "PSA 0.0 (Authentic) and a PSA row without a grade are counted; BGS and raw are not"
+    _, dropped = alt_scraper.split_by_grade([tx(90, "x", "5", "2026-11-01"), tx(91, "10", "5", "2026-11-01")], "PSA")
+    assert dropped == 1 and alt_scraper.split_by_grade([tx(91, "10", "5", "2026-11-01")], "PSA")[0]["10.0"]
+    # a PSA pop row with a blank grade (612a6e67 on 2026-11-25) used to make the card fail
+    pops = [psa("10.0", 15056), psa("", 1509), psa("9.0", 19950)]
+    assert alt_scraper.pops_by_grade(pops, "PSA") == "9.0:19950 10.0:15056 na:1509"
+    row = ingest.grade_pops_row({"asset_id": P, "pops_by_grade": "9.0:19950 10.0:15056 na:1509"}, "2026-11-25")
+    assert (row["pop_9"], row["pop_10"], row["pop_total"]) == (19950, 15056, 36515), row
     print("split_by_grade ok")
 
 
