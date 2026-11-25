@@ -194,7 +194,8 @@ def test_ingest_and_build():
         assert sorted((r["asset_id"], r["grade"], r["price"], r["status"]) for r in recent) == sorted(
             [(P, "8.0", "20", "ok"), (P, "8.0", "18", "ok"), (P, "8.0", "1", "RELISTED"), (R, "8.0", "30", "ok"), (R, "7.0", "12", "ok")])
         man = json.load(open(latest / "grades" / "manifest.json"))
-        assert set(man["shards"]) == {"00", "11"} and man["columns"] == all_grades.GRADE_COLS
+        assert set(man["shards"]) == {"00", "11"} and man["columns"] == all_grades.EVERY_COLS
+        assert "card_name" not in man["columns"] and {"asset_id", "grade", "pop", "scraped_date", "cap_price"} <= set(man["columns"])
         assert (summary["cards"], summary["grade_rows"], summary["recent_sales_rows"]) == (2, 3, 5), summary
 
         # the next night alt.xyz no longer lists P's $18 PSA 8 sale: REMOVED at that grade, as at PSA 10 / 9
@@ -206,6 +207,15 @@ def test_ingest_and_build():
         all_grades.build_every_card(store, latest, today=date(2026, 11, 23))
         rows = {(r["asset_id"], r["grade"]): r for p in (latest / "grades").glob("*.csv") for r in _read(p)}
         assert rows[(P, "8.0")]["sales_total"] == "1" and rows[(P, "8.0")]["pop_date"] == "2026-11-23"
+        # recent_sales_grades keeps the last EVERY_RECENT_N (10) per card and grade: R gets 10 more PSA 7 sales
+        ALL[R] = ALL[R] + [tx(70 + i, "7.0", str(10 + i), f"2026-11-{10 + i}") for i in range(10)]
+        run_scraper(d / "run3")
+        ingest.ingest(d / "run3", "2026-11-24", store)
+        all_grades.build_every_card(store, latest, today=date(2026, 11, 24))
+        recent = [r for p in (latest / "recent_sales_grades").glob("*.csv") for r in _read(p) if (r["asset_id"], r["grade"]) == (R, "7.0")]
+        assert [r["price"] for r in recent] == [str(p) for p in range(19, 9, -1)], recent
+        rows = {(r["asset_id"], r["grade"]): r for p in (latest / "grades").glob("*.csv") for r in _read(p)}
+        assert rows[(R, "7.0")]["sales_total"] == "11", "the grade row still counts every sale"
     print("ingest + build_every_card ok")
 
 

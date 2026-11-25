@@ -67,7 +67,8 @@ grade. build_every_card writes the grades latest/cards.csv does not carry (PSA 1
 in recent_sales/ and in recent_sales_psa9/), sharded by the first two hex digits of asset_id like
 recent_sales/ (one manifest.json each, history/manifest.py):
 
-  latest/grades/<xx>.csv         grades.csv's columns (above), one row per card and grade 1.0 .. 8.5 that
+  latest/grades/<xx>.csv         grades.csv's columns (above) less the identity ones but asset_id (EVERY_COLS:
+                                 latest/cards.csv has them), one row per card and grade 1.0 .. 8.5 that
                                  has copies (pop > 0) or any sale in the store. A grade with neither
                                  (pop a real 0, or unknown, and nothing ever sold) has no row: it would
                                  carry nothing but its pop, which is 0 or blank. Cards: every card with a
@@ -76,7 +77,7 @@ recent_sales/ (one manifest.json each, history/manifest.py):
                                  grades, less the records alt.xyz no longer indexes. pop / pop_date /
                                  scraped_date = the newest daily row with pops_by_grade; pop_30d_ago from
                                  the newest one at least 30 days old (blank until 30 days of them exist).
-  latest/recent_sales_grades/<xx>.csv  the last RECENT_N (10) sales per card and grade 1.0 .. 8.5, newest
+  latest/recent_sales_grades/<xx>.csv  the last EVERY_RECENT_N (10) sales per card and grade 1.0 .. 8.5, newest
                                  first, flagged ones included: sales.csv's columns (asset_id, grade, date,
                                  price, source, sale_type, status, outlier, url), as recent_sales/ does for
                                  PSA 10.
@@ -114,6 +115,12 @@ SALE_COLS = ["asset_id", "grade", "date", "price", "source", "sale_type", "statu
 EVERY_GRADES = [g for g in GRADES if g not in ("9.0", "10.0")]   # 1.0 .. 8.5
 EVERY_DIR, EVERY_SALES_DIR = "grades", "recent_sales_grades"
 POPS_LOOKBACK_DAYS = 14   # a card's newest pops_by_grade may be this old (outside the nightly scope: the weekly run)
+# Trimmed for size (2026-11-25, Samay: "trim first"; projected over 71.4k cards): no identity columns (card_name,
+# year, set, card_number, subject, variety: 23 of grades/' 53 MB, and cards.csv has them by asset_id). The recent
+# sales stay at RECENT_N (10, ~75 MB) like recent_sales/: git sends shard changes as deltas (recent_sales/, 37 MB,
+# cost 106 KB of the 11-25 nightly's 4.9 MB push), so 5 instead of 10 would save almost nothing per push.
+EVERY_COLS = ["asset_id"] + [c for c in GRADE_COLS if c not in IDENTITY]
+EVERY_RECENT_N = metrics.RECENT_N
 
 
 def load_grade_pops(store, today):
@@ -350,16 +357,16 @@ def build_every_card(store=HERE, latest=LATEST.parent, today=None):
                 continue   # no copies and nothing ever sold at the grade: no row (module doc)
             row = grade_row(ident, g, card_pops, clean, raw, held_high.get(aid, []), single_high.get(aid, set()),
                             outliers.get(aid, 0), today)
-            rows[aid[:2]].append([row[c] for c in GRADE_COLS])
+            rows[aid[:2]].append([row[c] for c in EVERY_COLS])
             n_rows += 1
             n_clean += row["sales_total"]
             clean_keys = {(t[0], t[1]) for t in clean}
-            for sd, price, src, stype, status, url in sorted(raw, reverse=True)[:metrics.RECENT_N]:
+            for sd, price, src, stype, status, url in sorted(raw, reverse=True)[:EVERY_RECENT_N]:
                 outlier = 1 if (status == "ok" and (sd, price) not in clean_keys) else 0
                 recent[aid[:2]].append([aid, g, sd.isoformat(), metrics.fmt(price), src, stype, status, outlier,
                                         metrics.sale_link(url)])
                 n_recent += 1
-    write_shards(latest / EVERY_DIR, GRADE_COLS, rows)
+    write_shards(latest / EVERY_DIR, EVERY_COLS, rows)
     write_shards(latest / EVERY_SALES_DIR, SALE_COLS, recent)
     dates = sorted(p[0]["data_date"] for p in pops.values())
     summary = {"data_date": today.isoformat(), "generated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),

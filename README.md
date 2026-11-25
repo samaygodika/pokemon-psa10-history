@@ -194,18 +194,26 @@ goes back to the old requests. What changes where:
   category only (every card's would be ~35k committed rows a night).
 - Lower-grade sales land in the store and get the same `REMOVED` / flag handling as PSA 10 / 9.
 - **`latest/grades/<xx>.csv`** (new, sharded by the first two hex digits of `asset_id` like
-  `recent_sales/`, with `manifest.json`): `latest/all_grades/grades.csv`'s columns for **every
-  card at PSA 1–8.5** (PSA 10 and 9 are in `cards.csv`). One row per card and grade that has
+  `recent_sales/`, with `manifest.json`): `latest/all_grades/grades.csv`'s columns less the
+  identity ones (`card_name`, `year`, `set`, `card_number`, `subject`, `variety`: `cards.csv` has
+  them by `asset_id`; they were 23 of 53 MB) for **every card at PSA 1–8.5** (PSA 10 and 9 are in
+  `cards.csv`). About 187k rows, ~30 MB over 71.4k cards (projected from 1,000 random cards). One
+  row per card and grade that has
   copies (`pop` > 0) or any sale in the store; a grade with neither (pop a real 0 or unknown, and
   nothing ever sold) has no row. Cards with no PSA pop rows show a blank `pop` (unknown) on the
   rows their sales give them. `pop_30d_ago` fills once the daily files hold 30 days of
   `pops_by_grade`. A Gold Star's rows equal its `all_grades/grades.csv` rows.
 - **`latest/recent_sales_grades/<xx>.csv`** (new, sharded, `manifest.json`): the last 10 sales
-  per card and grade 1–8.5, newest first, flagged and held-back ones included, with
+  per card and grade 1–8.5 (~518k rows, ~75 MB projected), newest first, flagged and held-back ones included, with
   `all_grades/sales.csv`'s columns (`asset_id`, `grade`, `date`, `price`, `source`, `sale_type`,
   `status`, `outlier`, `url`).
 - `latest/grades/summary.json`: cards, grade rows, clean sales, recent rows, pops' date range.
 - `latest/all_grades/` (the Gold Star files) is unchanged: same cards, same rows.
+- Push size: git sends changed shards as deltas. On the 2026-11-25 nightly `recent_sales/` (37 MB)
+  cost 106 KB of a 4.9 MB push and `cards.csv` (44 MB, rewritten every night) 2.8 MB. A simulated
+  second night of `grades/` changed 5% of its rows and packed to 16.6 KB per 3,635 rows (under
+  1 MB over every card; daily pop changes and new sales add to that): expect roughly 1–2 MB more
+  per nightly push.
 
 `latest/summary.json` is the sync check (PokeSniper's server fetches it hourly and downloads
 the rest only when `generated_at` moved) and the run's counts:
