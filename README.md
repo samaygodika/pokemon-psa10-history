@@ -13,7 +13,7 @@ nightly/              scheduled run: index listing -> scope -> scrape -> ingest 
 history/              the store: assets.csv, live_listings.csv, alt_auctions.csv and the check files (committed); daily/<date>.csv,
                       sales/<month>.csv (1.2 GB, rewritten nightly) and alt_bids/ (2026-11-26) live on the GitHub release tagged `store`, one
                       gzip tarball per generation, pulled and pushed by history/store.py (2026-10-17)
-latest/               what the server reads: cards.csv, series/<xx>.csv, recent_sales/<xx>.csv, recent_sales_psa9/<xx>.csv, clean_sales/<month>.csv, characters.csv, tcgplayer_ids.csv, card_catalog.csv, tcgplayer_sets.csv, watchlist_listings.csv, live_auctions.csv, alt_auctions.csv + alt_bidders/<xx>.csv (who bid on each ended Alt auction, 2026-11-26), all_grades/{grades,sales}.csv (the Gold Star category at every PSA grade), grades/<xx>.csv + recent_sales_grades/<xx>.csv (every card at PSA 1-8.5, 2026-11-25), summary.json (with the sha256 of each)  (committed)
+latest/               what the server reads: cards.csv, series/<xx>.csv, recent_sales/<xx>.csv, recent_sales_psa9/<xx>.csv, clean_sales/<month>.csv, characters.csv, tcgplayer_ids.csv, card_catalog.csv, tcgplayer_sets.csv, watchlist_listings.csv, live_auctions.csv, all_grades/{grades,sales}.csv (the Gold Star category at every PSA grade), grades/<xx>.csv + recent_sales_grades/<xx>.csv (every card at PSA 1-8.5, 2026-11-25), summary.json (with the sha256 of each)  (committed)
 snapshots/            raw per-run output (gitignored, hundreds of MB)
 .github/workflows/    GitHub Actions cron: nightly roster candidates + vintage checklist, weekly full index
 ```
@@ -381,7 +381,14 @@ exactly its `live_auction_count` and the first is its `next_auction_*`. Sorted b
 (10 first), end. A snapshot like those columns: compare `end` with your own clock. Rewritten by
 every run that rebuilds `latest/` (the nightly, each listings refresh, the eBay verify).
 
-### Who bid on Alt's own auctions: latest/alt_auctions.csv + latest/alt_bidders/ (2026-11-26)
+### Who bid on Alt's own auctions: latest/alt_auctions.csv + latest/alt_bidders/ (2026-11-26, OFF)
+
+**Turned off 2026-11-26, the day it started.** Sid tested it against his suspect sales and found no
+signal, so the nightly no longer fetches bids and both files are gone from `latest/`. Each Alt pull
+still records every auction id in `history/alt_auctions.csv`, and alt.xyz's bid feed answers for an
+auction after it ends, so setting `NIGHTLY_ALT_BIDS_BUDGET` (e.g. `3000` in the workflow) backfills
+the bids newest first and publishes the two files again as described below. The one night of bids
+already fetched (13,461 auctions) stays in the store's `history/alt_bids/`.
 
 For a shill filter (Sid, PR #1: how many different bidders were still bidding once the price passed
 the card's old high). alt.xyz is the only site whose public bid history tells bidders apart: every
@@ -413,7 +420,7 @@ standing maximum wins, so the winner is not always the bidder who joined first.
 How it is made (`history/alt_bids.py`): every complete pull of Alt's listings records each running
 auction's id in `history/alt_auctions.csv`, since the id disappears from Alt's index when the
 auction ends. Each nightly asks alt.xyz's bid feed once for every auction that ended at least 2 hours
-earlier (newest first, at most `NIGHTLY_ALT_BIDS_BUDGET` = 3000 a night) and keeps every bid in the
+earlier (newest first, at most `NIGHTLY_ALT_BIDS_BUDGET` a night; 0 = off, the default since 2026-11-26) and keeps every bid in the
 store (`history/alt_bids/`, on the release with sales/ and daily/). An auction is paired with its
 sale by card, grade, price = final bid x 1.2 and sale date within a day of the end.
 
