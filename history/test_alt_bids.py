@@ -189,6 +189,20 @@ def test_publish_files():
         assert (latest / "alt_auctions.csv").read_bytes() == before
 
 
+def test_winner_on_a_tie_is_the_standing_proxy():
+    # 884e5fd9 (2026-11-06): KEY1 bid 14 with a proxy above it, KEY2 bid 15 by hand, KEY1's proxy matched 15
+    # at the same instant -> KEY1 won, though KEY2's first bid came earlier
+    c = {"alt_listing_id": "L", "asset_id": A, "grade": "9.0"}
+    b = lambda at, amt, key, auto: {"alt_listing_id": "L", "occurred_at": at, "amount": amt,
+                                    "is_automatic": "1" if auto else "0", "bidder_key": key, "bidder_handle": "X***"}
+    bids = [b("2026-11-05T14:23:32.98+00:00", "9", KEY2, False), b("2026-11-06T05:58:42.94+00:00", "14", KEY1, False),
+            b("2026-11-06T06:30:31.45+00:00", "15", KEY2, False), b("2026-11-06T06:30:31.45+00:00", "15", KEY1, True)]
+    rows = alt_bids.bidder_rows(c, bids)
+    assert [r["bidder"] for r in rows] == [KEY1[:12], KEY2[:12]], rows
+    rows = alt_bids.bidder_rows(c, list(reversed(bids)))   # feed order doesn't matter
+    assert rows[0]["bidder"] == KEY1[:12], rows
+
+
 def test_store_carries_alt_bids():
     assert "alt_bids" in store_mod.STORE_DIRS
     with tempfile.TemporaryDirectory() as d:

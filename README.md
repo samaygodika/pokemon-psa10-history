@@ -403,8 +403,10 @@ grade, end.
 `recent_sales/`, with `manifest.json`): one row per bidder per auction: `alt_listing_id`, `asset_id`,
 `grade`, `bidder` (the first 12 hex characters of alt.xyz's anonymous key: the same bidder has the
 same id across auctions and cards), `max_bid` (their highest bid), `bids`, `auto_bids`,
-`first_bid_at`, `last_bid_at` (UTC). Highest bidder first. "Bidders still in above price P" =
-the auction's rows with `max_bid` > P.
+`first_bid_at`, `last_bid_at` (UTC). The winner first, then highest bid. "Bidders still in above
+price P" = the auction's rows with `max_bid` > P. The winner is whoever placed the last bid: when two
+bidders top out at the same amount (381 of the 13,461 auctions backfilled 2026-11-26) the earlier
+standing maximum wins, so the winner is not always the bidder who joined first.
 
 How it is made (`history/alt_bids.py`): every complete pull of Alt's listings records each running
 auction's id in `history/alt_auctions.csv`, since the id disappears from Alt's index when the

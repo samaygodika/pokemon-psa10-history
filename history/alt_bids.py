@@ -384,7 +384,13 @@ def bidder_rows(c, bids):
         p["auto_bids"] += b["is_automatic"] == "1"
         p["first_bid_at"] = min(p["first_bid_at"], b["occurred_at"])
         p["last_bid_at"] = max(p["last_bid_at"], b["occurred_at"])
-    rows = sorted(per.values(), key=lambda p: (-p["max_bid"], p["first_bid_at"]))
+    # The winner is whoever placed the feed's last bid: latest occurred_at, and at the same instant the
+    # automatic bid (the standing proxy answering a manual one) after the bid it answered. On a tie at the
+    # top amount (381 of 13,461 backfilled auctions) that is the earlier proxy, not either bidder's first
+    # bid; on every other backfilled auction (13,080) it is the single highest bidder.
+    last = max(bids, key=lambda b: (when(b["occurred_at"]), b["is_automatic"] == "1", Decimal(b["amount"] or 0)))
+    winner = last["bidder_key"][:BIDDER_KEY_LEN]
+    rows = sorted(per.values(), key=lambda p: (p["bidder"] != winner, -p["max_bid"], p["first_bid_at"]))
     for p in rows:
         p["max_bid"] = num(p["max_bid"])
         p["first_bid_at"] = utc_iso(when(p["first_bid_at"]))
