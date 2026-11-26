@@ -3,6 +3,8 @@
 every nightly) live as one gzip tarball per generation on the GitHub release tagged `store` of this
 repo, with a 300-byte pointer asset `store.json` naming the current generation. Everything else in
 history/ stays in git. Why, the alternatives and the staging plan: handoff/2026-10-17-store-move-design.md.
+Since 2026-11-26 the tarball also holds history/alt_bids/ (every bid of alt.xyz's ended auctions,
+history/alt_bids.py); a generation from before then simply has none.
 
     python3 history/store.py pull            # release -> history/sales + history/daily (a no-op when already current)
     python3 history/store.py pull --force    # ... even over local changes (after a git reset, or to drop an unpushed ingest)
@@ -50,7 +52,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
-STORE_DIRS = ("sales", "daily")           # what the tarball holds, relative to history/
+STORE_DIRS = ("sales", "daily", "alt_bids")   # what the tarball holds, relative to history/ (alt_bids: history/alt_bids.py, 2026-11-26)
 POINTER = "store.json"
 ASSET_RX = re.compile(r"^store-(\d{4}-\d{2}-\d{2}T\d{4}Z)-g(\d+)\.tar\.gz$")
 DEFAULT_REPO = "samaygodika/pokemon-psa10-history"

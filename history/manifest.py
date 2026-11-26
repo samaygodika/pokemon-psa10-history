@@ -52,9 +52,11 @@ LATEST = HERE.parent / "latest"
 FILES = ["cards.csv", "characters.csv", "card_catalog.csv", "tcgplayer_sets.csv", "tcgplayer_ids.csv",
          "watchlist_listings.csv", "all_grades/grades.csv", "all_grades/sales.csv",   # the two: history/all_grades.py (2026-10-21)
          "buy_list.csv",                                                              # history/buy_list.py, the v0 buy list (2026-10-21)
-         "live_auctions.csv"]                                                         # history/metrics.py, every running auction (2026-11-02)
+         "live_auctions.csv",                                                         # history/metrics.py, every running auction (2026-11-02)
+         "alt_auctions.csv"]                                                          # history/alt_bids.py, ended Alt auctions + bidders (2026-11-26)
 SHARD_DIRS = ["series", "recent_sales", "recent_sales_psa9",     # one manifest.json each, written here
-              "grades", "recent_sales_grades"]                # every card at PSA 1-8.5: history/all_grades.py (2026-11-25)
+              "grades", "recent_sales_grades",                # every card at PSA 1-8.5: history/all_grades.py (2026-11-25)
+              "alt_bidders"]                                  # who bid on each ended Alt auction: history/alt_bids.py (2026-11-26)
 MANIFESTS = [f"{d}/manifest.json" for d in SHARD_DIRS] + ["clean_sales/manifest.json"]
 
 

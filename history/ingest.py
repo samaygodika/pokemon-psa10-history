@@ -759,6 +759,10 @@ def ingest_alt(path, store, day=""):
             for r in stored if r["source"] == ALT_SOURCE}
     other = [r for r in stored if r["source"] != ALT_SOURCE]
     incoming = read_csv(Path(path))
+    # Every Alt auction id goes into history/alt_auctions.csv too: once an auction ends it leaves this
+    # file and alt.xyz's index, and its id is the only way to its bids (history/alt_bids.py, 2026-11-26).
+    import alt_bids   # noqa: E402  (this folder is on sys.path)
+    new_ids = alt_bids.record(incoming, store, day)
     fresh = [r for r in incoming if r["listing_type"] == "AUCTION"]
     cheapest = {}
     for r in incoming:
@@ -778,6 +782,7 @@ def ingest_alt(path, store, day=""):
     print(f"  live_listings.csv: alt.xyz's own listings replaced: {n_auc} auctions + {len(fresh) - n_auc} cheapest "
           f"fixed-price on {len({r['asset_id'] for r in fresh})} assets ({len(incoming)} in the pull; "
           f"{len(seen) - gone} kept their first_seen, {gone} earlier Alt row(s) gone)")
+    print(f"  alt_auctions.csv: {new_ids} Alt auction(s) new to the ledger")
     return {"alt_rows": len(fresh), "alt_auctions": n_auc}
 
 

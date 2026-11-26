@@ -22,6 +22,8 @@
 #                        history/last_run.json (the run's run_stats.json: what was asked, what came back, what failed)
 #                        (daily/ and sales/ are the store: pulled from the release just before this step, pushed by
 #                        nightly/commit_results.sh; history/store.py)
+#   4b. Alt bids      -> history/alt_bids/ (store: every bid of each Alt auction that ended since the last run, ids from
+#                        history/alt_auctions.csv) + latest/alt_auctions.csv, latest/alt_bidders/ (history/alt_bids.py, 2026-11-26)
 #   5. metrics        -> latest/cards.csv, latest/series/*.csv, latest/recent_sales{,_psa9}/*.csv, latest/summary.json
 #   5b. all grades    -> latest/all_grades/{grades,sales}.csv (the Gold Star category at every PSA grade, 2026-10-21:
 #                        history/all_grades.py over history/grade_pops.csv + the store; the list comes from step 2c)
@@ -262,6 +264,16 @@ stage_assemble() {
 
   echo "--- 4/8 ingest into history/ ---"
   $PY history/ingest.py "$OUT" --date "$DAY"
+
+  echo "--- 4b/8 bids of alt.xyz's ended auctions -> history/alt_bids/ (store) + latest/alt_auctions.csv, alt_bidders/ ---"
+  # One request per auction that ended since the last run (ids from history/alt_auctions.csv, which step 4
+  # just updated), newest first, at most NIGHTLY_ALT_BIDS_BUDGET; a failed fetch is asked again next run.
+  # NIGHTLY_ALT_BIDS_BUDGET=0 skips the fetch (publish still rebuilds latest/ from the store).
+  if [ "${NIGHTLY_ALT_BIDS_BUDGET:-3000}" != "0" ]; then
+    $PY history/alt_bids.py fetch --budget "${NIGHTLY_ALT_BIDS_BUDGET:-3000}" --workers "${NIGHTLY_ALT_BIDS_WORKERS:-3}" \
+      || echo "alt bids: fetch failed, asked again next run"
+  fi
+  $PY history/alt_bids.py publish
 
   echo "--- 5/8 rebuild latest/ ---"
   $PY history/metrics.py

@@ -150,6 +150,9 @@ jobs:
           # at most this many search requests a night (the permission said ~60-80 a day; the first pull used
           # 71, the adaptive slicing of 2026-10-17 should need ~40); empty = off
           NIGHTLY_FANATICS_BUDGET: "80"
+          # Bids of alt.xyz's ended auctions (history/alt_bids.py, 2026-11-26): at most this many bid-feed
+          # requests a night, newest-ended first (a weekly batch is ~2,000; 3 at once ~ 17 min); "0" = off
+          NIGHTLY_ALT_BIDS_BUDGET: "3000"
           # The gate (nightly/run_stats.py, 2026-10-17): the run stops before the commit when fewer than this
           # share of the scope came back, or more than this share of the live-listings checks failed.
           NIGHTLY_MIN_SCRAPED_PCT: "90"

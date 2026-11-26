@@ -52,6 +52,7 @@ for attempt in 1 2 3; do
   $PY history/store.py pull --force   # the reset put the checkout's copy of sales/ + daily/ back (while still git-tracked): the pulled generation again
   [ -f "$OUT/tcgplayer_sku_printings.csv" ] && $PY history/tcgplayer_skus.py --merge "$OUT/tcgplayer_sku_printings.csv" || true
   $PY history/ingest.py "$OUT" --date "$DAY"
+  $PY history/alt_bids.py publish   # the bids this run fetched are in the generation it pushed and just pulled again
   $PY history/metrics.py
   $PY history/all_grades.py       # latest/all_grades/ (+ grades/, recent_sales_grades/) from the re-ingested store (2026-10-21, 11-25)
   $PY history/coverage.py

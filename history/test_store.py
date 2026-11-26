@@ -70,7 +70,7 @@ def test_init_pull_push_cycle():
         code, out = run(a, "init")
         assert code == 0 and "generation 1 is current" in out, out
         ptr = json.loads((root / "release" / store.POINTER).read_text())
-        assert ptr["generation"] == 1 and ptr["files"] == {"sales": 2, "daily": 1}, ptr
+        assert ptr["generation"] == 1 and ptr["files"] == {"sales": 2, "daily": 1, "alt_bids": 0}, ptr   # alt_bids: 2026-11-26
         assert (root / "release" / ptr["asset"]).exists()
         code, out = run(a, "init")
         assert code == 2 and "already holds generation 1" in out, out
