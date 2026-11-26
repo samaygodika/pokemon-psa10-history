@@ -1,17 +1,17 @@
 {
   "data_date": "2026-11-26",
-  "generated_at": "2026-11-26T15:30:01+00:00",
+  "generated_at": "2026-11-26T17:59:13+00:00",
   "daily_files": 75,
   "first_daily": "2026-09-11",
   "assets": 71414,
-  "psa10_sales": 3433171,
+  "psa10_sales": 3433172,
   "outliers_excluded": 7511,
   "series_rows": 1230190,
   "recent_sales_rows": 271836,
   "psa9_sales": 1652026,
   "psa9_recent_sales_rows": 153163,
   "clean_sales_months": 94,
-  "clean_sales": 5073488,
+  "clean_sales": 5073489,
   "rows_with_psa9_last_sale": 20209,
   "rows_unconfirmed_last_sale": 1387,
   "rows_chg_counts_held_high": 1483,
@@ -34,31 +34,31 @@
   "rows_newer_sale": 612,
   "rows_psa9_newer_sale": 211,
   "last_sale_title_check_counts": {
-    "ok": 442,
+    "ok": 446,
     "mismatch": 170,
     "unclear": 50,
     "unavailable": 169
   },
   "psa9_last_sale_title_check_counts": {
-    "ok": 204,
+    "ok": 206,
     "mismatch": 57,
-    "unclear": 21,
+    "unclear": 22,
     "unavailable": 42
   },
   "rows_listings_checked": 71414,
   "rows_with_live_auction": 5463,
-  "rows_with_bin_listing": 20878,
-  "rows_bin_ebay_verified": 17515,
-  "rows_psa9_bin_ebay_verified": 10248,
-  "rows_bin_suspect": 2944,
+  "rows_with_bin_listing": 20808,
+  "rows_bin_ebay_verified": 18000,
+  "rows_psa9_bin_ebay_verified": 10717,
+  "rows_bin_suspect": 2945,
   "rows_psa9_bin_suspect": 1120,
-  "rows_bin_first_seen_known": 20878,
+  "rows_bin_first_seen_known": 20808,
   "rows_next_auction_bid_suspect": 29,
-  "rows_psa9_bin_first_seen_known": 12993,
+  "rows_psa9_bin_first_seen_known": 12967,
   "rows_psa9_next_auction_bid_suspect": 34,
   "rows_psa9_listings_checked": 36463,
   "rows_with_psa9_live_auction": 3902,
-  "rows_with_psa9_bin_listing": 12993,
+  "rows_with_psa9_bin_listing": 12967,
   "live_auctions": {
     "10": 13125,
     "9": 7766
@@ -190,8 +190,8 @@
   },
   "files": {
     "cards.csv": {
-      "sha256": "0b31d9309402d54196f0496de169fc6b8e35db1f96b5696f048f1a07fc3c9082",
-      "bytes": 46671708,
+      "sha256": "2108adc990f6738e8c359b404035227a0a553d1b4d905c63d7f767d9c2724c9c",
+      "bytes": 46692048,
       "rows": 71414
     },
     "characters.csv": {
@@ -215,9 +215,9 @@
       "rows": 27985
     },
     "watchlist_listings.csv": {
-      "sha256": "32eddd1449729ea6bb7896afe75fd16ee9eae36231415e23b6a63936683d4175",
-      "bytes": 46788,
-      "rows": 231
+      "sha256": "fe299e357779245bd98c63c54530bd0ef47009cbf5e58c7301b4b81a6087e4a8",
+      "bytes": 47188,
+      "rows": 233
     },
     "all_grades/grades.csv": {
       "sha256": "e92858f062ed704642a797dcc9044c933afb95327d081f816121f14c5d8777ec",
@@ -245,12 +245,12 @@
       "rows": 2859
     },
     "series/manifest.json": {
-      "sha256": "20ff8698816a2ea72334df745b7918018867c2c10e65c295e062ff15a76a90e0",
+      "sha256": "d6be9283f19eaa43a064c03e70dc6d3965a3488928b5fc29ce0e53613f274dae",
       "bytes": 33908,
       "entries": 256
     },
     "recent_sales/manifest.json": {
-      "sha256": "4a3839247c4f4162c81aa3f8a4fc862990447f378c37b08bde9717e96fdc0a0c",
+      "sha256": "740a0c915b8ac5cb4e7f13a9c2c180cb468285c61fbff027dd6eca99d6873738",
       "bytes": 33855,
       "entries": 256
     },
@@ -275,7 +275,7 @@
       "entries": 256
     },
     "clean_sales/manifest.json": {
-      "sha256": "962d45256a70daf71d87c02b133fd176aa637cae710c0e6951c22dd37a88df4e",
+      "sha256": "4f35bb1f9c91aa518bd8491811559f0b12aa4e87d05b1c21558fe8ebe3d35c88",
       "bytes": 13081,
       "entries": 94
     }
