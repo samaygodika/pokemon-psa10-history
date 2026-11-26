@@ -385,8 +385,10 @@ every run that rebuilds `latest/` (the nightly, each listings refresh, the eBay 
 
 For a shill filter (Sid, PR #1: how many different bidders were still bidding once the price passed
 the card's old high). alt.xyz is the only site whose public bid history tells bidders apart: every
-bid of an Alt auction carries a fixed anonymous bidder key, the same on every auction that bidder
-joins. eBay, Fanatics and Goldin show a bid count or anonymous amounts only, so they are not here.
+bid of an Alt auction carries an anonymous bidder key. The key is per bidder per auction: it tells the
+bidders of one auction apart, but a bidder gets a different key on every auction (each of the 94,885
+keys in the 2026-11-26 backfill is on exactly one auction), so nobody can be followed across auctions.
+eBay, Fanatics and Goldin show a bid count or anonymous amounts only, so they are not here.
 
 `latest/alt_auctions.csv`: one row per **ended** Alt auction (PSA 10 and 9) with at least one bid,
 since 2026-10-06 (the first pull of Alt's own listings): `alt_listing_id`, `asset_id`, `grade`
@@ -401,8 +403,8 @@ grade, end.
 
 `latest/alt_bidders/<xx>.csv` (sharded by the first two characters of `asset_id`, like
 `recent_sales/`, with `manifest.json`): one row per bidder per auction: `alt_listing_id`, `asset_id`,
-`grade`, `bidder` (the first 12 hex characters of alt.xyz's anonymous key: the same bidder has the
-same id across auctions and cards), `max_bid` (their highest bid), `bids`, `auto_bids`,
+`grade`, `bidder` (the first 12 hex characters of alt.xyz's anonymous key, which is only good within
+the auction: the same person has a different id on every auction), `max_bid` (their highest bid), `bids`, `auto_bids`,
 `first_bid_at`, `last_bid_at` (UTC). The winner first, then highest bid. "Bidders still in above
 price P" = the auction's rows with `max_bid` > P. The winner is whoever placed the last bid: when two
 bidders top out at the same amount (381 of the 13,461 auctions backfilled 2026-11-26) the earlier

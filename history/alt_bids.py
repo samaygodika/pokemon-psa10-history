@@ -10,8 +10,11 @@ shill filter can count how many different bidders were still bidding above a pri
 
 Where the data comes from. alt.xyz's public GraphQL answers `auctionBidFeed(listingId)` for a
 running or ENDED auction, logged in or not, with every bid: amount, time, whether alt.xyz placed
-it as an automatic (proxy) bid, and the bidder as a fixed anonymous key (32 hex, the same key on
-every auction that bidder joins) plus a masked handle ("UR***"). The listing index the site
+it as an automatic (proxy) bid, and the bidder as an anonymous key (32 hex) plus a masked handle
+("UR***"). The key is per bidder PER AUCTION: one bidder's bids on one auction share it, but it never
+repeats on another auction (each of the 94,885 keys in the 2026-11-26 backfill of 13,461 auctions is
+on exactly one), and the handle (two letters, 676 different in that backfill) is no id either. So the
+feed tells the bidders of one auction apart and cannot follow a bidder from auction to auction. The listing index the site
 searches drops an auction once it ends, and the sale alt.xyz later lists for it links to a
 different id (exchange/select-listing?ids=..., not the listing), so the listing id has to be
 kept while the auction runs: every complete pull of Alt's own listings (alt_scraper.py
