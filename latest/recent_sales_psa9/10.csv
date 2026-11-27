@@ -59,6 +59,7 @@ asset_id,date,price,source,sale_type,status,outlier,url
 10dfc993-6b7c-4899-8989-9d7f323eb908,2026-11-05,86.4,Alt,AUCTION,ok,0,https://alt.xyz/exchange/select-listing?ids=0083ddbd-1c50-4188-8f1f-9987e7697206
 10dfc993-6b7c-4899-8989-9d7f323eb908,2026-11-03,150,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/298616323616?nordt=true
 10dfc993-6b7c-4899-8989-9d7f323eb908,2026-11-03,150,eBay,BEST_OFFER,LISTING_PRICE,0,https://www.ebay.com/itm/940054920728?nordt=true
+101baf81-ffcb-4862-958e-49896216e99c,2026-11-26,1860,Alt,AUCTION,PENDING,0,https://alt.xyz/exchange/select-listing?ids=198fe9c5-4c6b-45c4-b890-f0a98aa34cf3
 101baf81-ffcb-4862-958e-49896216e99c,2026-11-19,1680,Alt,AUCTION,ok,0,https://alt.xyz/exchange/select-listing?ids=6881b24e-5416-46f3-8ad3-dd3211f30636
 101baf81-ffcb-4862-958e-49896216e99c,2026-11-07,3005,eBay,AUCTION,ok,0,https://www.ebay.com/itm/920092440968?nordt=true
 101baf81-ffcb-4862-958e-49896216e99c,2026-11-05,2047.2,Alt,AUCTION,ok,0,https://alt.xyz/exchange/select-listing?ids=58ee97da-edab-4282-9a5e-4baa9e9d2938
@@ -68,7 +69,6 @@ asset_id,date,price,source,sale_type,status,outlier,url
 101baf81-ffcb-4862-958e-49896216e99c,2026-09-15,2499.99,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/287435742372?nordt=true
 101baf81-ffcb-4862-958e-49896216e99c,2026-09-13,2250,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/117382224871?nordt=true
 101baf81-ffcb-4862-958e-49896216e99c,2026-07-16,1450,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/298390279116?nordt=true
-101baf81-ffcb-4862-958e-49896216e99c,2026-07-15,1300,eBay,AUCTION,ok,0,https://www.ebay.com/itm/298486187905?nordt=true
 10449f94-f590-489c-a0e1-4e2a0745b323,2026-11-15,688.9,eBay,AUCTION,ok,0,https://www.ebay.com/itm/287712152841?nordt=true
 10449f94-f590-489c-a0e1-4e2a0745b323,2026-10-30,1000,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/900003319611?nordt=true
 10449f94-f590-489c-a0e1-4e2a0745b323,2026-10-06,1850,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/117360057742?nordt=true
@@ -384,7 +384,7 @@ asset_id,date,price,source,sale_type,status,outlier,url
 1087b4f3-8176-432b-846e-ec43a9cb56fa,2025-05-19,27.99,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/353707372272?nordt=true
 1087b4f3-8176-432b-846e-ec43a9cb56fa,2025-01-22,30,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/2006-Pokemon-Ex-Holon-Phantoms-34-Zangoose-Rev-Foil-PSA-9-Mint-reverse-/176728946613?nordt=true
 10a347f0-d6dd-430e-9b9b-7123a2302dda,2026-11-17,400,eBay,AUCTION,ok,0,https://www.ebay.com/itm/198785774635?nordt=true
-10a347f0-d6dd-430e-9b9b-7123a2302dda,2026-11-04,510,eBay,AUCTION,ok,0,https://www.ebay.com/itm/198752905934?nordt=true
+10a347f0-d6dd-430e-9b9b-7123a2302dda,2026-11-04,510,eBay,AUCTION,RELISTED,0,https://www.ebay.com/itm/198752905934?nordt=true
 10a347f0-d6dd-430e-9b9b-7123a2302dda,2026-11-01,460,eBay,AUCTION,ok,0,https://www.ebay.com/itm/407310423170?nordt=true
 10a347f0-d6dd-430e-9b9b-7123a2302dda,2026-09-20,129,PWCC Fixed Price,BEST_OFFER,ok,0,https://www.fanaticscollect.com/buy-now/10c6c02d-d8b8-4c9d-a251-79a6e229b387
 10a347f0-d6dd-430e-9b9b-7123a2302dda,2026-09-20,31.95,eBay,AUCTION,ok,1,https://www.ebay.com/itm/117399086023?nordt=true
@@ -532,6 +532,7 @@ asset_id,date,price,source,sale_type,status,outlier,url
 10f8f41c-e70b-4fe1-b380-1971d034da2b,2024-06-09,12,PWCC Weekly Auctions,AUCTION,ok,0,https://www.fanaticscollect.com/weekly/06e2980e-1e39-11ef-8309-06c85a1f2991
 10f8f41c-e70b-4fe1-b380-1971d034da2b,2023-11-19,12,PWCC Weekly Auctions,AUCTION,ok,0,https://www.fanaticscollect.com/weekly/350e4626-75b3-11ee-a983-0217db0c4d4d
 10f8f41c-e70b-4fe1-b380-1971d034da2b,2023-01-24,32.36,eBay,AUCTION,ok,0,https://www.ebay.com/itm/POKEMON-PSA-9-RESHIRAM-008-051-THUNDER-KNUCKLE-1ST-EDITION-JAPANESE-/266088702121?nordt=true
+105efdc0-db8f-42cd-8b8e-4c558e10ac4b,2026-11-26,192,Alt,AUCTION,PENDING,0,https://alt.xyz/exchange/select-listing?ids=e75e9cd1-37ec-4847-9a8d-6e0a17ea627c
 105efdc0-db8f-42cd-8b8e-4c558e10ac4b,2026-11-25,254.99,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/820385424997?nordt=true
 105efdc0-db8f-42cd-8b8e-4c558e10ac4b,2026-11-24,267,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/960235425380?nordt=true
 105efdc0-db8f-42cd-8b8e-4c558e10ac4b,2026-11-24,175,PWCC Fixed Price,BEST_OFFER,ok,0,https://www.fanaticscollect.com/buy-now/6b4a98d3-b8e6-489b-8ab9-23b363401599
@@ -540,8 +541,7 @@ asset_id,date,price,source,sale_type,status,outlier,url
 105efdc0-db8f-42cd-8b8e-4c558e10ac4b,2026-11-21,207.5,eBay,AUCTION,ok,0,https://www.ebay.com/itm/117514975790?nordt=true
 105efdc0-db8f-42cd-8b8e-4c558e10ac4b,2026-11-20,264.98,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/920139800035?nordt=true
 105efdc0-db8f-42cd-8b8e-4c558e10ac4b,2026-11-20,245,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/307292453723?nordt=true
-105efdc0-db8f-42cd-8b8e-4c558e10ac4b,2026-11-19,297.42,eBay,AUCTION,ok,0,https://www.ebay.com/itm/920135724665?nordt=true
-105efdc0-db8f-42cd-8b8e-4c558e10ac4b,2026-11-19,255,eBay,BUY_IT_NOW,ok,0,https://www.ebay.com/itm/860138960601?nordt=true
+105efdc0-db8f-42cd-8b8e-4c558e10ac4b,2026-11-19,297.42,eBay,AUCTION,RELISTED,0,https://www.ebay.com/itm/920135724665?nordt=true
 10995f8c-9fda-448e-b527-bcd7bcdd7618,2023-02-10,20,eBay,AUCTION,ok,0,https://www.ebay.com/itm/PSA-9-MINT-Holo-Tauros-POP-Series-2-Ex-Pokemon-Promo-Card-5-17-/204234857677?nordt=true
 103122d6-b632-4675-923d-7858f6059175,2023-03-21,20,eBay,BEST_OFFER,ok,0,https://www.ebay.com/itm/1999-Merlin-Pokemon-Dragonite-164-PSA-9-/204263776799?nordt=true
 10c11242-1336-430e-992f-686d8f8704d9,2023-08-20,13.2,PWCC Weekly Auctions,AUCTION,ok,0,https://www.fanaticscollect.com/weekly/42594430-2a44-11ee-9486-0a58a9feac02
